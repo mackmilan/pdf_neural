@@ -6,9 +6,14 @@ from pathlib import Path
 from reportlab.pdfgen import canvas
 
 from converter import convert
+from app import validate_public_url
 
 
 class ConverterTest(unittest.TestCase):
+    def test_rejects_private_pdf_url(self):
+        with self.assertRaisesRegex(ValueError, "locais|privada"):
+            validate_public_url("http://127.0.0.1/documento.pdf")
+
     def test_converts_text_image_and_inferred_field(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); pdf = root / "form.pdf"

@@ -1,0 +1,222 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PDF Neural API",
+    "version": "1.0.0",
+    "description": "Extrai campos de PDFs e gera HTML editavel. Oferece conversao sincrona e processamento assincrono com callback."
+  },
+  "servers": [{"url": "/", "description": "Servidor atual"}],
+  "tags": [
+    {"name": "Conversao", "description": "Conversao sincrona de documentos"},
+    {"name": "Jobs", "description": "Processamento assincrono e consulta de estado"}
+  ],
+  "paths": {
+    "/api/convert": {
+      "post": {
+        "tags": ["Conversao"],
+        "summary": "Converte um PDF imediatamente",
+        "description": "Recebe um arquivo PDF ou uma URL publica. A requisicao permanece aberta ate o fim da conversao. Limite de 30 MB.",
+        "operationId": "convertPdf",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pdf": {"type": "string", "format": "binary", "description": "Arquivo PDF. Use este campo ou url."},
+                  "url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS do PDF. Use este campo ou pdf."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PDF convertido",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConvertResult"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
+    },
+    "/api/jobs": {
+      "post": {
+        "tags": ["Jobs"],
+        "summary": "Cria uma extracao assincrona",
+        "description": "Enfileira o download e a extracao. Ao terminar, envia o resultado para callback_url com ate tres tentativas.",
+        "operationId": "createJob",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CreateJobRequest"},
+              "example": {
+                "pdf_url": "https://exemplo.com/formulario.pdf",
+                "callback_url": "https://sistema.exemplo.com/callbacks/pdf",
+                "reference": "documento-123"
+              }
+            }
+          }
+        },
+        "callbacks": {
+          "extractionFinished": {
+            "{$request.body#/callback_url}": {
+              "post": {
+                "summary": "Entrega o resultado da extracao",
+                "operationId": "receiveExtractionResult",
+                "requestBody": {
+                  "required": true,
+                  "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CallbackPayload"}}}
+                },
+                "responses": {
+                  "2XX": {"description": "Callback recebido. Outros status provocam uma nova tentativa."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job aceito para processamento",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobAccepted"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "500": {"$ref": "#/components/responses/InternalError"}
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "Consulta o estado de um job",
+        "operationId": "getJob",
+        "parameters": [{"$ref": "#/components/parameters/JobId"}],
+        "responses": {
+          "200": {
+            "description": "Estado atual e, quando disponivel, resultado da extracao",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobStatus"}}}
+          },
+          "404": {
+            "description": "Job nao encontrado",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "JobId": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "description": "Identificador hexadecimal retornado na criacao do job.",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$", "example": "9a46c0ef8db14a119a006f239683ef9f"}
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Dados invalidos",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      },
+      "InternalError": {
+        "description": "Erro interno",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      }
+    },
+    "schemas": {
+      "CreateJobRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pdf_url", "callback_url"],
+        "properties": {
+          "pdf_url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS do PDF."},
+          "callback_url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS que recebera um POST JSON."},
+          "reference": {"description": "Valor opcional devolvido no status e callback para correlacao.", "examples": ["documento-123"]}
+        }
+      },
+      "Field": {
+        "type": "object",
+        "required": ["name", "label", "type", "page", "x", "y", "width", "height", "source", "required"],
+        "properties": {
+          "name": {"type": "string", "example": "cpf"},
+          "label": {"type": "string", "example": "CPF"},
+          "type": {"type": "string", "enum": ["text", "date", "email", "tel", "number", "password", "checkbox", "select", "textarea"]},
+          "page": {"type": "integer", "minimum": 1},
+          "x": {"type": "number"},
+          "y": {"type": "number"},
+          "width": {"type": "number"},
+          "height": {"type": "number"},
+          "source": {"type": "string", "enum": ["inferred", "acroform"]},
+          "required": {"type": "boolean"}
+        }
+      },
+      "ExtractionResult": {
+        "type": "object",
+        "required": ["fields", "preview_url", "download_url"],
+        "properties": {
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "preview_url": {"type": "string", "format": "uri"},
+          "download_url": {"type": "string", "format": "uri"}
+        }
+      },
+      "ConvertResult": {
+        "type": "object",
+        "required": ["preview", "download", "fields"],
+        "properties": {
+          "preview": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/html/index.html"},
+          "download": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/resultado.zip"},
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}}
+        }
+      },
+      "JobAccepted": {
+        "type": "object",
+        "required": ["job_id", "status", "status_url"],
+        "properties": {
+          "job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "reference": {},
+          "status": {"type": "string", "const": "queued"},
+          "status_url": {"type": "string", "format": "uri"}
+        }
+      },
+      "JobStatus": {
+        "type": "object",
+        "required": ["job_id", "status"],
+        "properties": {
+          "job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "reference": {},
+          "status": {"type": "string", "enum": ["queued", "processing", "completed", "failed"]},
+          "result": {"$ref": "#/components/schemas/ExtractionResult"},
+          "error": {"type": "string"},
+          "callback_status": {"type": "string", "enum": ["delivered", "failed"]},
+          "callback_error": {"type": "string"}
+        }
+      },
+      "CallbackPayload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["job_id", "status", "result"],
+            "properties": {
+              "job_id": {"type": "string"}, "reference": {}, "status": {"const": "completed"},
+              "result": {"$ref": "#/components/schemas/ExtractionResult"}
+            }
+          },
+          {
+            "type": "object",
+            "required": ["job_id", "status", "error"],
+            "properties": {
+              "job_id": {"type": "string"}, "reference": {}, "status": {"const": "failed"}, "error": {"type": "string"}
+            }
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {"error": {"type": "string"}}
+      }
+    }
+  }
+}
