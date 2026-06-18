@@ -9,8 +9,8 @@ services:
       PORT: 8000
       PDF_WORKERS: ${PDF_WORKERS:-2}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-    ports:
-      - "${APP_PORT:-8000}:8000"
+    expose:
+      - "8000"
     volumes:
       - pdf-neural-data:/app/output
     healthcheck:

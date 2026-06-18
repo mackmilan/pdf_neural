@@ -89,8 +89,10 @@ PUBLIC_BASE_URL=https://pdf.exemplo.com
 PDF_WORKERS=2
 ```
 
-Associe o dominio do recurso a porta `8000`. `PUBLIC_BASE_URL` deve ser a URL publica
-sem barra no final, para que callbacks e links de resultados usem o dominio correto.
+Associe o dominio do recurso a porta interna `8000`. A porta nao e publicada no host;
+o proxy do Coolify acessa o servico diretamente pela rede Docker, evitando conflitos
+com outras aplicacoes. `PUBLIC_BASE_URL` deve ser a URL publica sem barra no final,
+para que callbacks e links de resultados usem o dominio correto.
 
 Para executar localmente com a mesma configuracao:
 
