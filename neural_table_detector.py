@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import random
 import subprocess
 import tempfile
@@ -17,6 +18,8 @@ from typing import Any, Iterable
 
 import pdfplumber
 from PIL import Image, ImageDraw, ImageEnhance
+
+LOGGER = logging.getLogger("pdf-neural.detector")
 
 
 IMAGE_SIZE = 256
@@ -75,16 +78,22 @@ def build_model():
 
 def render_pdf(pdf_path: Path, output_dir: Path, dpi: int = 120) -> list[Path]:
     prefix = output_dir / pdf_path.stem
+    LOGGER.info("Renderizando PDF %s para imagens (DPI=%d)", pdf_path.name, dpi)
     try:
         subprocess.run(
             ["pdftoppm", "-r", str(dpi), "-png", str(pdf_path), str(prefix)],
             check=True, capture_output=True,
         )
     except FileNotFoundError as exc:
+        LOGGER.error("pdftoppm nao encontrado")
         raise SystemExit("pdftoppm nao encontrado. Instale o Poppler para renderizar PDFs.") from exc
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(exc.stderr.decode("utf-8", "replace")) from exc
-    return sorted(output_dir.glob(f"{pdf_path.stem}-*.png"))
+        err = exc.stderr.decode("utf-8", "replace")
+        LOGGER.error("Erro no pdftoppm: %s", err)
+        raise RuntimeError(err) from exc
+    images = sorted(output_dir.glob(f"{pdf_path.stem}-*.png"))
+    LOGGER.debug("Renderizadas %d páginas", len(images))
+    return images
 
 
 def pdf_color(value: Any) -> str:
@@ -261,7 +270,7 @@ def train(
     if resume_path is not None:
         checkpoint = torch.load(resume_path, map_location=device, weights_only=True)
         model.load_state_dict(checkpoint["state_dict"])
-        print(f"ajuste fino a partir de {resume_path}")
+        LOGGER.info("Ajuste fino a partir de %s", resume_path)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     # Table pixels are much rarer than background pixels. Weighting by page count
     # made the network learn only the darkest text inside a table; pixel balance
@@ -298,10 +307,10 @@ def train(
             dice_loss = 1.0 - (2.0 * intersection + 1.0) / (probabilities.sum() + mask.sum() + 1.0)
             loss = boundary_loss + dice_loss
             loss.backward(); optimizer.step(); total += float(loss.item())
-        print(f"epoca={epoch}/{epochs} perda={total/len(samples):.5f}")
+        LOGGER.debug("Epoca %d/%d concluída. Perda média: %.5f", epoch, epochs, total/len(samples))
     model_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"state_dict": model.state_dict(), "image_size": IMAGE_SIZE}, model_path)
-    print(f"modelo salvo em {model_path}")
+    LOGGER.info("Modelo salvo em %s", model_path)
 
 
 def mask_components(probabilities, threshold: float = DEFAULT_THRESHOLD, min_area: int = 30) -> list[dict[str, float]]:
@@ -459,20 +468,28 @@ class TableDetector:
     def __init__(self, model_path: Path, threshold: float = DEFAULT_THRESHOLD, min_confidence: float = .65):
         self.torch, _ = require_torch()
         self.device = self.torch.device("cuda" if self.torch.cuda.is_available() else "cpu")
-        checkpoint = self.torch.load(model_path, map_location=self.device, weights_only=True)
-        self.model = build_model().to(self.device)
-        self.model.load_state_dict(checkpoint["state_dict"])
-        self.model.eval()
-        self.threshold = threshold
-        self.min_confidence = min_confidence
-        self._inference_lock = threading.Lock()
+        LOGGER.info("Carregando detector neural (%s) no dispositivo: %s", model_path.name, self.device)
+        try:
+            checkpoint = self.torch.load(model_path, map_location=self.device, weights_only=True)
+            self.model = build_model().to(self.device)
+            self.model.load_state_dict(checkpoint["state_dict"])
+            self.model.eval()
+            self.threshold = threshold
+            self.min_confidence = min_confidence
+            self._inference_lock = threading.Lock()
+            LOGGER.info("Detector neural carregado com sucesso")
+        except Exception:
+            LOGGER.exception("Falha ao carregar modelo neural em %s", model_path)
+            raise
 
     def detect(self, pdf_path: Path, output_json: Path | None = None) -> list[dict[str, Any]]:
         result = []
+        LOGGER.info("Iniciando detecção em %s", pdf_path.name)
         with tempfile.TemporaryDirectory() as temporary:
             rendered = render_pdf(pdf_path, Path(temporary))
             geometry = table_structures(pdf_path)
             for page_number, (path, (page_w, page_h, structures)) in enumerate(zip(rendered, geometry), 1):
+                LOGGER.debug("Processando página %d", page_number)
                 image = Image.open(path).convert("L")
                 # A mesma instancia pode atender jobs de varias threads. O forward
                 # e serializado para evitar disputa no backend nativo do PyTorch.
@@ -485,6 +502,7 @@ class TableDetector:
                     and box["height"] >= IMAGE_SIZE * .025
                     and box["confidence"] >= self.min_confidence
                 ]
+                LOGGER.debug("Encontrados %d componentes na página %d", len(components), page_number)
                 for index, box in enumerate(components, 1):
                     detected = {
                         "id": f"page-{page_number}-neural-table-{index}", "page": page_number,
@@ -496,6 +514,7 @@ class TableDetector:
                     add_grid_structure(detected, structures, Image.open(path), page_w, page_h)
                     result.append(detected)
         result = consolidate_detections(result)
+        LOGGER.info("Detecção finalizada: %d tabelas encontradas em %s", len(result), pdf_path.name)
         for page_number in {item["page"] for item in result}:
             for index, item in enumerate((entry for entry in result if entry["page"] == page_number), 1):
                 item["id"] = f"page-{page_number}-neural-table-{index}"

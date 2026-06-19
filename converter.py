@@ -5,6 +5,7 @@ import hashlib
 import html
 import io
 import json
+import logging
 import math
 import re
 import shutil
@@ -15,6 +16,8 @@ from typing import Any
 import pdfplumber
 from PIL import Image
 from pypdf import PdfReader
+
+LOGGER = logging.getLogger("pdf-neural.converter")
 
 
 @dataclass
@@ -319,6 +322,7 @@ def image_key(name: str) -> str:
 
 
 def extract_images(pdf_path: Path, output: Path) -> dict[int, dict[str, Path]]:
+    LOGGER.info("Extraindo imagens de %s para %s", pdf_path.name, output)
     assets = output / "assets"
     assets.mkdir(parents=True, exist_ok=True)
     reader = PdfReader(str(pdf_path))
@@ -351,6 +355,7 @@ def extract_images(pdf_path: Path, output: Path) -> dict[int, dict[str, Path]]:
 
 def convert(pdf_path: str | Path, output_dir: str | Path, table_detector: Any | None = None) -> Path:
     pdf_path, output = Path(pdf_path), Path(output_dir)
+    LOGGER.info("Iniciando conversão de %s para %s", pdf_path.name, output)
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
@@ -459,9 +464,12 @@ def convert(pdf_path: str | Path, output_dir: str | Path, table_detector: Any | 
 
     neural_tables: list[dict[str, Any]] = []
     if table_detector:
+        LOGGER.info("Iniciando detecção neural de tabelas integrada")
         try:
             neural_tables = table_detector.detect(pdf_path)
+            LOGGER.info("Detecção neural integrada concluída: %d tabelas", len(neural_tables))
         except Exception:
+            LOGGER.exception("Falha na detecção neural integrada")
             pass
 
     if neural_tables:
@@ -548,6 +556,7 @@ resizePages();
     (output / "tables.json").write_text(json.dumps(all_tables, ensure_ascii=False, indent=2), encoding="utf-8")
     (output / "pages.json").write_text(json.dumps(page_sizes, ensure_ascii=False, indent=2), encoding="utf-8")
     (output / "neural-tables.json").write_text(json.dumps(neural_tables, ensure_ascii=False, indent=2), encoding="utf-8")
+    LOGGER.info("Conversão de %s concluída. Resultados salvos em %s", pdf_path.name, output)
     return output
 
 

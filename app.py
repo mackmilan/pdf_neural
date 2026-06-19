@@ -139,6 +139,16 @@ def render_neural_tables(result: Path, tables: list[dict]) -> None:
 
 def run_neural_detection(source: Path, result: Path) -> list[dict]:
     """Detecta tabelas e garante que neural-tables.json exista para o ZIP."""
+    LOGGER.info("Iniciando detecção neural de tabelas: %s", source.name)
+    detector = get_table_detector()
+    if detector:
+        try:
+            tables = detector.detect(source, result / "neural-tables.json")
+            LOGGER.info("Detecção neural concluída: %d tabelas encontradas", len(tables))
+            return tables
+        except Exception:
+            LOGGER.exception("Falha na detecção neural para %s", source.name)
+    
     output = result / "neural-tables.json"
     if output.is_file():
         try:
@@ -199,31 +209,42 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def download_pdf(raw_url: str) -> tuple[str, bytes]:
+    LOGGER.debug("Validando URL para download: %s", raw_url)
     url = validate_public_url(raw_url)
     opener = urllib.request.build_opener(NoRedirect)
     headers = {"User-Agent": "PDF-Neural/1.0", "Accept": "application/pdf"}
-    for _ in range(6):
+    for attempt in range(6):
         try:
+            LOGGER.info("Baixando PDF (tentativa %d): %s", attempt + 1, url)
             response = opener.open(urllib.request.Request(url, headers=headers), timeout=20)
         except urllib.error.HTTPError as exc:
             if exc.code in (301, 302, 303, 307, 308) and exc.headers.get("Location"):
                 url = validate_public_url(urllib.parse.urljoin(url, exc.headers["Location"]))
+                LOGGER.debug("Redirecionando para: %s", url)
                 continue
+            LOGGER.error("Erro HTTP ao baixar PDF: %d", exc.code)
             raise ValueError(f"O servidor respondeu HTTP {exc.code}") from exc
+        except Exception as exc:
+            LOGGER.error("Erro ao baixar PDF: %s", str(exc))
+            raise
         length = response.headers.get("Content-Length")
         if length and int(length) > MAX_PDF_SIZE:
             response.close()
+            LOGGER.error("PDF remoto muito grande: %s bytes", length)
             raise ValueError("O PDF remoto excede o limite de 30 MB")
         chunks, total = [], 0
         with response:
             while chunk := response.read(64 * 1024):
                 total += len(chunk)
                 if total > MAX_PDF_SIZE:
+                    LOGGER.error("PDF remoto excedeu limite durante leitura: %d bytes", total)
                     raise ValueError("O PDF remoto excede o limite de 30 MB")
                 chunks.append(chunk)
         data = b"".join(chunks)
         name = Path(urllib.parse.unquote(urllib.parse.urlsplit(url).path)).name or "documento.pdf"
-        return (name if name.lower().endswith(".pdf") else name + ".pdf"), data
+        filename = (name if name.lower().endswith(".pdf") else name + ".pdf")
+        LOGGER.info("Download concluído: %s (%d bytes)", filename, len(data))
+        return filename, data
     raise ValueError("A URL possui redirecionamentos demais")
 
 
@@ -232,6 +253,7 @@ def deliver_callback(callback_url: str, payload: dict) -> None:
     error: Exception | None = None
     for attempt in range(3):
         try:
+            LOGGER.info("Enviando callback (tentativa %d): %s", attempt + 1, callback_url)
             # Revalidate on every attempt, including DNS resolution.
             url = validate_public_url(callback_url)
             request = urllib.request.Request(
@@ -243,15 +265,19 @@ def deliver_callback(callback_url: str, payload: dict) -> None:
             with urllib.request.build_opener(NoRedirect).open(request, timeout=20) as response:
                 if not 200 <= response.status < 300:
                     raise ValueError(f"Callback respondeu HTTP {response.status}")
+            LOGGER.info("Callback entregue com sucesso")
             return
         except Exception as exc:
             error = exc
+            LOGGER.warning("Falha na tentativa %d de callback: %s", attempt + 1, str(exc))
             if attempt < 2:
                 time.sleep(2 ** attempt)
+    LOGGER.error("Falha definitiva ao enviar callback após 3 tentativas")
     raise RuntimeError(f"Falha ao enviar callback: {error}")
 
 
 def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, base_url: str) -> None:
+    LOGGER.info("Iniciando background job: %s", job)
     work = JOBS / job
     status_file = work / "status.json"
     common = {"job_id": job, "reference": reference}
@@ -268,6 +294,7 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
             if not detector:
                 raise RuntimeError("Detector neural obrigatorio nao disponivel")
 
+        LOGGER.info("Iniciando conversão do PDF para job %s", job)
         result = convert(source, work / "html", table_detector=get_table_detector())
         neural_tables = run_neural_detection(source, result)
         if not neural_tables and (result / "neural-tables.json").is_file():
@@ -275,16 +302,21 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
                 neural_tables = json.loads((result / "neural-tables.json").read_text(encoding="utf-8"))
             except Exception:
                 pass
+        
+        LOGGER.debug("Criando arquivo ZIP de resultado para job %s", job)
         archive = work / "resultado.zip"
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in result.rglob("*"):
                 if file.is_file():
                     zf.write(file, file.relative_to(result))
+        
         fields = json.loads((result / "fields.json").read_text(encoding="utf-8"))
         tables = json.loads((result / "tables.json").read_text(encoding="utf-8"))
         payload = {**common, "status": "completed", "result": {"fields": fields, "tables": tables, "neural_tables": neural_tables, **job_urls(job, base_url)}}
         write_json(status_file, payload)
+        LOGGER.info("Background job %s concluído com sucesso", job)
     except Exception as exc:
+        LOGGER.exception("Falha no background job %s", job)
         payload = {**common, "status": "failed", "error": str(exc)}
         write_json(status_file, payload)
 
@@ -343,6 +375,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if self.path == "/api/jobs":
             try:
+                LOGGER.info("Recebida requisição POST /api/jobs")
                 length = int(self.headers.get("Content-Length", 0))
                 if length <= 0 or length > MAX_JSON_SIZE:
                     raise ValueError("Corpo JSON ausente ou maior que 64 KB")
@@ -355,6 +388,7 @@ class Handler(BaseHTTPRequestHandler):
                 callback_url = validate_public_url(str(request.get("callback_url", "")))
                 reference = request.get("reference")
                 job = uuid.uuid4().hex
+                LOGGER.info("Criando background job %s para URL: %s", job, pdf_url)
                 work = JOBS / job
                 work.mkdir()
                 initial = {"job_id": job, "reference": reference, "status": "queued"}
@@ -362,6 +396,7 @@ class Handler(BaseHTTPRequestHandler):
                 EXECUTOR.submit(run_api_job, job, pdf_url, callback_url, reference, self.base_url())
                 return self.send_json(202, {**initial, "status_url": f"{self.base_url()}/api/jobs/{job}"})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                LOGGER.warning("Requisição inválida para /api/jobs: %s", str(exc))
                 return self.send_json(400, {"error": str(exc)})
             except Exception:
                 LOGGER.exception("Erro ao criar job")
