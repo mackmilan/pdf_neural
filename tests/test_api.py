@@ -5,6 +5,22 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
+from converter import ConversionResult
+
+
+class FakeDatabase:
+    def __init__(self):
+        self.jobs = {}
+        self.documents = {}
+
+    def is_available(self):
+        return True
+
+    def save_job(self, job_id, data):
+        self.jobs[job_id] = data
+
+    def save_document(self, job_id, **data):
+        self.documents[job_id] = data
 
 
 class AsyncApiTest(unittest.TestCase):
@@ -34,9 +50,9 @@ class AsyncApiTest(unittest.TestCase):
     def test_openapi_documents_every_api_operation(self):
         spec = json.loads((app.STATIC / "openapi.json").read_text())
         self.assertEqual("3.1.0", spec["openapi"])
-        self.assertEqual(
-            {("post", "/api/convert"), ("post", "/api/jobs"), ("get", "/api/jobs/{job_id}")},
-            {(method, path) for path, methods in spec["paths"].items() for method in methods},
+        operations = {(method, path) for path, methods in spec["paths"].items() for method in methods}
+        self.assertTrue(
+            {("post", "/api/convert"), ("post", "/api/jobs"), ("get", "/api/jobs/{job_id}")} <= operations
         )
         self.assertIn("extractionFinished", spec["paths"]["/api/jobs"]["post"]["callbacks"])
 
@@ -44,44 +60,42 @@ class AsyncApiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             jobs = Path(temp)
             job = "a" * 32
-            (jobs / job).mkdir()
 
-            def fake_convert(_source, output, table_detector=None):
-                output.mkdir()
-                (output / "index.html").write_text("<html></html>")
-                (output / "fields.json").write_text('[{"name": "cpf"}]')
-                (output / "tables.json").write_text('[{"id": "page-1-table-1"}]')
-                return output
+            result = ConversionResult(
+                "<html></html>", [{"name": "cpf"}], [{"id": "page-1-table-1"}], [],
+                [{"id": "page-1-neural-table-1"}],
+            )
 
             callbacks = []
+            fake_db = FakeDatabase()
             with (
-                patch.object(app, "JOBS", jobs),
+                patch.object(app, "db", fake_db),
                 patch.object(app, "download_pdf", return_value=("form.pdf", b"%PDF fake")),
-                patch.object(app, "convert", side_effect=fake_convert),
-                patch.object(app, "run_neural_detection", return_value=[{"id": "page-1-neural-table-1"}]),
+                patch.object(app, "convert_pdf_bytes", return_value=result),
                 patch.object(app, "deliver_callback", side_effect=lambda _url, payload: callbacks.append(payload)),
                 patch.object(app, "get_table_detector", return_value=None),
                 patch.object(app, "NEURAL_REQUIRED", False),
             ):
                 app.run_api_job(job, "https://files.example/form.pdf", "https://api.example/callback", "doc-7", "https://pdf.example")
 
-            status = json.loads((jobs / job / "status.json").read_text())
+            status = fake_db.jobs[job]
             self.assertEqual("completed", status["status"])
             self.assertEqual("delivered", status["callback_status"])
             self.assertEqual("doc-7", callbacks[0]["reference"])
             self.assertEqual("cpf", callbacks[0]["result"]["fields"][0]["name"])
             self.assertEqual("page-1-table-1", callbacks[0]["result"]["tables"][0]["id"])
             self.assertEqual("page-1-neural-table-1", callbacks[0]["result"]["neural_tables"][0]["id"])
-            self.assertEqual(f"https://pdf.example/jobs/{job}/resultado.zip", callbacks[0]["result"]["download_url"])
+            self.assertEqual(f"https://pdf.example/jobs/{job}/html/index.html", callbacks[0]["result"]["preview_url"])
+            self.assertFalse(any(jobs.iterdir()))
 
     def test_failed_extraction_is_also_sent_to_callback(self):
         with tempfile.TemporaryDirectory() as temp:
             jobs = Path(temp)
             job = "b" * 32
-            (jobs / job).mkdir()
             callbacks = []
+            fake_db = FakeDatabase()
             with (
-                patch.object(app, "JOBS", jobs),
+                patch.object(app, "db", fake_db),
                 patch.object(app, "download_pdf", side_effect=ValueError("download invalido")),
                 patch.object(app, "deliver_callback", side_effect=lambda _url, payload: callbacks.append(payload)),
             ):

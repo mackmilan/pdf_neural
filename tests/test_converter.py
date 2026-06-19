@@ -5,7 +5,7 @@ from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
-from converter import convert, image_key
+from converter import ConversionResult, convert, image_key
 from app import validate_public_url
 
 
@@ -17,6 +17,22 @@ class ConverterTest(unittest.TestCase):
     def test_rejects_private_pdf_url(self):
         with self.assertRaisesRegex(ValueError, "locais|privada"):
             validate_public_url("http://127.0.0.1/documento.pdf")
+
+    def test_returns_all_artifacts_in_memory_without_output_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pdf = root / "memory.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=(300, 200))
+            c.drawString(20, 170, "Documento em memoria")
+            c.save()
+
+            before = set(root.iterdir())
+            result = convert(pdf)
+
+            self.assertIsInstance(result, ConversionResult)
+            self.assertIn("Documento", result.html_content)
+            self.assertEqual(1, len(result.pages))
+            self.assertEqual(before, set(root.iterdir()))
 
     def test_converts_text_image_and_inferred_field(self):
         with tempfile.TemporaryDirectory() as temp:

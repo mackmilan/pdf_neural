@@ -8,9 +8,49 @@
   "servers": [{"url": "/", "description": "Servidor atual"}],
   "tags": [
     {"name": "Conversao", "description": "Conversao sincrona de documentos"},
-    {"name": "Jobs", "description": "Processamento assincrono e consulta de estado"}
+    {"name": "Jobs", "description": "Processamento assincrono e consulta de estado"},
+    {"name": "Historico", "description": "Recuperacao de documentos do MongoDB"}
   ],
   "paths": {
+    "/api/documents": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Lista documentos recentes",
+        "description": "Retorna os ultimos 10 documentos convertidos salvos no MongoDB. O conteudo HTML e omitido para otimizar a listagem.",
+        "operationId": "listDocuments",
+        "responses": {
+          "200": {
+            "description": "Lista de documentos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/StoredDocument"}
+                }
+              }
+            }
+          },
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{job_id}": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Obtem um documento completo",
+        "description": "Retorna todos os dados de um documento salvo no MongoDB, incluindo o conteudo HTML.",
+        "operationId": "getDocument",
+        "parameters": [{"$ref": "#/components/parameters/JobId"}],
+        "responses": {
+          "200": {
+            "description": "Documento completo",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StoredDocumentFull"}}}
+          },
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
     "/api/convert": {
       "post": {
         "tags": ["Conversao"],
@@ -41,6 +81,26 @@
       }
     },
     "/api/jobs": {
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "Lista jobs recentes",
+        "description": "Retorna os ultimos 10 jobs registrados no MongoDB.",
+        "operationId": "listJobs",
+        "responses": {
+          "200": {
+            "description": "Lista de jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/JobStatus"}
+                }
+              }
+            }
+          },
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      },
       "post": {
         "tags": ["Jobs"],
         "summary": "Cria uma extracao assincrona",
@@ -123,9 +183,41 @@
       "InternalError": {
         "description": "Erro interno",
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      },
+      "ServiceUnavailable": {
+        "description": "Banco de dados indisponivel",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      },
+      "NotFound": {
+        "description": "Recurso nao encontrado",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
       }
     },
     "schemas": {
+      "StoredDocument": {
+        "type": "object",
+        "required": ["_id", "job_id", "fields", "tables", "metadata", "created_at"],
+        "properties": {
+          "_id": {"type": "string", "description": "ID interno do MongoDB"},
+          "job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
+          "metadata": {"type": "object"},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "StoredDocumentFull": {
+        "allOf": [
+          {"$ref": "#/components/schemas/StoredDocument"},
+          {
+            "type": "object",
+            "required": ["html_content"],
+            "properties": {
+              "html_content": {"type": "string", "description": "Conteudo HTML completo do documento"}
+            }
+          }
+        ]
+      },
       "CreateJobRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -193,21 +285,19 @@
       },
       "ExtractionResult": {
         "type": "object",
-        "required": ["fields", "tables", "neural_tables", "preview_url", "download_url"],
+        "required": ["fields", "tables", "neural_tables", "preview_url"],
         "properties": {
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
           "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
           "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
-          "preview_url": {"type": "string", "format": "uri"},
-          "download_url": {"type": "string", "format": "uri"}
+          "preview_url": {"type": "string", "format": "uri"}
         }
       },
       "ConvertResult": {
         "type": "object",
-        "required": ["preview", "download", "fields", "tables", "neural_tables"],
+        "required": ["preview", "fields", "tables", "neural_tables"],
         "properties": {
           "preview": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/html/index.html"},
-          "download": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/resultado.zip"},
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
           "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
           "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}}

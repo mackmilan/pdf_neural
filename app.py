@@ -11,17 +11,23 @@ import re
 import socket
 import shutil
 import threading
+import tempfile
 import time
 import urllib.parse
 import urllib.error
 import urllib.request
 import uuid
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from converter import convert
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
+
+from converter import ConversionResult, convert
+from database import db
 from neural_table_detector import DEFAULT_THRESHOLD, TableDetector
 
 ROOT = Path(__file__).parent.resolve()
@@ -40,7 +46,6 @@ NEURAL_REQUIRED = os.environ.get("NEURAL_REQUIRED", "false").lower() in ("1", "t
 EXECUTOR = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="pdf-job")
 LOGGER = logging.getLogger("pdf-neural")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-JOBS.mkdir(parents=True, exist_ok=True)
 _TABLE_DETECTOR: TableDetector | None = None
 _TABLE_DETECTOR_LOCK = threading.Lock()
 
@@ -162,8 +167,21 @@ def job_urls(job: str, base_url: str) -> dict[str, str]:
     base = (PUBLIC_BASE_URL or base_url).rstrip("/")
     return {
         "preview_url": f"{base}/jobs/{job}/html/index.html",
-        "download_url": f"{base}/jobs/{job}/resultado.zip",
     }
+
+
+def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResult:
+    """Executa ferramentas que exigem um path em area temporaria e nao gera artefatos persistentes."""
+    safe_name = Path(filename).name or "documento.pdf"
+    if not safe_name.lower().endswith(".pdf"):
+        safe_name += ".pdf"
+    with tempfile.TemporaryDirectory(prefix="pdf-neural-") as temporary:
+        source = Path(temporary) / safe_name
+        source.write_bytes(data)
+        result = convert(source, table_detector=get_table_detector(), job_id=job_id)
+        if not isinstance(result, ConversionResult):
+            raise RuntimeError("A conversao nao retornou os artefatos em memoria")
+        return result
 
 
 def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str]:
@@ -278,54 +296,50 @@ def deliver_callback(callback_url: str, payload: dict) -> None:
 
 def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, base_url: str) -> None:
     LOGGER.info("Iniciando background job: %s", job)
-    work = JOBS / job
-    status_file = work / "status.json"
     common = {"job_id": job, "reference": reference}
+
+    def update_job_status(payload: dict):
+        if not db or not db.is_available():
+            raise RuntimeError("Servico de banco de dados indisponivel")
+        db.save_job(job, payload)
+
     try:
-        write_json(status_file, {**common, "status": "processing"})
+        update_job_status({**common, "status": "processing"})
         name, data = download_pdf(pdf_url)
         if not data.startswith(b"%PDF"):
             raise ValueError("O conteudo recebido nao e um PDF valido")
-        source = work / (Path(name).stem + ".pdf")
-        source.write_bytes(data)
-        
         if NEURAL_REQUIRED:
             detector = get_table_detector()
             if not detector:
                 raise RuntimeError("Detector neural obrigatorio nao disponivel")
 
         LOGGER.info("Iniciando conversão do PDF para job %s", job)
-        result = convert(source, work / "html", table_detector=get_table_detector())
-        neural_tables = run_neural_detection(source, result)
-        if not neural_tables and (result / "neural-tables.json").is_file():
-            try:
-                neural_tables = json.loads((result / "neural-tables.json").read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        
-        LOGGER.debug("Criando arquivo ZIP de resultado para job %s", job)
-        archive = work / "resultado.zip"
-        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file in result.rglob("*"):
-                if file.is_file():
-                    zf.write(file, file.relative_to(result))
-        
-        fields = json.loads((result / "fields.json").read_text(encoding="utf-8"))
-        tables = json.loads((result / "tables.json").read_text(encoding="utf-8"))
-        payload = {**common, "status": "completed", "result": {"fields": fields, "tables": tables, "neural_tables": neural_tables, **job_urls(job, base_url)}}
-        write_json(status_file, payload)
+        result = convert_pdf_bytes(data, name, job)
+        db.save_document(
+            job_id=job,
+            html_content=result.html_content,
+            fields=result.fields,
+            tables=result.tables,
+            pages=result.pages,
+            neural_tables=result.neural_tables,
+            metadata={"pdf_url": pdf_url, "reference": reference},
+        )
+        LOGGER.info("Documento salvo no MongoDB para job %s", job)
+
+        payload = {**common, "status": "completed", "result": {"fields": result.fields, "tables": result.tables, "neural_tables": result.neural_tables, **job_urls(job, base_url)}}
+        update_job_status(payload)
         LOGGER.info("Background job %s concluído com sucesso", job)
     except Exception as exc:
         LOGGER.exception("Falha no background job %s", job)
         payload = {**common, "status": "failed", "error": str(exc)}
-        write_json(status_file, payload)
+        update_job_status(payload)
 
     try:
         deliver_callback(callback_url, payload)
-        write_json(status_file, {**payload, "callback_status": "delivered"})
+        update_job_status({**payload, "callback_status": "delivered"})
     except Exception as exc:
         LOGGER.exception("Callback do job %s falhou", job)
-        write_json(status_file, {**payload, "callback_status": "failed", "callback_error": str(exc)})
+        update_job_status({**payload, "callback_status": "failed", "callback_error": str(exc)})
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -362,20 +376,74 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(STATIC / "swagger.html")
         if path == "/openapi.json":
             return self.send_file(STATIC / "openapi.json")
+        if path == "/api/documents":
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            docs = db.list_documents()
+            # Convert ObjectId and datetime to string
+            for d in docs:
+                d["_id"] = str(d["_id"])
+                if "created_at" in d:
+                    d["created_at"] = d["created_at"].isoformat()
+            return self.send_json(200, docs)
+        
+        if path == "/api/jobs":
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            jobs = db.list_jobs()
+            for j in jobs:
+                j["_id"] = str(j["_id"])
+                if "created_at" in j: j["created_at"] = j["created_at"].isoformat()
+                if "updated_at" in j: j["updated_at"] = j["updated_at"].isoformat()
+            return self.send_json(200, jobs)
+
         parts = Path(path.lstrip("/")).parts
+        if len(parts) == 3 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{32}", parts[2]):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            doc = db.get_document_summary(parts[2])
+            if doc:
+                doc["_id"] = str(doc["_id"])
+                if "created_at" in doc:
+                    doc["created_at"] = doc["created_at"].isoformat()
+                return self.send_json(200, doc)
+            return self.send_json(404, {"error": "Documento nao encontrado"})
+
         if len(parts) == 3 and parts[:2] == ("api", "jobs") and re.fullmatch(r"[0-9a-f]{32}", parts[2]):
-            status = JOBS / parts[2] / "status.json"
-            if status.is_file():
-                return self.send_json(200, json.loads(status.read_text(encoding="utf-8")))
+            job_id = parts[2]
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            job_data = db.get_job(job_id)
+            if job_data:
+                job_data["_id"] = str(job_data["_id"])
+                if "created_at" in job_data: job_data["created_at"] = job_data["created_at"].isoformat()
+                if "updated_at" in job_data: job_data["updated_at"] = job_data["updated_at"].isoformat()
+                return self.send_json(200, job_data)
             return self.send_json(404, {"error": "Job nao encontrado"})
         if len(parts) >= 3 and parts[0] == "jobs" and all(p not in ("..", ".") for p in parts):
-            return self.send_file(JOBS.joinpath(*parts[1:]))
+            job_id = parts[1]
+            if len(parts) == 4 and parts[2] == "html" and parts[3] == "index.html":
+                if not db or not db.is_available():
+                    return self.send_error(503, "Servico de banco de dados indisponivel")
+                doc = db.get_document(job_id)
+                if not doc or "html_content" not in doc:
+                    return self.send_error(404, "Documento nao encontrado")
+                content = doc["html_content"].encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            return self.send_error(404)
         self.send_error(404)
 
     def do_POST(self) -> None:
         if self.path == "/api/jobs":
             try:
                 LOGGER.info("Recebida requisição POST /api/jobs")
+                if not db or not db.is_available():
+                    return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
                 length = int(self.headers.get("Content-Length", 0))
                 if length <= 0 or length > MAX_JSON_SIZE:
                     raise ValueError("Corpo JSON ausente ou maior que 64 KB")
@@ -389,10 +457,8 @@ class Handler(BaseHTTPRequestHandler):
                 reference = request.get("reference")
                 job = uuid.uuid4().hex
                 LOGGER.info("Criando background job %s para URL: %s", job, pdf_url)
-                work = JOBS / job
-                work.mkdir()
                 initial = {"job_id": job, "reference": reference, "status": "queued"}
-                write_json(work / "status.json", initial)
+                db.save_job(job, initial)
                 EXECUTOR.submit(run_api_job, job, pdf_url, callback_url, reference, self.base_url())
                 return self.send_json(202, {**initial, "status_url": f"{self.base_url()}/api/jobs/{job}"})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -405,6 +471,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404); return
         try:
             LOGGER.info("Iniciando requisicao /api/convert")
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
             length = int(self.headers.get("Content-Length", 0))
             if length > MAX_PDF_SIZE + 1024 * 1024:
                 raise ValueError("O limite e 30 MB")
@@ -420,33 +488,34 @@ class Handler(BaseHTTPRequestHandler):
             
             job = uuid.uuid4().hex
             LOGGER.info("Iniciando job síncrono: %s", job)
-            work = JOBS / job; work.mkdir()
-            source = work / (Path(name).stem + ".pdf"); source.write_bytes(data)
-            
-            detector = get_table_detector()
-            result = convert(source, work / "html", table_detector=detector)
-            neural_tables = run_neural_detection(source, result)
-            if not neural_tables and (result / "neural-tables.json").is_file():
-                try:
-                    neural_tables = json.loads((result / "neural-tables.json").read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-            archive = work / "resultado.zip"
-            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
-                for file in result.rglob("*"):
-                    if file.is_file(): zf.write(file, file.relative_to(result))
-            
-            fields_file = result / "fields.json"
-            tables_file = result / "tables.json"
-            fields = json.loads(fields_file.read_text(encoding="utf-8")) if fields_file.is_file() else []
-            tables = json.loads(tables_file.read_text(encoding="utf-8")) if tables_file.is_file() else []
+            result = convert_pdf_bytes(data, name, job)
+            db.save_document(
+                job_id=job,
+                html_content=result.html_content,
+                fields=result.fields,
+                tables=result.tables,
+                pages=result.pages,
+                neural_tables=result.neural_tables,
+                metadata={"filename": name, "sync": True},
+            )
+            db.save_job(job, {
+                "job_id": job,
+                "status": "completed",
+                "result": {
+                    "fields": result.fields,
+                    "tables": result.tables,
+                    "neural_tables": result.neural_tables,
+                    "preview": f"/jobs/{job}/html/index.html",
+                },
+                "sync": True,
+            })
+            LOGGER.info("Documento e job salvos no MongoDB para job síncrono %s", job)
             
             payload = json.dumps({
                 "preview": f"/jobs/{job}/html/index.html",
-                "download": f"/jobs/{job}/resultado.zip",
-                "fields": fields,
-                "tables": tables,
-                "neural_tables": neural_tables
+                "fields": result.fields,
+                "tables": result.tables,
+                "neural_tables": result.neural_tables
             }, ensure_ascii=False).encode("utf-8")
             
             self.send_response(200)

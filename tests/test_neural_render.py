@@ -33,7 +33,7 @@ class NeuralRenderingTest(unittest.TestCase):
             # but let's see if we can at least test the logic if we mock the detector.
             # Wait, convert() calls pdfplumber.open. I must mock it.
             
-            import mock
+            from unittest import mock
             with mock.patch('pdfplumber.open') as mock_pdf_open, \
                  mock.patch('converter.PdfReader') as mock_pdf_reader, \
                  mock.patch('converter.extract_images') as mock_extract_images, \

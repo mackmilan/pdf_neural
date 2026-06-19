@@ -1,7 +1,218 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PDF Neural</title><style>
-*{box-sizing:border-box}body{margin:0;background:#0c1220;color:#edf3ff;font:16px/1.5 system-ui,sans-serif}main{max-width:1080px;margin:auto;padding:56px 24px}h1{font-size:clamp(38px,7vw,72px);letter-spacing:-.055em;margin:0}.lead{color:#aab8d4;max-width:720px;font-size:19px}.card{background:#141d31;border:1px solid #283653;border-radius:18px;padding:24px;margin-top:32px}.drop{display:block;border:2px dashed #4c668f;border-radius:14px;padding:42px;text-align:center;cursor:pointer}.drop:hover{border-color:#73a3ff}input[type=file]{display:none}.separator{display:flex;align-items:center;gap:14px;color:#8090ac;margin:18px 0}.separator:before,.separator:after{content:"";height:1px;background:#283653;flex:1}.url-input{display:block;width:100%;border:1px solid #4c668f;border-radius:10px;background:#0c1425;color:#edf3ff;padding:13px 15px;font:inherit}.url-input:focus{outline:2px solid #75a7ff;border-color:transparent}button,.button{display:inline-block;background:#75a7ff;color:#08101e;border:0;border-radius:10px;padding:12px 18px;font-weight:700;text-decoration:none;cursor:pointer}button:disabled{opacity:.5}.actions{display:flex;gap:12px;align-items:center;margin-top:18px}.status{color:#aab8d4}.result{display:none}.result.show{display:block}.layout{display:grid;grid-template-columns:2fr 1fr;gap:20px}.preview{width:100%;height:720px;border:0;background:white;border-radius:12px}.fields{max-height:720px;overflow:auto}.field-link{display:block;text-decoration:none;color:inherit;padding:10px;border-bottom:1px solid #283653;transition:background .2s}.field-link:hover{background:#1c2945}.field code,.confidence{color:#86b3ff}.section-title{margin-top:26px}@media(max-width:760px){.layout{grid-template-columns:1fr}.preview{height:560px}}
-</style></head><body><main><h1>PDF → HTML vivo.</h1><p class="lead">Extraia campos, tipos, imagens e logotipos. A rede neural treinada com documentos da UEPG localiza regioes de tabela, inclusive em paginas rasterizadas.</p><section class="card"><form id="form"><label class="drop"><input id="pdf" name="pdf" type="file" accept="application/pdf"><strong id="label">Escolha ou arraste um PDF</strong><br><small>Maximo de 30 MB</small></label><div class="separator">ou use uma URL</div><input class="url-input" id="url" name="url" type="url" inputmode="url" placeholder="https://exemplo.com/documento.pdf" aria-label="URL do arquivo PDF"><div class="actions"><button id="submit">Converter documento</button><span class="status" id="status"></span></div></form></section><section class="card result" id="result"><div class="actions"><h2 style="margin-right:auto">Resultado</h2><a class="button" id="download">Baixar ZIP</a></div><div class="layout"><iframe class="preview" id="preview" title="Documento convertido"></iframe><aside class="fields"><h3>Campos detectados</h3><div id="fields"></div><h3 class="section-title">Tabelas - rede neural</h3><div id="neural-tables"></div></aside></div></section></main><script>
-const form=document.querySelector('#form'),input=document.querySelector('#pdf'),url=document.querySelector('#url'),label=document.querySelector('#label'),status=document.querySelector('#status'),button=document.querySelector('#submit');input.onchange=()=>{label.textContent=input.files[0]?.name||'Escolha ou arraste um PDF';if(input.files.length)url.value=''};url.oninput=()=>{if(url.value)input.value=''};form.onsubmit=async e=>{e.preventDefault();if(!input.files.length&&!url.value.trim()){status.textContent='Escolha um PDF ou informe uma URL';return}button.disabled=true;status.textContent=url.value?'Baixando, convertendo e analisando…':'Convertendo e analisando com a rede neural…';try{const response=await fetch('/api/convert',{method:'POST',body:new FormData(form)});let data;const contentType=response.headers.get('content-type');if(contentType&&contentType.includes('application/json')){data=await response.json()}else{throw new Error(`Erro no servidor (${response.status}): ${response.statusText}`)}if(!response.ok)throw new Error(data.error);document.querySelector('#preview').src=data.preview;document.querySelector('#download').href=data.download;document.querySelector('#fields').innerHTML=data.fields.length?data.fields.map(f=>`<a href="#${f.name}" class="field-link" onclick="const p=document.querySelector('#preview'); p.contentWindow.location.hash=f.name; const el=p.contentDocument.getElementById(f.name); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); return false;"><strong>${escapeHtml(f.label)}</strong><br><code>${escapeHtml(f.type)}</code> · pagina ${f.page} · ${escapeHtml(f.source)}</a>`).join(''):'Nenhum campo encontrado.';document.querySelector('#neural-tables').innerHTML=data.neural_tables.length?data.neural_tables.map(t=>`<a href="#page-${t.page}" class="field-link" onclick="const p=document.querySelector('#preview'); p.contentWindow.location.hash='page-'+t.page; const el=p.contentDocument.getElementById('page-'+t.page); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); return false;"><strong>Pagina ${t.page}</strong><br><span class="confidence">${Math.round(t.confidence*100)}% de confianca</span><br><small>${t.row_count||0} linhas × ${t.column_count||0} colunas · ${Math.round(t.width)} × ${Math.round(t.height)} pt</small></a>`).join(''):'Nenhuma tabela encontrada pela rede.';document.querySelector('#result').classList.add('show');status.textContent=`${data.fields.length} campo(s) · ${data.neural_tables.length} tabela(s) neural(is)`}catch(err){status.textContent=err.message}finally{button.disabled=false}};function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-</script></body></html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PDF Neural</title>
+    <style>
+        * { box-sizing: border-box }
+        body { margin: 0; background: #0c1220; color: #edf3ff; font: 16px/1.5 system-ui, sans-serif }
+        main { max-width: 1080px; margin: auto; padding: 56px 24px }
+        h1 { font-size: clamp(38px, 7vw, 72px); letter-spacing: -.055em; margin: 0 }
+        .lead { color: #aab8d4; max-width: 720px; font-size: 19px }
+        .card { background: #141d31; border: 1px solid #283653; border-radius: 18px; padding: 24px; margin-top: 32px }
+        .drop { display: block; border: 2px dashed #4c668f; border-radius: 14px; padding: 42px; text-align: center; cursor: pointer }
+        .drop:hover { border-color: #73a3ff }
+        input[type=file] { display: none }
+        .separator { display: flex; align-items: center; gap: 14px; color: #8090ac; margin: 18px 0 }
+        .separator:before, .separator:after { content: ""; height: 1px; background: #283653; flex: 1 }
+        .url-input { display: block; width: 100%; border: 1px solid #4c668f; border-radius: 10px; background: #0c1425; color: #edf3ff; padding: 13px 15px; font: inherit }
+        .url-input:focus { outline: 2px solid #75a7ff; border-color: transparent }
+        button, .button { display: inline-block; background: #75a7ff; color: #08101e; border: 0; border-radius: 10px; padding: 12px 18px; font-weight: 700; text-decoration: none; cursor: pointer }
+        button:disabled { opacity: .5 }
+        .actions { display: flex; gap: 12px; align-items: center; margin-top: 18px }
+        .status { color: #aab8d4 }
+        .result { display: none }
+        .result.show { display: block }
+        .layout { display: grid; grid-template-columns: 2fr 1fr; gap: 20px }
+        .preview { width: 100%; height: 720px; border: 0; background: white; border-radius: 12px }
+        .fields { max-height: 720px; overflow: auto }
+        .field-link { display: block; text-decoration: none; color: inherit; padding: 10px; border-bottom: 1px solid #283653; transition: background .2s }
+        .field-link:hover { background: #1c2945 }
+        .field code, .confidence { color: #86b3ff }
+        .section-title { margin-top: 26px }
+        
+        /* History Styles */
+        .history-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin-top: 16px }
+        .history-item { background: #1c2945; border: 1px solid #283653; border-radius: 10px; padding: 16px; cursor: pointer; transition: transform 0.2s }
+        .history-item:hover { transform: translateY(-2px); border-color: #75a7ff }
+        .history-item h4 { margin: 0 0 8px 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+        .history-item small { color: #8090ac }
+
+        @media(max-width: 760px) {
+            .layout { grid-template-columns: 1fr }
+            .preview { height: 560px }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>PDF → HTML vivo.</h1>
+        <p class="lead">Extraia campos, tipos, imagens e logotipos. A rede neural treinada com documentos da UEPG localiza regioes de tabela, inclusive em paginas rasterizadas.</p>
+        
+        <section class="card">
+            <form id="form">
+                <label class="drop">
+                    <input id="pdf" name="pdf" type="file" accept="application/pdf">
+                    <strong id="label">Escolha ou arraste um PDF</strong>
+                    <br><small>Maximo de 30 MB</small>
+                </label>
+                <div class="separator">ou use uma URL</div>
+                <input class="url-input" id="url" name="url" type="url" inputmode="url" placeholder="https://exemplo.com/documento.pdf" aria-label="URL do arquivo PDF">
+                <div class="actions">
+                    <button id="submit">Converter documento</button>
+                    <span class="status" id="status"></span>
+                </div>
+            </form>
+        </section>
+
+        <section class="card" id="history-section" style="display:none">
+            <h3>Documentos recentes (MongoDB)</h3>
+            <div id="history-list" class="history-list">
+                <!-- Itens do histórico serão inseridos aqui -->
+            </div>
+        </section>
+
+        <section class="card result" id="result">
+            <div class="actions">
+                <h2 style="margin-right:auto">Resultado</h2>
+            </div>
+            <div class="layout">
+                <iframe class="preview" id="preview" title="Documento convertido"></iframe>
+                <aside class="fields">
+                    <h3>Campos detectados</h3>
+                    <div id="fields"></div>
+                    <h3 class="section-title">Tabelas - rede neural</h3>
+                    <div id="neural-tables"></div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const form = document.querySelector('#form');
+        const input = document.querySelector('#pdf');
+        const urlInput = document.querySelector('#url');
+        const label = document.querySelector('#label');
+        const status = document.querySelector('#status');
+        const button = document.querySelector('#submit');
+        const historyList = document.querySelector('#history-list');
+        const historySection = document.querySelector('#history-section');
+
+        input.onchange = () => {
+            label.textContent = input.files[0]?.name || 'Escolha ou arraste um PDF';
+            if (input.files.length) urlInput.value = '';
+        };
+
+        urlInput.oninput = () => {
+            if (urlInput.value) input.value = '';
+        };
+
+        const loadHistory = async () => {
+            try {
+                const response = await fetch('/api/documents');
+                if (response.ok) {
+                    const docs = await response.json();
+                    if (docs.length > 0) {
+                        historySection.style.display = 'block';
+                        historyList.innerHTML = docs.map(doc => `
+                            <div class="history-item" onclick="loadJob('${doc.job_id}')">
+                                <h4>${escapeHtml(doc.metadata?.filename || doc.metadata?.pdf_url || doc.job_id)}</h4>
+                                <small>${new Date(doc.created_at).toLocaleString()}</small><br>
+                                <small>${doc.fields.length} campos · ${doc.tables.length} tabelas</small>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (err) {
+                console.error('Erro ao carregar histórico:', err);
+            }
+        };
+
+        const loadJob = async (jobId) => {
+            status.textContent = 'Carregando documento do histórico...';
+            try {
+                const response = await fetch(`/api/documents/${jobId}`);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                displayResult({
+                    ...data,
+                    preview: `/jobs/${encodeURIComponent(jobId)}/html/index.html`
+                });
+                status.textContent = 'Documento carregado do histórico';
+            } catch (err) {
+                status.textContent = 'Erro ao carregar job: ' + err.message;
+            }
+        };
+
+        const displayResult = (data) => {
+            const result = data.result || data;
+            const previewUrl = result.preview_url || result.preview || data.preview;
+            document.querySelector('#preview').src = previewUrl;
+
+            const fields = result.fields || [];
+            const neural = result.neural_tables || [];
+
+            document.querySelector('#fields').innerHTML = fields.length ? fields.map(f => `
+                <a href="#${f.name}" class="field-link" onclick="scrollToElement('${f.name}'); return false;">
+                    <strong>${escapeHtml(f.label)}</strong><br>
+                    <code>${escapeHtml(f.type)}</code> · pagina ${f.page} · ${escapeHtml(f.source)}
+                </a>
+            `).join('') : 'Nenhum campo encontrado.';
+
+            document.querySelector('#neural-tables').innerHTML = neural && neural.length ? neural.map(t => `
+                <a href="#page-${t.page}" class="field-link" onclick="scrollToElement('page-${t.page}'); return false;">
+                    <strong>Pagina ${t.page}</strong><br>
+                    <span class="confidence">${Math.round(t.confidence * 100)}% de confianca</span><br>
+                    <small>${t.row_count || 0} linhas × ${t.column_count || 0} colunas</small>
+                </a>
+            `).join('') : 'Nenhuma tabela encontrada pela rede.';
+
+            document.querySelector('#result').classList.add('show');
+            document.querySelector('#result').scrollIntoView({ behavior: 'smooth' });
+        };
+
+        const scrollToElement = (id) => {
+            const p = document.querySelector('#preview');
+            p.contentWindow.location.hash = id;
+            const el = p.contentDocument.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+
+        form.onsubmit = async e => {
+            e.preventDefault();
+            if (!input.files.length && !urlInput.value.trim()) {
+                status.textContent = 'Escolha um PDF ou informe uma URL';
+                return;
+            }
+            button.disabled = true;
+            status.textContent = urlInput.value ? 'Baixando, convertendo e analisando…' : 'Convertendo e analisando com a rede neural…';
+            
+            try {
+                const response = await fetch('/api/convert', { method: 'POST', body: new FormData(form) });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                
+                displayResult(data);
+                status.textContent = `${data.fields.length} campo(s) · ${data.neural_tables.length} tabela(s) neural(is)`;
+                loadHistory(); // Atualiza histórico após nova conversão
+            } catch (err) {
+                status.textContent = err.message;
+            } finally {
+                button.disabled = false;
+            }
+        };
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // Inicializar
+        loadHistory();
+    </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import html
 import io
@@ -33,6 +34,17 @@ class Field:
     source: str = "inferred"
     required: bool = False
     href: str = ""
+
+
+@dataclass
+class ConversionResult:
+    """Artefatos da conversao mantidos em memoria para persistencia no MongoDB."""
+
+    html_content: str
+    fields: list[dict[str, Any]]
+    tables: list[dict[str, Any]]
+    pages: list[dict[str, Any]]
+    neural_tables: list[dict[str, Any]]
 
 
 def n(value: float) -> str:
@@ -321,13 +333,12 @@ def image_key(name: str) -> str:
     return Path(str(name)).stem
 
 
-def extract_images(pdf_path: Path, output: Path) -> dict[int, dict[str, Path]]:
-    LOGGER.info("Extraindo imagens de %s para %s", pdf_path.name, output)
-    assets = output / "assets"
-    assets.mkdir(parents=True, exist_ok=True)
+def extract_images(pdf_path: Path, output: Path = None, job_id: str = None) -> dict[int, dict[str, dict[str, Any]]]:
+    from database import db
+    LOGGER.info("Extraindo imagens de %s", pdf_path.name)
     reader = PdfReader(str(pdf_path))
-    extracted: dict[int, dict[str, Path]] = {}
-    fingerprints: dict[str, Path] = {}
+    extracted: dict[int, dict[str, dict[str, Any]]] = {}
+    fingerprints: dict[str, dict[str, Any]] = {}
     for page_no, page in enumerate(reader.pages, 1):
         for index, image in enumerate(page.images, 1):
             key = image_key(image.name) or f"image-{index}"
@@ -336,32 +347,58 @@ def extract_images(pdf_path: Path, output: Path) -> dict[int, dict[str, Path]]:
                 extracted.setdefault(page_no, {})[key] = fingerprints[data_hash]
                 continue
 
-            safe_key = re.sub(r"[^A-Za-z0-9_-]+", "-", key)
-            target = assets / f"img-{data_hash[:12]}-{safe_key}.png"
+            # Convert to PNG for consistent base64 representation
             try:
                 img = Image.open(io.BytesIO(image.data))
-                img.save(target, "PNG")
-                extracted.setdefault(page_no, {})[key] = target
-                fingerprints[data_hash] = target
+                out_io = io.BytesIO()
+                img.save(out_io, "PNG")
+                png_data = out_io.getvalue()
+                content_type = "image/png"
             except Exception:
-                # Fallback to raw save if Pillow fails, though PNG is safer for web
-                suffix = Path(image.name).suffix or ".png"
-                target = target.with_suffix(suffix)
-                target.write_bytes(image.data)
-                extracted.setdefault(page_no, {})[key] = target
-                fingerprints[data_hash] = target
+                png_data = image.data
+                suffix = Path(image.name).suffix.lower()
+                content_type = f"image/{suffix[1:]}" if suffix.startswith(".") else "image/png"
+
+            b64_data = base64.b64encode(png_data).decode("utf-8")
+            asset_info = {
+                "hash": data_hash,
+                "base64": b64_data,
+                "content_type": content_type
+            }
+            
+            if job_id and db and db.is_available():
+                try:
+                    db.save_image(job_id, key, data_hash, b64_data, content_type)
+                except Exception as e:
+                    LOGGER.error("Erro ao salvar imagem %s no MongoDB: %s", key, str(e))
+
+            extracted.setdefault(page_no, {})[key] = asset_info
+            fingerprints[data_hash] = asset_info
     return extracted
 
 
-def convert(pdf_path: str | Path, output_dir: str | Path, table_detector: Any | None = None) -> Path:
-    pdf_path, output = Path(pdf_path), Path(output_dir)
-    LOGGER.info("Iniciando conversão de %s para %s", pdf_path.name, output)
-    if output.exists():
-        shutil.rmtree(output)
-    output.mkdir(parents=True)
+def convert(
+    pdf_path: str | Path,
+    output_dir: str | Path | None = None,
+    table_detector: Any | None = None,
+    job_id: str | None = None,
+) -> Path | ConversionResult:
+    """Converte um PDF.
+
+    Sem ``output_dir``, devolve todos os artefatos em memoria. O modo com
+    diretorio continua disponivel apenas para a CLI e compatibilidade da API
+    publica desta funcao.
+    """
+    pdf_path = Path(pdf_path)
+    output = Path(output_dir) if output_dir is not None else None
+    LOGGER.info("Iniciando conversão de %s%s", pdf_path.name, f" para {output}" if output else " em memoria")
+    if output is not None:
+        if output.exists():
+            shutil.rmtree(output)
+        output.mkdir(parents=True)
     reader = PdfReader(str(pdf_path))
     native = acro_fields(reader)
-    images = extract_images(pdf_path, output)
+    images = extract_images(pdf_path, output, job_id=job_id)
     all_fields: list[Field] = []
     all_tables: list[dict[str, Any]] = []
     page_sizes: list[dict[str, Any]] = []
@@ -428,8 +465,8 @@ def convert(pdf_path: str | Path, output_dir: str | Path, table_detector: Any | 
                     asset = page_assets.get(index_key)
                 if asset is None:
                     continue
-                rel = asset.relative_to(output).as_posix()
-                elements.append(f'<img class="pdf-image" data-pdf-image="{html.escape(key)}" src="{html.escape(rel)}" alt="Imagem extraida do PDF" style="left:{n(image_obj["x0"])}px;top:{n(image_obj["top"])}px;width:{n(image_obj["width"])}px;height:{n(image_obj["height"])}px">')
+                src = f"data:{asset['content_type']};base64,{asset['base64']}"
+                elements.append(f'<img class="pdf-image" data-pdf-image="{html.escape(key)}" src="{src}" alt="Imagem extraida do PDF" style="left:{n(image_obj["x0"])}px;top:{n(image_obj["top"])}px;width:{n(image_obj["width"])}px;height:{n(image_obj["height"])}px">')
 
             for layout in layouts:
                 table_html = [f'<table class="pdf-table" id="{layout["id"]}" style="left:{n(layout["x"])}px;top:{n(layout["y"])}px;width:{n(layout["width"])}px;height:{n(layout["height"])}px">']
@@ -551,11 +588,17 @@ const resizePages=()=>document.querySelectorAll('.pdf-page-shell').forEach(shell
 new ResizeObserver(resizePages).observe(document.querySelector('.document'));
 resizePages();
 </script></body></html>'''
-    (output / "index.html").write_text(document, encoding="utf-8")
-    (output / "fields.json").write_text(json.dumps([asdict(f) for f in all_fields], ensure_ascii=False, indent=2), encoding="utf-8")
-    (output / "tables.json").write_text(json.dumps(all_tables, ensure_ascii=False, indent=2), encoding="utf-8")
-    (output / "pages.json").write_text(json.dumps(page_sizes, ensure_ascii=False, indent=2), encoding="utf-8")
-    (output / "neural-tables.json").write_text(json.dumps(neural_tables, ensure_ascii=False, indent=2), encoding="utf-8")
+    fields = [asdict(field) for field in all_fields]
+    result = ConversionResult(document, fields, all_tables, page_sizes, neural_tables)
+    if output is None:
+        LOGGER.info("Conversão de %s concluída em memoria", pdf_path.name)
+        return result
+
+    (output / "index.html").write_text(result.html_content, encoding="utf-8")
+    (output / "fields.json").write_text(json.dumps(result.fields, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output / "tables.json").write_text(json.dumps(result.tables, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output / "pages.json").write_text(json.dumps(result.pages, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output / "neural-tables.json").write_text(json.dumps(result.neural_tables, ensure_ascii=False, indent=2), encoding="utf-8")
     LOGGER.info("Conversão de %s concluída. Resultados salvos em %s", pdf_path.name, output)
     return output
 
