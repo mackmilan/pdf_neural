@@ -46,7 +46,7 @@ class AsyncApiTest(unittest.TestCase):
             job = "a" * 32
             (jobs / job).mkdir()
 
-            def fake_convert(_source, output):
+            def fake_convert(_source, output, table_detector=None):
                 output.mkdir()
                 (output / "index.html").write_text("<html></html>")
                 (output / "fields.json").write_text('[{"name": "cpf"}]')
@@ -60,6 +60,8 @@ class AsyncApiTest(unittest.TestCase):
                 patch.object(app, "convert", side_effect=fake_convert),
                 patch.object(app, "run_neural_detection", return_value=[{"id": "page-1-neural-table-1"}]),
                 patch.object(app, "deliver_callback", side_effect=lambda _url, payload: callbacks.append(payload)),
+                patch.object(app, "get_table_detector", return_value=None),
+                patch.object(app, "NEURAL_REQUIRED", False),
             ):
                 app.run_api_job(job, "https://files.example/form.pdf", "https://api.example/callback", "doc-7", "https://pdf.example")
 

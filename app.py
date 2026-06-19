@@ -369,20 +369,27 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/convert":
             self.send_error(404); return
         try:
+            LOGGER.info("Iniciando requisicao /api/convert")
             length = int(self.headers.get("Content-Length", 0))
             if length > MAX_PDF_SIZE + 1024 * 1024:
                 raise ValueError("O limite e 30 MB")
-            name, data, url = multipart_data(self.headers.get("Content-Type", ""), self.rfile.read(length))
+            body = self.rfile.read(length)
+            name, data, url = multipart_data(self.headers.get("Content-Type", ""), body)
             if not data and url:
+                LOGGER.info("Baixando PDF remoto: %s", url)
                 name, data = download_pdf(url)
             if not data:
                 raise ValueError("Envie um arquivo PDF ou informe uma URL")
             if not data.startswith(b"%PDF"):
                 raise ValueError("O conteudo recebido nao e um PDF valido")
+            
             job = uuid.uuid4().hex
+            LOGGER.info("Iniciando job síncrono: %s", job)
             work = JOBS / job; work.mkdir()
             source = work / (Path(name).stem + ".pdf"); source.write_bytes(data)
-            result = convert(source, work / "html", table_detector=get_table_detector())
+            
+            detector = get_table_detector()
+            result = convert(source, work / "html", table_detector=detector)
             neural_tables = run_neural_detection(source, result)
             if not neural_tables and (result / "neural-tables.json").is_file():
                 try:
@@ -393,10 +400,26 @@ class Handler(BaseHTTPRequestHandler):
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
                 for file in result.rglob("*"):
                     if file.is_file(): zf.write(file, file.relative_to(result))
-            fields = json.loads((result / "fields.json").read_text(encoding="utf-8"))
-            tables = json.loads((result / "tables.json").read_text(encoding="utf-8"))
-            payload = json.dumps({"preview": f"/jobs/{job}/html/index.html", "download": f"/jobs/{job}/resultado.zip", "fields": fields, "tables": tables, "neural_tables": neural_tables}).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload)
+            
+            fields_file = result / "fields.json"
+            tables_file = result / "tables.json"
+            fields = json.loads(fields_file.read_text(encoding="utf-8")) if fields_file.is_file() else []
+            tables = json.loads(tables_file.read_text(encoding="utf-8")) if tables_file.is_file() else []
+            
+            payload = json.dumps({
+                "preview": f"/jobs/{job}/html/index.html",
+                "download": f"/jobs/{job}/resultado.zip",
+                "fields": fields,
+                "tables": tables,
+                "neural_tables": neural_tables
+            }, ensure_ascii=False).encode("utf-8")
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            LOGGER.info("Job síncrono concluído: %s", job)
         except ValueError as exc:
             payload = json.dumps({"error": str(exc)}).encode()
             self.send_response(400); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(payload)
