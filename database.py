@@ -23,7 +23,14 @@ class Database:
                 self.client = MongoClient(self.uri, serverSelectionTimeoutMS=2000)
                 # Tenta um comando simples para validar a conexão
                 self.client.admin.command('ping')
-                self.db = self.client.get_database()
+`
+                # Tenta obter o banco de dados da URI, se não existir usa 'pdf_neural' como padrão
+                try:
+                    self.db = self.client.get_database()
+                except Exception:
+                    LOGGER.warning("Nenhum banco de dados definido na MONGO_URI, usando 'pdf_neural' por padrão")
+                    self.db = self.client.get_database("pdf_neural")
+                
                 self.documents = self.db.get_collection("documents")
                 self.jobs = self.db.get_collection("jobs")
                 LOGGER.info("Conexão com MongoDB estabelecida com sucesso")
