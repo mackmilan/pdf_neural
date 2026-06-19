@@ -300,6 +300,7 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
 
     def update_job_status(payload: dict):
         if not db or not db.is_available():
+            LOGGER.error("Tentativa de atualizar status do job %s mas banco de dados está indisponível", job)
             raise RuntimeError("Servico de banco de dados indisponivel")
         db.save_job(job, payload)
 
