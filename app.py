@@ -29,6 +29,7 @@ JOBS = ROOT / "output" / "jobs"
 STATIC = ROOT / "static"
 MAX_PDF_SIZE = 30 * 1024 * 1024
 MAX_JSON_SIZE = 64 * 1024
+TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 WORKERS = int(os.environ.get("PDF_WORKERS", "2"))
 TABLE_MODEL = Path(os.environ.get("TABLE_MODEL", ROOT / "models" / "uepg_table_detector.pt"))
@@ -38,6 +39,7 @@ NEURAL_ENABLED = os.environ.get("NEURAL_ENABLED", "true").lower() not in ("0", "
 NEURAL_REQUIRED = os.environ.get("NEURAL_REQUIRED", "false").lower() in ("1", "true", "yes")
 EXECUTOR = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="pdf-job")
 LOGGER = logging.getLogger("pdf-neural")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 JOBS.mkdir(parents=True, exist_ok=True)
 _TABLE_DETECTOR: TableDetector | None = None
 _TABLE_DETECTOR_LOCK = threading.Lock()
@@ -66,12 +68,73 @@ def get_table_detector() -> TableDetector | None:
 
 
 def render_neural_tables(result: Path, tables: list[dict]) -> None:
-    """Projeta a grade detectada nas paginas HTML usando as cores de origem.
+    """Projeta a grade detectada nas paginas HTML usando as cores de origem."""
+    if not tables:
+        return
+    index_file = result / "index.html"
+    if not index_file.is_file():
+        return
     
-    Nota: Esta funcao agora e um no-op pois a renderizacao foi movida para converter.py.
-    Mantida para compatibilidade se chamada externamente.
-    """
-    pass
+    pages_with_tables: dict[int, list[dict]] = {}
+    for table in tables:
+        try:
+            p = int(table["page"])
+            if p >= 1:
+                pages_with_tables.setdefault(p, []).append(table)
+        except (KeyError, ValueError, TypeError):
+            continue
+
+    if not pages_with_tables:
+        return
+
+    import re
+    import html
+    import math
+
+    document = index_file.read_text(encoding="utf-8")
+    
+    for p, p_tables in pages_with_tables.items():
+        overlays = []
+        for table in p_tables:
+            confidence = float(table.get("confidence", 0))
+            rows = int(table.get("row_count", 0))
+            cols = int(table.get("column_count", 0))
+            label = f"Tabela neural {confidence:.0%}, {rows} linhas, {cols} colunas"
+            table_id = html.escape(str(table.get("id", "neural-table")), quote=True)
+            rendered_lines = []
+            for line_index, line in enumerate(table.get("lines", []), 1):
+                try:
+                    lx, ly = float(line["x"]), float(line["y"])
+                    lw, lh = float(line.get("width", 0)), float(line.get("height", 0))
+                    line_thickness = max(.25, float(line.get("line_width", .5)))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                color = str(line.get("color", "#000000"))
+                if not re.fullmatch(r"#[0-9a-fA-F]{6}", color) or not all(math.isfinite(v) for v in (lx, ly, lw, lh, line_thickness)):
+                    continue
+                css_w = lw if lw > 0 else line_thickness
+                css_h = lh if lh > 0 else line_thickness
+                rendered_lines.append(
+                    f'<div class="neural-table-line" data-neural-line="{line_index}" '
+                    f'style="left:{lx:.2f}px;top:{ly:.2f}px;width:{css_w:.2f}px;'
+                    f'height:{css_h:.2f}px;background:{color}"></div>'
+                )
+            overlays.append(
+                f'<div class="neural-table-structure" data-neural-table="{table_id}" '
+                f'aria-label="{html.escape(label, quote=True)}" title="{html.escape(label, quote=True)}">'
+                f'{"".join(rendered_lines)}</div>'
+            )
+        
+        # Inserir no final da seção da página
+        pattern = f'data-page="{p}"[^>]*>(.*?)</section>'
+        match = re.search(pattern, document, re.DOTALL)
+        if match:
+            old_section = match.group(0)
+            if "</section>" in old_section:
+                new_section = old_section.replace("</section>", "".join(overlays) + "</section>")
+                document = document.replace(old_section, new_section)
+
+    index_file.write_text(document, encoding="utf-8")
 
 
 def run_neural_detection(source: Path, result: Path) -> list[dict]:
@@ -82,7 +145,6 @@ def run_neural_detection(source: Path, result: Path) -> list[dict]:
             return json.loads(output.read_text(encoding="utf-8"))
         except Exception:
             pass
-    write_json(output, [])
     return []
 
 
@@ -200,8 +262,19 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
             raise ValueError("O conteudo recebido nao e um PDF valido")
         source = work / (Path(name).stem + ".pdf")
         source.write_bytes(data)
+        
+        if NEURAL_REQUIRED:
+            detector = get_table_detector()
+            if not detector:
+                raise RuntimeError("Detector neural obrigatorio nao disponivel")
+
         result = convert(source, work / "html", table_detector=get_table_detector())
         neural_tables = run_neural_detection(source, result)
+        if not neural_tables and (result / "neural-tables.json").is_file():
+            try:
+                neural_tables = json.loads((result / "neural-tables.json").read_text(encoding="utf-8"))
+            except Exception:
+                pass
         archive = work / "resultado.zip"
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in result.rglob("*"):
@@ -311,6 +384,11 @@ class Handler(BaseHTTPRequestHandler):
             source = work / (Path(name).stem + ".pdf"); source.write_bytes(data)
             result = convert(source, work / "html", table_detector=get_table_detector())
             neural_tables = run_neural_detection(source, result)
+            if not neural_tables and (result / "neural-tables.json").is_file():
+                try:
+                    neural_tables = json.loads((result / "neural-tables.json").read_text(encoding="utf-8"))
+                except Exception:
+                    pass
             archive = work / "resultado.zip"
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
                 for file in result.rglob("*"):
@@ -319,13 +397,19 @@ class Handler(BaseHTTPRequestHandler):
             tables = json.loads((result / "tables.json").read_text(encoding="utf-8"))
             payload = json.dumps({"preview": f"/jobs/{job}/html/index.html", "download": f"/jobs/{job}/resultado.zip", "fields": fields, "tables": tables, "neural_tables": neural_tables}).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload)
-        except Exception as exc:
+        except ValueError as exc:
             payload = json.dumps({"error": str(exc)}).encode()
             self.send_response(400); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(payload)
+        except Exception as exc:
+            LOGGER.exception("Erro ao processar /api/convert")
+            payload = json.dumps({"error": str(exc)}).encode()
+            self.send_response(500); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(payload)
 
 
 if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8000"))
     print(f"PDF Neural em http://{host}:{port}")
-    ThreadingHTTPServer((host, port), Handler).serve_forever()
+    server = ThreadingHTTPServer((host, port), Handler)
+    server.timeout = TIMEOUT
+    server.serve_forever()
