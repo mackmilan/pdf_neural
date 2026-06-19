@@ -21,9 +21,6 @@ class Database:
             LOGGER.info("Conectando ao MongoDB...")
             try:
                 self.client = MongoClient(self.uri, serverSelectionTimeoutMS=2000)
-                # Tenta um comando simples para validar a conexão
-                self.client.admin.command('ping')
-`
                 # Tenta obter o banco de dados da URI, se não existir usa 'pdf_neural' como padrão
                 try:
                     self.db = self.client.get_database()
