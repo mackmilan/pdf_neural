@@ -9,9 +9,10 @@ WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app app
 
-COPY requirements.txt ./
+COPY requirements.txt requirements-ml.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt "numpy>=1.26,<3" \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<3"
 
 COPY --chown=app:app . .
 RUN mkdir -p /app/output/jobs && chown -R app:app /app/output

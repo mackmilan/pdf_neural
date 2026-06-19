@@ -3,7 +3,7 @@
   "info": {
     "title": "PDF Neural API",
     "version": "1.0.0",
-    "description": "Extrai campos de PDFs e gera HTML editavel. Oferece conversao sincrona e processamento assincrono com callback."
+    "description": "Gera uma representacao HTML fiel do PDF, extrai campos e usa uma rede neural para localizar regioes de tabela. Oferece conversao sincrona e processamento assincrono com callback."
   },
   "servers": [{"url": "/", "description": "Servidor atual"}],
   "tags": [
@@ -148,26 +148,69 @@
           "y": {"type": "number"},
           "width": {"type": "number"},
           "height": {"type": "number"},
-          "source": {"type": "string", "enum": ["inferred", "acroform"]},
+          "source": {"type": "string", "enum": ["inferred", "acroform", "table"]},
           "required": {"type": "boolean"}
+        }
+      },
+      "Table": {
+        "type": "object",
+        "required": ["id", "page", "x", "y", "width", "height", "row_count", "column_count", "rows"],
+        "properties": {
+          "id": {"type": "string", "example": "page-1-table-1"},
+          "page": {"type": "integer", "minimum": 1},
+          "x": {"type": "number"}, "y": {"type": "number"},
+          "width": {"type": "number"}, "height": {"type": "number"},
+          "row_count": {"type": "integer"}, "column_count": {"type": "integer"},
+          "rows": {"type": "array", "items": {"type": "object", "description": "Linha com indice e celulas; mesclagens sao representadas por colspan e rowspan."}}
+        }
+      },
+      "NeuralTable": {
+        "type": "object",
+        "required": ["id", "page", "x", "y", "width", "height", "confidence", "source", "row_count", "column_count", "lines", "structure_source"],
+        "properties": {
+          "id": {"type": "string", "example": "page-1-neural-table-1"},
+          "page": {"type": "integer", "minimum": 1},
+          "x": {"type": "number"}, "y": {"type": "number"},
+          "width": {"type": "number"}, "height": {"type": "number"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "source": {"type": "string", "const": "neural"},
+          "row_count": {"type": "integer", "minimum": 0},
+          "column_count": {"type": "integer", "minimum": 0},
+          "structure_source": {"type": "string", "enum": ["vector", "raster"]},
+          "lines": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTableLine"}}
+        }
+      },
+      "NeuralTableLine": {
+        "type": "object",
+        "required": ["orientation", "x", "y", "width", "height", "line_width", "color"],
+        "properties": {
+          "orientation": {"type": "string", "enum": ["h", "v"]},
+          "x": {"type": "number"}, "y": {"type": "number"},
+          "width": {"type": "number"}, "height": {"type": "number"},
+          "line_width": {"type": "number", "minimum": 0},
+          "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}
         }
       },
       "ExtractionResult": {
         "type": "object",
-        "required": ["fields", "preview_url", "download_url"],
+        "required": ["fields", "tables", "neural_tables", "preview_url", "download_url"],
         "properties": {
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
+          "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
           "preview_url": {"type": "string", "format": "uri"},
           "download_url": {"type": "string", "format": "uri"}
         }
       },
       "ConvertResult": {
         "type": "object",
-        "required": ["preview", "download", "fields"],
+        "required": ["preview", "download", "fields", "tables", "neural_tables"],
         "properties": {
           "preview": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/html/index.html"},
           "download": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/resultado.zip"},
-          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}}
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
+          "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}}
         }
       },
       "JobAccepted": {

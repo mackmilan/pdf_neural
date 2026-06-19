@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import io
 import json
+import math
 import re
 import shutil
 from dataclasses import asdict, dataclass
@@ -27,6 +29,7 @@ class Field:
     height: float
     source: str = "inferred"
     required: bool = False
+    href: str = ""
 
 
 def n(value: float) -> str:
@@ -60,7 +63,7 @@ def infer_type(label: str, width: float, height: float) -> str:
         (r"e-?mail", "email"),
         (r"telefone|celular|fone|whats", "tel"),
         (r"data|nascimento|emiss[aã]o|validade", "date"),
-        (r"cpf|cnpj|cep|rg|n[uú]mero|valor|quantidade", "number"),
+        (r"cpf|cnpj|cep|rg|\bano\b|n[uú]mero|valor|quantidade", "number"),
         (r"senha", "password"),
     ]
     for pattern, kind in rules:
@@ -108,19 +111,32 @@ def acro_fields(reader: PdfReader) -> dict[int, list[Field]]:
     return result
 
 
-def inferred_fields(page: pdfplumber.page.Page, page_no: int, words: list[dict[str, Any]], existing: list[Field]) -> list[Field]:
+def inferred_fields(
+    page: pdfplumber.page.Page,
+    page_no: int,
+    words: list[dict[str, Any]],
+    existing: list[Field],
+    table_bboxes: list[tuple[float, float, float, float]] | None = None,
+) -> list[Field]:
     fields: list[Field] = []
     seen: set[tuple[int, int]] = set()
+    table_bboxes = table_bboxes or []
 
     def overlaps(x: float, y: float, w: float, h: float) -> bool:
         return any(not (x+w < f.x or f.x+f.width < x or y+h < f.y or f.y+f.height < y) for f in existing + fields)
+
+    def inside_table(x: float, y: float, w: float, h: float) -> bool:
+        return any(
+            x >= tx0 - 1 and y >= top - 1 and x + w <= tx1 + 1 and y + h <= bottom + 1
+            for tx0, top, tx1, bottom in table_bboxes
+        )
 
     # Horizontal writing lines are the most common non-AcroForm field representation.
     for line in page.lines:
         x0, x1 = sorted((float(line["x0"]), float(line["x1"])))
         top = float(line.get("top", page.height - line["y0"]))
         width = x1 - x0
-        if width < 45 or abs(float(line["y1"]) - float(line["y0"])) > 1.5 or overlaps(x0, top-18, width, 20):
+        if width < 45 or abs(float(line["y1"]) - float(line["y0"])) > 1.5 or inside_table(x0, top-1, width, 2) or overlaps(x0, top-18, width, 20):
             continue
         label = nearby_label(words, x0, top) or f"Campo {len(existing)+len(fields)+1}"
         key = (round(x0), round(top))
@@ -133,7 +149,7 @@ def inferred_fields(page: pdfplumber.page.Page, page_no: int, words: list[dict[s
     for rect in page.rects:
         x, top = float(rect["x0"]), float(rect["top"])
         width, height = float(rect["width"]), float(rect["height"])
-        if width < 8 or height < 8 or width > page.width * .9 or height > page.height * .8 or overlaps(x, top, width, height):
+        if width < 8 or height < 8 or width > page.width * .9 or height > page.height * .8 or inside_table(x, top, width, height) or overlaps(x, top, width, height):
             continue
         is_checkbox = width <= 24 and height <= 24
         label = nearby_label(words, x + width, top + height, allow_right=is_checkbox) or f"Campo {len(existing)+len(fields)+1}"
@@ -142,33 +158,198 @@ def inferred_fields(page: pdfplumber.page.Page, page_no: int, words: list[dict[s
     return fields
 
 
-def extract_images(pdf_path: Path, output: Path) -> dict[int, list[Path]]:
+def table_layouts(
+    page: pdfplumber.page.Page,
+    page_no: int,
+    words: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[Field]]:
+    """Extract ruled-table geometry and turn empty value cells into fields.
+
+    PDF tables are only drawing commands.  pdfplumber reconstructs their rows and
+    cells from intersecting edges; keeping that result separate prevents the
+    generic line detector from treating every table border as a writing line.
+    """
+    layouts: list[dict[str, Any]] = []
+    fields: list[Field] = []
+    for table_index, table in enumerate(page.find_tables(table_settings={"intersection_tolerance": 15}), 1):
+        # We need to manually check for rects that should be part of the table grid
+        # but aren't because they lack explicit lines.
+        x0, top, x1, bottom = (float(value) for value in table.bbox)
+        explicit_v = sorted({round(float(x), 3) for row in table.rows for cell in row.cells if cell is not None for x in (cell[0], cell[2])})
+        explicit_h = sorted({round(float(y), 3) for row in table.rows for cell in row.cells if cell is not None for y in (cell[1], cell[3])})
+
+        extracted = table.extract()
+        # If the table extraction returned empty cells for header areas,
+        # we try to fill them using word detection within those rectangles.
+        if any(rect.get("non_stroking_color") and rect.get("non_stroking_color") != 1 for rect in page.rects):
+            for row_index, row in enumerate(table.rows):
+                for column_index, cell_bbox in enumerate(row.cells):
+                    if cell_bbox is None: continue
+                    # Only if the cell is currently empty in 'extracted'
+                    if not (extracted[row_index][column_index] or "").strip():
+                        cx0, ctop, cx1, cbottom = cell_bbox
+                        # Check if this cell coincides with a colored rect
+                        for rect in page.rects:
+                            rx0, rtop, rx1, rbottom = (float(rect[k]) for k in ("x0", "top", "x1", "bottom"))
+                            color = rect.get("non_stroking_color")
+                            if color and color != 1 and color != (1, 1, 1):
+                                # If cell is inside or mostly inside the rect
+                                if rx0-1 <= cx0 and cx1 <= rx1+1 and rtop-1 <= ctop and cbottom <= rbottom+1:
+                                    cell_text = page.within_bbox(cell_bbox).extract_text()
+                                    if cell_text:
+                                        extracted[row_index][column_index] = cell_text
+                                    break
+
+        boundaries = sorted({
+            round(float(x), 3)
+            for row in table.rows
+            for cell in row.cells if cell is not None
+            for x in (cell[0], cell[2])
+        })
+        rows: list[dict[str, Any]] = []
+        for row_index, row in enumerate(table.rows):
+            values = extracted[row_index] if row_index < len(extracted) else []
+            cells: list[dict[str, Any]] = []
+            for column_index, bbox in enumerate(row.cells):
+                text = values[column_index] if column_index < len(values) else None
+                if bbox is None:
+                    continue
+                x0, top, x1, bottom = (float(value) for value in bbox)
+                start_column = min(range(len(boundaries)), key=lambda i: abs(boundaries[i] - x0))
+                end_column = min(range(len(boundaries)), key=lambda i: abs(boundaries[i] - x1))
+                cells.append({
+                    "column": start_column + 1,
+                    "colspan": max(1, end_column - start_column),
+                    "rowspan": 1,
+                    "x": x0,
+                    "y": top,
+                    "width": x1 - x0,
+                    "height": bottom - top,
+                    "text": text or "",
+                })
+
+                # A blank cell beside a labelled cell is the characteristic
+                # layout of registration forms such as the UEPG example.
+                if text in ("", None):
+                    labels = [
+                        str(value).strip()
+                        for value in values[:column_index]
+                        if value is not None and str(value).strip()
+                    ]
+                    if labels:
+                        label = " ".join(labels)
+                        padding = 2.0
+                        fields.append(Field(
+                            slug(label), label, infer_type(label, x1 - x0, bottom - top),
+                            page_no, x0 + padding, top + padding,
+                            max(1, x1 - x0 - 2 * padding), max(1, bottom - top - 2 * padding),
+                            "table",
+                        ))
+
+                cell_words = [
+                    word for word in words
+                    if float(word["x0"]) >= x0 - 1 and float(word["x1"]) <= x1 + 1
+                    and float(word["top"]) >= top - 1 and float(word["bottom"]) <= bottom + 1
+                ]
+                word_lines: list[list[dict[str, Any]]] = []
+                for word in sorted(cell_words, key=lambda item: (float(item["top"]), float(item["x0"]))):
+                    if not word_lines or abs(float(word["top"]) - float(word_lines[-1][0]["top"])) > 2.5:
+                        word_lines.append([word])
+                    else:
+                        word_lines[-1].append(word)
+
+                for line_index, line_words in enumerate(word_lines):
+                    tokens = [str(word["text"]) for word in line_words]
+                    # Parenthesized blanks in option lists are visual checkboxes.
+                    if "(" in tokens and ")" in tokens:
+                        open_index, close_index = tokens.index("("), tokens.index(")")
+                        if close_index > open_index:
+                            label = " ".join(tokens[:open_index]).strip(" :-")
+                            if label:
+                                left = float(line_words[open_index]["x0"])
+                                right = float(line_words[close_index]["x1"])
+                                line_top = min(float(word["top"]) for word in line_words)
+                                line_bottom = max(float(word["bottom"]) for word in line_words)
+                                fields.append(Field(
+                                    slug(label), label, "checkbox", page_no,
+                                    left, line_top, max(8, right - left), max(8, line_bottom - line_top),
+                                    "table",
+                                ))
+
+                    # Labels ending in ':' inside a tall/merged cell describe
+                    # independent writing areas even though no inner borders exist.
+                    if not tokens or not tokens[-1].endswith(":"):
+                        continue
+                    label = " ".join(tokens).rstrip(" :").strip()
+                    field_x = max(float(word["x1"]) for word in line_words) + 6
+                    if x1 - field_x < 45:
+                        continue
+                    band_top = max(top, float(line_words[0]["top"]) - 2)
+                    next_top = (
+                        float(word_lines[line_index + 1][0]["top"]) - 2
+                        if line_index + 1 < len(word_lines) else bottom - 2
+                    )
+                    band_height = next_top - band_top
+                    type_height = band_height if band_height > 34 else min(20, band_height)
+                    fields.append(Field(
+                        slug(label), label, infer_type(label, x1 - field_x, type_height),
+                        page_no, field_x, band_top,
+                        max(1, x1 - field_x - 3), max(10, band_height),
+                        "table",
+                    ))
+            rows.append({"index": row_index + 1, "cells": cells})
+        x0, top, x1, bottom = (float(value) for value in table.bbox)
+        layouts.append({
+            "id": f"page-{page_no}-table-{table_index}",
+            "page": page_no,
+            "x": x0,
+            "y": top,
+            "width": x1 - x0,
+            "height": bottom - top,
+            "row_count": len(rows),
+            "column_count": max(0, len(boundaries) - 1),
+            "rows": rows,
+        })
+    return layouts, fields
+
+
+def image_key(name: str) -> str:
+    """Return the PDF XObject name shared by pypdf and pdfplumber."""
+    return Path(str(name)).stem
+
+
+def extract_images(pdf_path: Path, output: Path) -> dict[int, dict[str, Path]]:
     assets = output / "assets"
     assets.mkdir(parents=True, exist_ok=True)
     reader = PdfReader(str(pdf_path))
-    extracted: dict[int, list[Path]] = {}
+    extracted: dict[int, dict[str, Path]] = {}
+    fingerprints: dict[str, Path] = {}
     for page_no, page in enumerate(reader.pages, 1):
         for index, image in enumerate(page.images, 1):
-            suffix = Path(image.name).suffix or ".png"
-            target = assets / f"page-{page_no}-image-{index}{suffix}"
-            target.write_bytes(image.data)
-            extracted.setdefault(page_no, []).append(target)
+            key = image_key(image.name) or f"image-{index}"
+            data_hash = hashlib.md5(image.data).hexdigest()
+            if data_hash in fingerprints:
+                extracted.setdefault(page_no, {})[key] = fingerprints[data_hash]
+                continue
+
+            safe_key = re.sub(r"[^A-Za-z0-9_-]+", "-", key)
+            target = assets / f"img-{data_hash[:12]}-{safe_key}.png"
+            try:
+                img = Image.open(io.BytesIO(image.data))
+                img.save(target, "PNG")
+                extracted.setdefault(page_no, {})[key] = target
+                fingerprints[data_hash] = target
+            except Exception:
+                # Fallback to raw save if Pillow fails, though PNG is safer for web
+                suffix = Path(image.name).suffix or ".png"
+                target = target.with_suffix(suffix)
+                target.write_bytes(image.data)
+                extracted.setdefault(page_no, {})[key] = target
+                fingerprints[data_hash] = target
     return extracted
 
 
-def render_field(field: Field) -> str:
-    style = f"left:{n(field.x)}px;top:{n(field.y)}px;width:{n(field.width)}px;height:{n(field.height)}px"
-    common = f'class="form-field" style="{style}" name="{html.escape(field.name)}" aria-label="{html.escape(field.label)}"'
-    if field.type == "textarea":
-        return f"<textarea {common}></textarea>"
-    if field.type == "select":
-        return f"<select {common}><option value=\"\">Selecione</option></select>"
-    if field.type == "checkbox":
-        return f"<input {common} type=\"checkbox\">"
-    return f"<input {common} type=\"{field.type}\">"
-
-
-def convert(pdf_path: str | Path, output_dir: str | Path) -> Path:
+def convert(pdf_path: str | Path, output_dir: str | Path, table_detector: Any | None = None) -> Path:
     pdf_path, output = Path(pdf_path), Path(output_dir)
     if output.exists():
         shutil.rmtree(output)
@@ -177,13 +358,32 @@ def convert(pdf_path: str | Path, output_dir: str | Path) -> Path:
     native = acro_fields(reader)
     images = extract_images(pdf_path, output)
     all_fields: list[Field] = []
+    all_tables: list[dict[str, Any]] = []
+    page_sizes: list[dict[str, Any]] = []
     pages_html: list[str] = []
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page_no, page in enumerate(pdf.pages, 1):
+            page_width, page_height = float(page.width), float(page.height)
+            page_sizes.append({
+                "page": page_no,
+                "width": page_width,
+                "height": page_height,
+                "unit": "pt",
+                "aspect_ratio": page_width / page_height,
+                "orientation": "landscape" if page_width > page_height else "portrait",
+            })
             words = page.extract_words(extra_attrs=["fontname", "size"], keep_blank_chars=False)
             fields = native.get(page_no, [])
-            fields += inferred_fields(page, page_no, words, fields)
+            layouts, table_fields = table_layouts(page, page_no, words)
+            all_tables.extend(layouts)
+            fields += table_fields
+
+            table_bboxes = [
+                (table["x"], table["y"], table["x"] + table["width"], table["y"] + table["height"])
+                for table in layouts
+            ]
+            fields += inferred_fields(page, page_no, words, fields, table_bboxes)
             # Keep names unique across repeated labels.
             used = {f.name for f in all_fields}
             for field in fields:
@@ -191,25 +391,21 @@ def convert(pdf_path: str | Path, output_dir: str | Path) -> Path:
                 while field.name in used:
                     field.name = f"{base}_{counter}"; counter += 1
                 used.add(field.name)
+                field.href = f"index.html#{field.name}"
             all_fields.extend(fields)
 
             elements: list[str] = []
-            for word in words:
-                font = html.escape(str(word.get("fontname", "Arial")).split("+")[-1])
-                style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif"
-                elements.append(f'<span class="pdf-text" style="{style}">{html.escape(word["text"])}</span>')
+
+            for rect in page.rects:
+                stroke = css_color(rect.get("stroking_color"), "transparent")
+                fill = css_color(rect.get("non_stroking_color"), "transparent") if rect.get("fill") else "transparent"
+                elements.append(f'<div class="pdf-rect" style="left:{n(rect["x0"])}px;top:{n(rect["top"])}px;width:{n(rect["width"])}px;height:{n(rect["height"])}px;border-color:{stroke};background:{fill}"></div>')
             for line in page.lines:
                 x, top = float(line["x0"]), float(line["top"])
                 w = max(1, float(line["x1"])-x)
                 h = max(1, float(line["bottom"])-top)
                 color = css_color(line.get("stroking_color"))
                 elements.append(f'<div class="pdf-line" style="left:{n(x)}px;top:{n(top)}px;width:{n(w)}px;height:{n(h)}px;border-color:{color}"></div>')
-            for rect in page.rects:
-                stroke = css_color(rect.get("stroking_color"), "transparent")
-                fill = css_color(rect.get("non_stroking_color"), "transparent") if rect.get("fill") else "transparent"
-                elements.append(f'<div class="pdf-rect" style="left:{n(rect["x0"])}px;top:{n(rect["top"])}px;width:{n(rect["width"])}px;height:{n(rect["height"])}px;border-color:{stroke};background:{fill}"></div>')
-            # Curves and arbitrary vector paths remain editable browser vectors (SVG),
-            # never a rasterized page fallback.
             for curve in page.curves:
                 points = curve.get("pts") or []
                 if len(points) < 2:
@@ -218,36 +414,154 @@ def convert(pdf_path: str | Path, output_dir: str | Path) -> Path:
                 stroke = css_color(curve.get("stroking_color"), "#111")
                 fill = css_color(curve.get("non_stroking_color"), "transparent") if curve.get("fill") else "none"
                 elements.append(f'<svg class="pdf-vector" viewBox="0 0 {n(page.width)} {n(page.height)}" aria-hidden="true"><polyline points="{coords}" stroke="{stroke}" fill="{fill}" stroke-width="{n(curve.get("linewidth", 1) or 1)}"/></svg>')
-            # Map extracted images to placement objects in content-stream order.
-            for idx, image_obj in enumerate(page.images):
-                page_assets = images.get(page_no, [])
-                if idx >= len(page_assets):
+            for image_obj in page.images:
+                page_assets = images.get(page_no, {})
+                key = image_key(str(image_obj.get("name", "")))
+                asset = page_assets.get(key)
+                if asset is None:
+                    index_key = f"image-{page.images.index(image_obj) + 1}"
+                    asset = page_assets.get(index_key)
+                if asset is None:
                     continue
-                rel = page_assets[idx].relative_to(output).as_posix()
-                elements.append(f'<img class="pdf-image" src="{html.escape(rel)}" alt="Imagem extraida do PDF" style="left:{n(image_obj["x0"])}px;top:{n(image_obj["top"])}px;width:{n(image_obj["width"])}px;height:{n(image_obj["height"])}px">')
-            elements.extend(render_field(field) for field in fields)
-            pages_html.append(f'<section class="pdf-page" data-page="{page_no}" style="width:{n(page.width)}px;height:{n(page.height)}px">{"".join(elements)}</section>')
+                rel = asset.relative_to(output).as_posix()
+                elements.append(f'<img class="pdf-image" data-pdf-image="{html.escape(key)}" src="{html.escape(rel)}" alt="Imagem extraida do PDF" style="left:{n(image_obj["x0"])}px;top:{n(image_obj["top"])}px;width:{n(image_obj["width"])}px;height:{n(image_obj["height"])}px">')
+
+            for layout in layouts:
+                table_html = [f'<table class="pdf-table" id="{layout["id"]}" style="left:{n(layout["x"])}px;top:{n(layout["y"])}px;width:{n(layout["width"])}px;height:{n(layout["height"])}px">']
+                for row in layout["rows"]:
+                    table_html.append('<tr>')
+                    for cell in row["cells"]:
+                        style = f'width:{n(cell["width"])}px;height:{n(cell["height"])}px;'
+                        colspan = f' colspan="{cell["colspan"]}"' if cell["colspan"] > 1 else ""
+                        rowspan = f' rowspan="{cell["rowspan"]}"' if cell["rowspan"] > 1 else ""
+                        content = html.escape(cell["text"]).replace("\n", "<br>")
+                        table_html.append(f'<td{colspan}{rowspan} style="{style}">{content}</td>')
+                    table_html.append('</tr>')
+                table_html.append('</table>')
+                elements.append("".join(table_html))
+
+            for field in fields:
+                style = f"left:{n(field.x)}px;top:{n(field.y)}px;width:{n(field.width)}px;height:{n(field.height)}px"
+                elements.append(f'<a href="#{html.escape(field.name)}" class="pdf-field" id="{html.escape(field.name)}" data-name="{html.escape(field.name)}" data-type="{field.type}" style="{style}" title="{html.escape(field.label)}"></a>')
+
+            for word in words:
+                font = html.escape(str(word.get("fontname", "Arial")).split("+")[-1])
+                style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif"
+                elements.append(f'<span class="pdf-text" style="{style}">{html.escape(word["text"])}</span>')
+            pages_html.append(
+                f'<div class="pdf-page-shell" id="page-{page_no}" data-page="{page_no}" '
+                f'data-page-width="{n(page_width)}" data-page-height="{n(page_height)}" '
+                f'style="--page-width:{n(page_width)};--page-height:{n(page_height)};'
+                f'--page-width-px:{n(page_width)}px;--page-height-px:{n(page_height)}px;max-width:{n(page_width)}px">'
+                f'<section class="pdf-page" data-page="{page_no}" style="width:{n(page_width)}px;height:{n(page_height)}px">'
+                f'{"".join(elements)}</section></div>'
+            )
+
+    neural_tables: list[dict[str, Any]] = []
+    if table_detector:
+        try:
+            neural_tables = table_detector.detect(pdf_path)
+        except Exception:
+            pass
+
+    if neural_tables:
+        pages_with_tables: dict[int, list[dict[str, Any]]] = {}
+        for table in neural_tables:
+            try:
+                p = int(table["page"])
+                if p >= 1:
+                    pages_with_tables.setdefault(p, []).append(table)
+            except (KeyError, ValueError, TypeError):
+                continue
+
+        for p, p_tables in pages_with_tables.items():
+            if p > len(pages_html):
+                continue
+            overlays = []
+            for table in p_tables:
+                confidence = float(table.get("confidence", 0))
+                rows = int(table.get("row_count", 0))
+                cols = int(table.get("column_count", 0))
+                label = f"Tabela neural {confidence:.0%}, {rows} linhas, {cols} colunas"
+                table_id = html.escape(str(table.get("id", "neural-table")), quote=True)
+                rendered_lines = []
+                for line_index, line in enumerate(table.get("lines", []), 1):
+                    try:
+                        lx, ly = float(line["x"]), float(line["y"])
+                        lw, lh = float(line.get("width", 0)), float(line.get("height", 0))
+                        line_thickness = max(.25, float(line.get("line_width", .5)))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    color = str(line.get("color", "#000000"))
+                    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color) or not all(math.isfinite(v) for v in (lx, ly, lw, lh, line_thickness)):
+                        continue
+                    css_w = lw if lw > 0 else line_thickness
+                    css_h = lh if lh > 0 else line_thickness
+                    rendered_lines.append(
+                        f'<div class="neural-table-line" data-neural-line="{line_index}" '
+                        f'style="left:{lx:.2f}px;top:{ly:.2f}px;width:{css_w:.2f}px;'
+                        f'height:{css_h:.2f}px;background:{color}"></div>'
+                    )
+                overlays.append(
+                    f'<div class="neural-table-structure" data-neural-table="{table_id}" '
+                    f'aria-label="{html.escape(label, quote=True)}" title="{html.escape(label, quote=True)}">'
+                    f'{"".join(rendered_lines)}</div>'
+                )
+            
+            marker = f' data-page="{p}"'
+            page_html = pages_html[p-1]
+            insert_at = page_html.find("</section>")
+            if insert_at > 0:
+                pages_html[p-1] = page_html[:insert_at] + "".join(overlays) + page_html[insert_at:]
 
     title = html.escape(pdf_path.stem)
     document = f'''<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title><style>
-:root{{--page-shadow:0 2px 18px #0002}}*{{box-sizing:border-box}}body{{margin:0;background:#e8ebef;font-family:Arial,sans-serif}}
-.document{{padding:24px;display:flex;flex-direction:column;align-items:center;gap:24px}}.pdf-page{{position:relative;overflow:hidden;background:white;box-shadow:var(--page-shadow)}}
-.pdf-text,.pdf-image,.pdf-line,.pdf-rect,.pdf-vector,.form-field{{position:absolute}}.pdf-text{{white-space:pre;line-height:1;transform-origin:top left;color:#111}}.pdf-vector{{inset:0;width:100%;height:100%;pointer-events:none}}
+:root{{--page-shadow:0 2px 18px #0002}}*{{box-sizing:border-box}}html{{scroll-behavior:smooth}}body{{margin:0;background:#e8ebef;font-family:Arial,sans-serif}}
+.document{{padding:24px;display:flex;flex-direction:column;align-items:center;gap:24px;width:100%}}
+.pdf-page-shell{{position:relative;width:100%;aspect-ratio:var(--page-width) / var(--page-height)}}
+.pdf-page{{position:absolute;inset:0;overflow:hidden;background:white;box-shadow:var(--page-shadow);transform:scale(var(--page-scale,1));transform-origin:top left}}
+.pdf-text,.pdf-image,.pdf-line,.pdf-rect,.pdf-vector{{position:absolute}}.pdf-text{{white-space:pre;line-height:1;transform-origin:top left;color:#111}}.pdf-vector{{inset:0;width:100%;height:100%;pointer-events:none}}
 .pdf-line{{border-top:1px solid #111;pointer-events:none}}.pdf-rect{{border:1px solid #111;pointer-events:none}}.pdf-image{{object-fit:fill}}
-.form-field{{z-index:5;border:1px solid #3979d6;background:#fff8;padding:1px 3px;font:inherit;min-width:12px;min-height:12px}}input[type=checkbox].form-field{{padding:0}}
-@media print{{body{{background:#fff}}.document{{padding:0;gap:0}}.pdf-page{{box-shadow:none;break-after:page}}.form-field{{border-color:transparent;background:transparent}}}}
-</style></head><body><main class="document">{"".join(pages_html)}</main></body></html>'''
+.pdf-field{{position:absolute;z-index:25;border:1px solid rgba(255,0,0,0.2);background:rgba(255,0,0,0.05);scroll-margin-top:24px}}
+.pdf-field:hover{{border-color:#ff4444;background:rgba(255,0,0,0.1);cursor:pointer}}
+.pdf-field:target{{border-color:#ff4444;background:rgba(255,0,0,0.15);box-shadow:0 0 0 2px #ff444433}}
+.pdf-table{{position:absolute;border-collapse:collapse;z-index:20}}.pdf-table td{{border:1px solid transparent;padding:0;vertical-align:top;color:transparent;user-select:none}}
+.neural-table-structure{{display:contents}}.neural-table-line{{position:absolute;z-index:30;pointer-events:none}}
+@media print{{body{{background:#fff}}.document{{padding:0;gap:0}}.pdf-page-shell{{width:var(--page-width-px);max-width:none;height:var(--page-height-px);aspect-ratio:auto;break-after:page}}.pdf-page{{--page-scale:1;box-shadow:none}}}}
+</style></head><body><main class="document">{"".join(pages_html)}</main><script>
+const resizePages=()=>document.querySelectorAll('.pdf-page-shell').forEach(shell=>{{
+  const width=Number(shell.dataset.pageWidth);
+  const page=shell.querySelector('.pdf-page');
+  // clientWidth rounds fractional PDF dimensions (for example 842.5 to 843),
+  // which can make landscape pages slightly larger than their shell and clip
+  // the right/bottom edges. DOMRect preserves the subpixel width.
+  const renderedWidth=shell.getBoundingClientRect().width;
+  page.style.setProperty('--page-scale',String(Math.min(1,renderedWidth/width)));
+}});
+new ResizeObserver(resizePages).observe(document.querySelector('.document'));
+resizePages();
+</script></body></html>'''
     (output / "index.html").write_text(document, encoding="utf-8")
     (output / "fields.json").write_text(json.dumps([asdict(f) for f in all_fields], ensure_ascii=False, indent=2), encoding="utf-8")
+    (output / "tables.json").write_text(json.dumps(all_tables, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output / "pages.json").write_text(json.dumps(page_sizes, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output / "neural-tables.json").write_text(json.dumps(neural_tables, ensure_ascii=False, indent=2), encoding="utf-8")
     return output
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Converte PDF de formulario em HTML editavel")
+    parser = argparse.ArgumentParser(description="Converte PDF em HTML fiel e extrai o mapeamento de campos em JSON")
     parser.add_argument("pdf")
     parser.add_argument("-o", "--output", default="output/pdf-html")
+    parser.add_argument("-m", "--model", help="Caminho para o modelo de deteccao de tabelas neurais")
     args = parser.parse_args()
-    result = convert(args.pdf, args.output)
+
+    table_detector = None
+    if args.model:
+        from neural_table_detector import TableDetector
+        table_detector = TableDetector(Path(args.model))
+
+    result = convert(args.pdf, args.output, table_detector=table_detector)
     print(result / "index.html")

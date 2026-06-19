@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import html
 import ipaddress
 import logging
 import mimetypes
+import math
 import os
 import re
 import socket
 import shutil
+import threading
 import time
 import urllib.parse
 import urllib.error
@@ -19,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from converter import convert
+from neural_table_detector import DEFAULT_THRESHOLD, TableDetector
 
 ROOT = Path(__file__).parent.resolve()
 JOBS = ROOT / "output" / "jobs"
@@ -27,9 +31,16 @@ MAX_PDF_SIZE = 30 * 1024 * 1024
 MAX_JSON_SIZE = 64 * 1024
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 WORKERS = int(os.environ.get("PDF_WORKERS", "2"))
+TABLE_MODEL = Path(os.environ.get("TABLE_MODEL", ROOT / "models" / "uepg_table_detector.pt"))
+NEURAL_THRESHOLD = float(os.environ.get("NEURAL_THRESHOLD", str(DEFAULT_THRESHOLD)))
+NEURAL_MIN_CONFIDENCE = float(os.environ.get("NEURAL_MIN_CONFIDENCE", "0.65"))
+NEURAL_ENABLED = os.environ.get("NEURAL_ENABLED", "true").lower() not in ("0", "false", "no")
+NEURAL_REQUIRED = os.environ.get("NEURAL_REQUIRED", "false").lower() in ("1", "true", "yes")
 EXECUTOR = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="pdf-job")
 LOGGER = logging.getLogger("pdf-neural")
 JOBS.mkdir(parents=True, exist_ok=True)
+_TABLE_DETECTOR: TableDetector | None = None
+_TABLE_DETECTOR_LOCK = threading.Lock()
 
 
 def write_json(path: Path, value: object) -> None:
@@ -37,6 +48,42 @@ def write_json(path: Path, value: object) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+
+
+def get_table_detector() -> TableDetector | None:
+    """Carrega o checkpoint uma unica vez, na primeira conversao."""
+    global _TABLE_DETECTOR
+    if not NEURAL_ENABLED:
+        return None
+    if _TABLE_DETECTOR is None:
+        with _TABLE_DETECTOR_LOCK:
+            if _TABLE_DETECTOR is None:
+                if not TABLE_MODEL.is_file():
+                    raise FileNotFoundError(f"Modelo neural nao encontrado: {TABLE_MODEL}")
+                _TABLE_DETECTOR = TableDetector(TABLE_MODEL, NEURAL_THRESHOLD, NEURAL_MIN_CONFIDENCE)
+                LOGGER.info("Modelo neural carregado: %s", TABLE_MODEL)
+    return _TABLE_DETECTOR
+
+
+def render_neural_tables(result: Path, tables: list[dict]) -> None:
+    """Projeta a grade detectada nas paginas HTML usando as cores de origem.
+    
+    Nota: Esta funcao agora e um no-op pois a renderizacao foi movida para converter.py.
+    Mantida para compatibilidade se chamada externamente.
+    """
+    pass
+
+
+def run_neural_detection(source: Path, result: Path) -> list[dict]:
+    """Detecta tabelas e garante que neural-tables.json exista para o ZIP."""
+    output = result / "neural-tables.json"
+    if output.is_file():
+        try:
+            return json.loads(output.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    write_json(output, [])
+    return []
 
 
 def job_urls(job: str, base_url: str) -> dict[str, str]:
@@ -153,14 +200,16 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
             raise ValueError("O conteudo recebido nao e um PDF valido")
         source = work / (Path(name).stem + ".pdf")
         source.write_bytes(data)
-        result = convert(source, work / "html")
+        result = convert(source, work / "html", table_detector=get_table_detector())
+        neural_tables = run_neural_detection(source, result)
         archive = work / "resultado.zip"
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in result.rglob("*"):
                 if file.is_file():
                     zf.write(file, file.relative_to(result))
         fields = json.loads((result / "fields.json").read_text(encoding="utf-8"))
-        payload = {**common, "status": "completed", "result": {"fields": fields, **job_urls(job, base_url)}}
+        tables = json.loads((result / "tables.json").read_text(encoding="utf-8"))
+        payload = {**common, "status": "completed", "result": {"fields": fields, "tables": tables, "neural_tables": neural_tables, **job_urls(job, base_url)}}
         write_json(status_file, payload)
     except Exception as exc:
         payload = {**common, "status": "failed", "error": str(exc)}
@@ -260,13 +309,15 @@ class Handler(BaseHTTPRequestHandler):
             job = uuid.uuid4().hex
             work = JOBS / job; work.mkdir()
             source = work / (Path(name).stem + ".pdf"); source.write_bytes(data)
-            result = convert(source, work / "html")
+            result = convert(source, work / "html", table_detector=get_table_detector())
+            neural_tables = run_neural_detection(source, result)
             archive = work / "resultado.zip"
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
                 for file in result.rglob("*"):
                     if file.is_file(): zf.write(file, file.relative_to(result))
             fields = json.loads((result / "fields.json").read_text(encoding="utf-8"))
-            payload = json.dumps({"preview": f"/jobs/{job}/html/index.html", "download": f"/jobs/{job}/resultado.zip", "fields": fields}).encode()
+            tables = json.loads((result / "tables.json").read_text(encoding="utf-8"))
+            payload = json.dumps({"preview": f"/jobs/{job}/html/index.html", "download": f"/jobs/{job}/resultado.zip", "fields": fields, "tables": tables, "neural_tables": neural_tables}).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload)
         except Exception as exc:
             payload = json.dumps({"error": str(exc)}).encode()

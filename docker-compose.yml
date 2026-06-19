@@ -9,6 +9,10 @@ services:
       PORT: 8000
       PDF_WORKERS: ${PDF_WORKERS:-2}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      TABLE_MODEL: ${TABLE_MODEL:-/app/models/uepg_table_detector.pt}
+      NEURAL_THRESHOLD: ${NEURAL_THRESHOLD:-0.7}
+      NEURAL_MIN_CONFIDENCE: ${NEURAL_MIN_CONFIDENCE:-0.65}
+      NEURAL_REQUIRED: ${NEURAL_REQUIRED:-true}
     expose:
       - "8000"
     volumes:
