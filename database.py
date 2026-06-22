@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import re
 import os
 import hashlib
 import uuid
@@ -23,6 +25,8 @@ class Database:
         self.jobs = None
         self.tenants = None
         self.groups = None
+        self.categories = None
+        self.user_access = None
         
         if self.uri:
             LOGGER.info("Conectando ao MongoDB...")
@@ -40,17 +44,34 @@ class Database:
                 self.jobs = self.db.get_collection("jobs")
                 self.tenants = self.db.get_collection("tenants")
                 self.groups = self.db.get_collection("tenant_groups")
+                self.categories = self.db.get_collection("document_categories")
+                self.user_access = self.db.get_collection("user_access")
                 self.documents.create_index("document_id", unique=True, sparse=True)
                 self.versions.create_index([("document_id", 1), ("version", 1)], unique=True)
                 self.versions.create_index("job_id", unique=True)
                 self.tenants.create_index("tenant_id", unique=True)
                 self.groups.create_index([("tenant_id", 1), ("group_id", 1)], unique=True)
+                category_indexes = self.categories.index_information()
+                for legacy_name in ("tenant_id_1_category_id_1", "tenant_id_1_name_1"):
+                    if legacy_name in category_indexes:
+                        self.categories.drop_index(legacy_name)
+                self.categories.create_index(
+                    [("tenant_id", 1), ("group_id", 1), ("category_id", 1)], unique=True
+                )
+                self.categories.create_index(
+                    [("tenant_id", 1), ("group_id", 1), ("name", 1)], unique=True
+                )
+                self.user_access.create_index(
+                    [("subject", 1), ("tenant_id", 1), ("group_id", 1)], unique=True
+                )
+                self.user_access.create_index([("subject", 1), ("tenant_id", 1)])
                 self.documents.create_index([("tenant_id", 1), ("group_id", 1), ("updated_at", -1)])
+                self.documents.create_index([("tenant_id", 1), ("category_id", 1), ("updated_at", -1)])
                 LOGGER.info("Conexão com MongoDB estabelecida com sucesso")
             except Exception as exc:
                 LOGGER.error("Falha ao conectar no MongoDB: %s", str(exc))
                 self.client = None
-                self.db = self.documents = self.versions = self.jobs = self.tenants = self.groups = None
+                self.db = self.documents = self.versions = self.jobs = self.tenants = self.groups = self.categories = self.user_access = None
         else:
             LOGGER.warning("MONGO_URI não configurada. Operações de banco de dados serão ignoradas.")
 
@@ -120,12 +141,95 @@ class Database:
             return []
         return list(self.groups.find({"tenant_id": tenant_id}).sort("name", 1))
 
+    def create_category(
+        self, tenant_id: str, group_id: str, name: str, metadata: dict | None = None,
+    ) -> dict | None:
+        if not self.group_belongs_to_tenant(tenant_id, group_id):
+            return None
+        now = datetime.utcnow()
+        category = {
+            "tenant_id": tenant_id, "group_id": group_id,
+            "category_id": uuid.uuid4().hex, "name": name,
+            "metadata": metadata or {}, "created_at": now, "updated_at": now,
+        }
+        self.categories.insert_one(category)
+        return category
+
+    def list_categories(self, tenant_id: str, group_id: str) -> list[dict]:
+        if not self.is_available():
+            return []
+        return list(self.categories.find(
+            {"tenant_id": tenant_id, "group_id": group_id}
+        ).sort("name", 1))
+
+    def category_belongs_to_group(
+        self, tenant_id: str, group_id: str | None, category_id: str | None,
+    ) -> bool:
+        return not category_id or self.categories.find_one(
+            {"tenant_id": tenant_id, "group_id": group_id, "category_id": category_id}
+        ) is not None
+
     def group_belongs_to_tenant(self, tenant_id: str, group_id: str) -> bool:
         if not tenant_id:
             return False
         if not group_id:
             return self.tenants.find_one({"tenant_id": tenant_id}) is not None
         return self.groups.find_one({"tenant_id": tenant_id, "group_id": group_id}) is not None
+
+    def grant_user_access(
+        self, subject: str, tenant_id: str, group_id: str | None = None,
+        permission: str = "reader", username: str | None = None,
+    ) -> dict | None:
+        if permission not in ("reader", "editor") or not self.group_belongs_to_tenant(tenant_id, group_id):
+            return None
+        now = datetime.utcnow()
+        key = {"subject": subject, "tenant_id": tenant_id, "group_id": group_id}
+        self.user_access.update_one(
+            key,
+            {"$set": {"permission": permission, "username": username, "updated_at": now},
+             "$setOnInsert": {"created_at": now}},
+            upsert=True,
+        )
+        return {**key, "permission": permission, "username": username}
+
+    def list_user_access(self, subject: str) -> list[dict]:
+        if not self.is_available():
+            return []
+        return list(self.user_access.find({"subject": subject}).sort([("tenant_id", 1), ("group_id", 1)]))
+
+    def revoke_user_access(self, subject: str, tenant_id: str, group_id: str | None = None) -> bool:
+        if not self.is_available():
+            return False
+        return self.user_access.delete_one(
+            {"subject": subject, "tenant_id": tenant_id, "group_id": group_id}
+        ).deleted_count > 0
+
+    def user_has_access(
+        self, subject: str, tenant_id: str, group_id: str | None = None,
+        permission: str = "reader",
+    ) -> bool:
+        if not self.is_available():
+            return False
+        query: dict[str, Any] = {"subject": subject, "tenant_id": tenant_id}
+        if group_id:
+            query["$or"] = [{"group_id": None}, {"group_id": group_id}]
+        else:
+            query["group_id"] = None
+        if permission == "editor":
+            query["permission"] = "editor"
+        return self.user_access.find_one(query) is not None
+
+    def list_tenants_for_user(self, subject: str) -> list[dict]:
+        tenant_ids = self.user_access.distinct("tenant_id", {"subject": subject})
+        return list(self.tenants.find({"tenant_id": {"$in": tenant_ids}}).sort("name", 1))
+
+    def list_groups_for_user(self, subject: str, tenant_id: str) -> list[dict]:
+        if self.user_access.find_one({"subject": subject, "tenant_id": tenant_id, "group_id": None}):
+            return self.list_groups(tenant_id)
+        group_ids = self.user_access.distinct(
+            "group_id", {"subject": subject, "tenant_id": tenant_id, "group_id": {"$ne": None}}
+        )
+        return list(self.groups.find({"tenant_id": tenant_id, "group_id": {"$in": group_ids}}).sort("name", 1))
 
     def save_document(
         self,
@@ -139,6 +243,7 @@ class Database:
         content_hash: str | None = None,
         tenant_id: str | None = None,
         group_id: str | None = None,
+        category_id: str | None = None,
     ):
         """Cria uma versão e atualiza o ponteiro do documento canônico."""
         if not self.is_available():
@@ -155,7 +260,7 @@ class Database:
             {"document_id": document_id},
             {
                 "$setOnInsert": {"document_id": document_id, "content_hash": raw_content_hash, "created_at": now},
-                "$set": {"metadata": metadata, "tenant_id": tenant_id, "group_id": group_id, "updated_at": now},
+                "$set": {"metadata": metadata, "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id, "updated_at": now},
                 "$inc": {"current_version": 1},
             },
             upsert=True,
@@ -168,6 +273,7 @@ class Database:
             "job_id": job_id,
             "version": version_number,
             "is_current": True,
+            "deprecated": False,
             "html_content": html_content,
             "fields": fields,
             "tables": tables,
@@ -177,6 +283,7 @@ class Database:
             "created_at": now,
             "tenant_id": tenant_id,
             "group_id": group_id,
+            "category_id": category_id,
         }
         try:
             self.versions.insert_one(version_doc)
@@ -187,9 +294,10 @@ class Database:
                     "fields": fields, "tables": tables, "pages": pages or [],
                     "neural_tables": neural_tables or [], "is_current": True,
                     "tenant_id": tenant_id, "group_id": group_id,
+                    "category_id": category_id,
                 }},
             )
-            return {"document_id": document_id, "version": version_number, "job_id": job_id, "is_current": True, "tenant_id": tenant_id, "group_id": group_id}
+            return {"document_id": document_id, "version": version_number, "job_id": job_id, "is_current": True, "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id}
         except Exception:
             LOGGER.exception("Erro ao salvar versão do job %s no MongoDB", job_id)
             return None
@@ -236,12 +344,17 @@ class Database:
         if group_id:
             scope["group_id"] = group_id
         if version is not None:
-            return self.versions.find_one({"document_id": identifier, "version": version, **scope})
+            current = self.versions.find_one({"document_id": identifier, "version": version, **scope})
+            if current:
+                current.setdefault("deprecated", False)
+            return current
         current = self.versions.find_one({"job_id": identifier, **scope})
         if current:
+            current.setdefault("deprecated", False)
             return current
         current = self.versions.find_one({"document_id": identifier, "is_current": True, **scope})
         if current:
+            current.setdefault("deprecated", False)
             return current
         return self.documents.find_one({"job_id": identifier, **scope})
 
@@ -262,23 +375,36 @@ class Database:
             query["tenant_id"] = tenant_id
         if group_id:
             query["group_id"] = group_id
-        return list(self.versions.find(query, {"html_content": 0}).sort("version", -1))
+        versions = list(self.versions.find(query, {"html_content": 0}).sort("version", -1))
+        for version in versions:
+            version.setdefault("deprecated", False)
+        return versions
 
-    def set_current_version(self, document_id: str, version: int):
+    def set_current_version(
+        self, document_id: str, version: int,
+        tenant_id: str | None = None, group_id: str | None = None,
+    ):
         """Define uma versão existente como a versão padrão do documento."""
         if not self.is_available():
             return None
-        selected = self.versions.find_one({"document_id": document_id, "version": version})
+        scope = {}
+        if tenant_id:
+            scope["tenant_id"] = tenant_id
+        if group_id:
+            scope["group_id"] = group_id
+        selected = self.versions.find_one({"document_id": document_id, "version": version, **scope})
         if not selected:
             return None
+        if selected.get("deprecated", False):
+            raise ValueError("Uma versao deprecated nao pode ser definida como padrao")
         now = datetime.utcnow()
-        self.versions.update_many({"document_id": document_id}, {"$set": {"is_current": False}})
+        self.versions.update_many({"document_id": document_id, **scope}, {"$set": {"is_current": False}})
         self.versions.update_one(
-            {"document_id": document_id, "version": version},
+            {"document_id": document_id, "version": version, **scope},
             {"$set": {"is_current": True, "selected_as_current_at": now}},
         )
         self.documents.update_one(
-            {"document_id": document_id},
+            {"document_id": document_id, **scope},
             {"$set": {
                 "job_id": selected["job_id"], "current_job_id": selected["job_id"],
                 "current_version": version, "is_current": True,
@@ -290,39 +416,144 @@ class Database:
         )
         return {"document_id": document_id, "version": version, "job_id": selected["job_id"], "is_current": True}
 
-    def update_document_fields(self, job_id: str, fields: list[dict]):
+    def set_version_deprecated(
+        self, document_id: str, version: int, deprecated: bool = True,
+        tenant_id: str | None = None, group_id: str | None = None,
+    ):
+        """Marca ou desmarca uma versao como obsoleta sem apagar seu historico."""
+        if not self.is_available():
+            return None
+        scope = {}
+        if tenant_id:
+            scope["tenant_id"] = tenant_id
+        if group_id:
+            scope["group_id"] = group_id
+        query = {"document_id": document_id, "version": version, **scope}
+        selected = self.versions.find_one(query)
+        if not selected:
+            return None
+        if deprecated and selected.get("is_current"):
+            raise ValueError("A versao padrao nao pode ser marcada como deprecated")
+        now = datetime.utcnow()
+        update = {"deprecated": deprecated, "deprecated_at": now if deprecated else None}
+        self.versions.update_one(query, {"$set": update})
+        return {
+            "document_id": document_id, "version": version,
+            "job_id": selected["job_id"], "is_current": bool(selected.get("is_current")),
+            **update,
+        }
+
+    def update_document_fields(
+        self, job_id: str, fields: list[dict],
+        tenant_id: str | None = None, group_id: str | None = None,
+    ):
         """Persiste a revisao manual dos campos de um documento."""
         if not self.is_available():
             return None
         now = datetime.utcnow()
-        version = self.versions.find_one({"job_id": job_id})
+        scope = {}
+        if tenant_id:
+            scope["tenant_id"] = tenant_id
+        if group_id:
+            scope["group_id"] = group_id
+        version = self.versions.find_one({"job_id": job_id, **scope})
         if not version:
-            return self.documents.update_one({"job_id": job_id}, {"$set": {"fields": fields, "fields_updated_at": now}})
-        result = self.versions.update_one({"job_id": job_id}, {"$set": {"fields": fields, "fields_updated_at": now}})
+            return self.documents.update_one({"job_id": job_id, **scope}, {"$set": {"fields": fields, "fields_updated_at": now}})
+        result = self.versions.update_one({"job_id": job_id, **scope}, {"$set": {"fields": fields, "fields_updated_at": now}})
         if version.get("is_current"):
-            self.documents.update_one({"document_id": version["document_id"]}, {"$set": {"fields": fields, "fields_updated_at": now}})
+            self.documents.update_one({"document_id": version["document_id"], **scope}, {"$set": {"fields": fields, "fields_updated_at": now}})
         return result
 
-    def delete_document(self, identifier: str) -> bool:
+    def update_document_category(
+        self, document_id: str, category_id: str | None,
+        tenant_id: str, group_id: str | None = None,
+    ) -> bool:
+        """Atualiza a categoria no documento canônico, versões e jobs relacionados."""
+        if not self.is_available() or not self.category_belongs_to_group(tenant_id, group_id, category_id):
+            return False
+        scope: dict[str, Any] = {"tenant_id": tenant_id}
+        if group_id:
+            scope["group_id"] = group_id
+        canonical = self.documents.find_one({"document_id": document_id, **scope})
+        if not canonical:
+            return False
+        now = datetime.utcnow()
+        self.documents.update_one(
+            {"document_id": document_id, **scope},
+            {"$set": {"category_id": category_id, "updated_at": now}},
+        )
+        versions = list(self.versions.find({"document_id": document_id, **scope}, {"job_id": 1}))
+        self.versions.update_many(
+            {"document_id": document_id, **scope}, {"$set": {"category_id": category_id}}
+        )
+        job_ids = [item["job_id"] for item in versions if item.get("job_id")]
+        if job_ids:
+            self.jobs.update_many(
+                {"job_id": {"$in": job_ids}, "tenant_id": tenant_id},
+                {"$set": {"category_id": category_id}},
+            )
+        return True
+
+    def rename_document(
+        self, document_id: str, name: str,
+        tenant_id: str, group_id: str | None = None,
+    ) -> bool:
+        """Atualiza o nome visivel do documento e de todos os registros relacionados."""
+        if not self.is_available():
+            return False
+        scope: dict[str, Any] = {"tenant_id": tenant_id}
+        if group_id:
+            scope["group_id"] = group_id
+        canonical = self.documents.find_one({"document_id": document_id, **scope})
+        if not canonical:
+            return False
+        now = datetime.utcnow()
+        self.documents.update_one(
+            {"document_id": document_id, **scope},
+            {"$set": {"metadata.filename": name, "updated_at": now}},
+        )
+        versions = list(self.versions.find(
+            {"document_id": document_id, **scope}, {"job_id": 1}
+        ))
+        self.versions.update_many(
+            {"document_id": document_id, **scope},
+            {"$set": {"metadata.filename": name}},
+        )
+        job_ids = [item["job_id"] for item in versions if item.get("job_id")]
+        if job_ids:
+            self.jobs.update_many(
+                {"job_id": {"$in": job_ids}, "tenant_id": tenant_id},
+                {"$set": {"metadata.filename": name, "updated_at": now}},
+            )
+        return True
+
+    def delete_document(
+        self, identifier: str, tenant_id: str | None = None, group_id: str | None = None,
+    ) -> bool:
         """Remove documento, estado do job e imagens vinculadas."""
         if not self.is_available():
             return False
-        canonical = self.documents.find_one({"document_id": identifier})
+        scope = {}
+        if tenant_id:
+            scope["tenant_id"] = tenant_id
+        if group_id:
+            scope["group_id"] = group_id
+        canonical = self.documents.find_one({"document_id": identifier, **scope})
         if canonical:
-            job_ids = [item["job_id"] for item in self.versions.find({"document_id": identifier}, {"job_id": 1})]
-            self.documents.delete_one({"document_id": identifier})
-            self.versions.delete_many({"document_id": identifier})
+            job_ids = [item["job_id"] for item in self.versions.find({"document_id": identifier, **scope}, {"job_id": 1})]
+            self.documents.delete_one({"document_id": identifier, **scope})
+            self.versions.delete_many({"document_id": identifier, **scope})
             self.jobs.delete_many({"job_id": {"$in": job_ids}})
             self.db.get_collection("images").delete_many({"job_id": {"$in": job_ids}})
             return True
-        deleted = self.documents.delete_one({"job_id": identifier})
+        deleted = self.documents.delete_one({"job_id": identifier, **scope})
         if deleted.deleted_count == 0:
             return False
         self.jobs.delete_one({"job_id": identifier})
         self.db.get_collection("images").delete_many({"job_id": identifier})
         return True
 
-    def list_jobs(self, limit: int = 10, tenant_id: str | None = None, group_id: str | None = None):
+    def list_jobs(self, limit: int = 10, tenant_id: str | None = None, group_id: str | None = None, category_id: str | None = None):
         if not self.is_available():
             return []
         query = {}
@@ -330,17 +561,40 @@ class Database:
             query["tenant_id"] = tenant_id
         if group_id:
             query["group_id"] = group_id
+        if category_id:
+            query["category_id"] = category_id
         return list(self.jobs.find(query).sort("created_at", -1).limit(limit))
 
-    def list_documents(self, limit: int = 10, tenant_id: str | None = None, group_id: str | None = None):
+    def list_documents(
+        self, page: int = 1, page_size: int = 10, tenant_id: str | None = None,
+        group_id: str | None = None, category_id: str | None = None,
+        name: str | None = None,
+    ) -> dict:
         if not self.is_available():
-            return []
+            return {"items": [], "page": page, "page_size": page_size, "total": 0, "total_pages": 0}
         query = {}
         if tenant_id:
             query["tenant_id"] = tenant_id
         if group_id:
             query["group_id"] = group_id
-        return list(self.documents.find(query, {"html_content": 0}).sort("updated_at", -1).limit(limit))
+        if category_id:
+            query["category_id"] = category_id
+        if name:
+            query["metadata.filename"] = {"$regex": re.escape(name), "$options": "i"}
+        total = self.documents.count_documents(query)
+        items = list(
+            self.documents.find(query, {"html_content": 0})
+            .sort("updated_at", -1)
+            .skip((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return {
+            "items": items,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": math.ceil(total / page_size) if total else 0,
+        }
 
 # Instância global para uso no app
 db = Database()

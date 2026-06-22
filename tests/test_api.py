@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import app
+from auth import AuthenticationError, KeycloakAuthenticator
 from converter import ConversionResult
 from database import Database
 
@@ -57,12 +58,51 @@ class AsyncApiTest(unittest.TestCase):
              ("put", "/api/documents/{job_id}/fields"), ("delete", "/api/documents/{document_id}"),
              ("get", "/api/documents/{document_id}/versions"),
              ("get", "/api/documents/{document_id}/versions/{version}"),
-             ("put", "/api/documents/{document_id}/versions/{version}/current")} <= operations
+             ("put", "/api/documents/{document_id}/versions/{version}/current"),
+             ("put", "/api/documents/{document_id}/versions/{version}/deprecated"),
+             ("delete", "/api/documents/{document_id}/versions/{version}/deprecated")} <= operations
         )
         self.assertTrue({("get", "/api/tenants"), ("post", "/api/tenants"),
                          ("get", "/api/tenants/{tenant_id}/groups"),
                          ("post", "/api/tenants/{tenant_id}/groups")} <= operations)
+        self.assertTrue({("get", "/api/tenants/{tenant_id}/groups/{group_id}/categories"),
+                         ("post", "/api/tenants/{tenant_id}/groups/{group_id}/categories"),
+                         ("put", "/api/documents/{document_id}/category"),
+                         ("put", "/api/documents/{document_id}/name")} <= operations)
         self.assertIn("extractionFinished", spec["paths"]["/api/jobs"]["post"]["callbacks"])
+        self.assertEqual(spec["security"], [{"bearerAuth": []}])
+        self.assertIn("bearerAuth", spec["components"]["securitySchemes"])
+        self.assertIn("/api/users/{subject}/access", spec["paths"])
+
+    def test_rejects_missing_bearer_token(self):
+        authenticator = KeycloakAuthenticator()
+        authenticator.enabled = True
+        with self.assertRaisesRegex(AuthenticationError, "Token Bearer ausente"):
+            authenticator.authenticate(None)
+
+    def test_login_page_uses_oidc_pkce_and_hides_application(self):
+        page = (app.STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="login-screen"', page)
+        self.assertIn('id="app-shell" hidden', page)
+        self.assertIn('id="result-document-name"', page)
+        self.assertIn('id="result-category-select"', page)
+        self.assertIn('id="save-document-name"', page)
+        self.assertIn("code_challenge_method:'S256'", page)
+        self.assertIn("grant_type:'authorization_code'", page)
+        self.assertIn("grant_type:'refresh_token'", page)
+        self.assertNotIn('id="access-token"', page)
+
+    def test_user_access_accepts_tenant_wide_or_exact_group(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.user_access = MagicMock()
+        database.user_access.find_one.side_effect = [{"permission": "editor"}, None]
+
+        self.assertTrue(database.user_has_access("subject-1", "a" * 32, "b" * 32, "editor"))
+        self.assertFalse(database.user_has_access("subject-1", "a" * 32, None, "editor"))
+        first_query = database.user_access.find_one.call_args_list[0].args[0]
+        self.assertEqual(first_query["$or"], [{"group_id": None}, {"group_id": "b" * 32}])
+        self.assertEqual(first_query["permission"], "editor")
 
     def test_validates_manually_edited_fields(self):
         fields = app.validate_fields_payload([{
@@ -91,6 +131,11 @@ class AsyncApiTest(unittest.TestCase):
             "tenant_id": ["a" * 32], "group_id": ["b" * 32],
         })
         self.assertEqual(group_id, "b" * 32)
+
+        self.assertIsNone(app.validate_category_query({}))
+        self.assertEqual(app.validate_category_query({"category_id": ["c" * 32]}), "c" * 32)
+        with self.assertRaisesRegex(ValueError, "category_id invalido"):
+            app.validate_category_query({"category_id": ["invalida"]})
 
     def test_openapi_searches_require_tenant_and_make_group_optional(self):
         spec = json.loads((app.STATIC / "openapi.json").read_text())
@@ -166,12 +211,105 @@ class AsyncApiTest(unittest.TestCase):
         database = Database.__new__(Database)
         database.documents = MagicMock()
         database.jobs = MagicMock()
+        database.documents.count_documents.return_value = 0
         database.documents.find.return_value.sort.return_value.limit.return_value = []
 
         database.list_documents(tenant_id="d" * 32, group_id="e" * 32)
 
         database.documents.find.assert_called_once_with(
             {"tenant_id": "d" * 32, "group_id": "e" * 32}, {"html_content": 0}
+        )
+
+    def test_filters_documents_by_category(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.jobs = MagicMock()
+        database.documents.count_documents.return_value = 0
+        database.documents.find.return_value.sort.return_value.limit.return_value = []
+
+        database.list_documents(tenant_id="d" * 32, category_id="f" * 32)
+
+        database.documents.find.assert_called_once_with(
+            {"tenant_id": "d" * 32, "category_id": "f" * 32}, {"html_content": 0}
+        )
+
+    def test_paginates_and_filters_documents_by_name(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.jobs = MagicMock()
+        database.documents.count_documents.return_value = 23
+        cursor = database.documents.find.return_value.sort.return_value
+        cursor.skip.return_value.limit.return_value = [{"document_id": "c" * 64}]
+
+        result = database.list_documents(
+            page=2, page_size=10, tenant_id="d" * 32, name="Ata (final)"
+        )
+
+        expected_query = {
+            "tenant_id": "d" * 32,
+            "metadata.filename": {"$regex": "Ata\\ \\(final\\)", "$options": "i"},
+        }
+        database.documents.count_documents.assert_called_once_with(expected_query)
+        database.documents.find.assert_called_once_with(expected_query, {"html_content": 0})
+        cursor.skip.assert_called_once_with(10)
+        self.assertEqual(result["total_pages"], 3)
+        self.assertEqual(len(result["items"]), 1)
+
+    def test_updates_category_across_document_versions_and_jobs(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.categories = MagicMock()
+        database.categories.find_one.return_value = {"category_id": "f" * 32}
+        database.documents.find_one.return_value = {"document_id": "c" * 64}
+        database.versions.find.return_value = [{"job_id": "b" * 32}]
+
+        updated = database.update_document_category(
+            "c" * 64, "f" * 32, "d" * 32, "e" * 32,
+        )
+
+        self.assertTrue(updated)
+        database.categories.find_one.assert_called_once_with({
+            "tenant_id": "d" * 32, "group_id": "e" * 32, "category_id": "f" * 32,
+        })
+        database.versions.update_many.assert_called_once()
+        database.jobs.update_many.assert_called_once_with(
+            {"job_id": {"$in": ["b" * 32]}, "tenant_id": "d" * 32},
+            {"$set": {"category_id": "f" * 32}},
+        )
+
+    def test_lists_categories_scoped_by_tenant_and_group(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.categories = MagicMock()
+        database.categories.find.return_value.sort.return_value = []
+
+        database.list_categories("d" * 32, "e" * 32)
+
+        database.categories.find.assert_called_once_with(
+            {"tenant_id": "d" * 32, "group_id": "e" * 32}
+        )
+
+    def test_renames_document_across_versions_and_jobs(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        database.documents.find_one.return_value = {"document_id": "c" * 64}
+        database.versions.find.return_value = [{"job_id": "b" * 32}]
+
+        renamed = database.rename_document(
+            "c" * 64, "Novo nome.pdf", "d" * 32, "e" * 32,
+        )
+
+        self.assertTrue(renamed)
+        database.documents.update_one.assert_called_once()
+        database.versions.update_many.assert_called_once()
+        database.jobs.update_many.assert_called_once()
+        self.assertEqual(
+            database.documents.update_one.call_args.args[1]["$set"]["metadata.filename"],
+            "Novo nome.pdf",
         )
 
     def test_fetches_current_document_and_explicit_version(self):
@@ -210,6 +348,43 @@ class AsyncApiTest(unittest.TestCase):
         canonical_update = database.documents.update_one.call_args.args[1]["$set"]
         self.assertEqual(canonical_update["current_version"], 1)
         self.assertEqual(canonical_update["fields"], [{"name": "data"}])
+
+    def test_marks_and_restores_non_current_version_as_deprecated(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        database.versions.find_one.return_value = {
+            "document_id": "c" * 64, "version": 1, "job_id": "b" * 32,
+            "is_current": False,
+        }
+
+        marked = database.set_version_deprecated("c" * 64, 1)
+        restored = database.set_version_deprecated("c" * 64, 1, False)
+
+        self.assertTrue(marked["deprecated"])
+        self.assertFalse(restored["deprecated"])
+        self.assertEqual(database.versions.update_one.call_args_list[0].args[1]["$set"]["deprecated"], True)
+        self.assertEqual(database.versions.update_one.call_args_list[1].args[1]["$set"]["deprecated"], False)
+
+    def test_rejects_deprecating_current_version_or_selecting_deprecated_version(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        database.versions.find_one.return_value = {
+            "document_id": "c" * 64, "version": 1, "job_id": "b" * 32,
+            "is_current": True,
+        }
+        with self.assertRaisesRegex(ValueError, "padrao"):
+            database.set_version_deprecated("c" * 64, 1)
+
+        database.versions.find_one.return_value = {
+            "document_id": "c" * 64, "version": 1, "job_id": "b" * 32,
+            "deprecated": True,
+        }
+        with self.assertRaisesRegex(ValueError, "deprecated"):
+            database.set_current_version("c" * 64, 1)
 
     def test_completed_job_is_persisted_and_sent_to_callback(self):
         with tempfile.TemporaryDirectory() as temp:

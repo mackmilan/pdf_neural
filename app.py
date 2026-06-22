@@ -28,6 +28,8 @@ from dotenv import load_dotenv
 # Carregar variáveis de ambiente do arquivo .env
 load_dotenv()
 
+from auth import AuthenticationError, Identity, authenticator
+
 from converter import ConversionResult, convert
 from database import db
 from neural_table_detector import DEFAULT_THRESHOLD, TableDetector
@@ -211,12 +213,12 @@ def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResu
         return result
 
 
-def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str]:
+def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str]:
     marker = "boundary="
     if marker not in content_type:
         raise ValueError("Requisicao multipart invalida")
     boundary = content_type.split(marker, 1)[1].strip().strip('"').encode()
-    pdf_name, pdf_data, url, tenant_id, group_id = "", b"", "", "", ""
+    pdf_name, pdf_data, url, tenant_id, group_id, category_id = "", b"", "", "", "", ""
     for part in body.split(b"--" + boundary):
         head, sep, data = part.partition(b"\r\n\r\n")
         if not sep:
@@ -232,7 +234,9 @@ def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str
             tenant_id = data.decode("utf-8", "replace").strip()
         elif b'name="group_id"' in head:
             group_id = data.decode("utf-8", "replace").strip()
-    return pdf_name, pdf_data, url, tenant_id, group_id
+        elif b'name="category_id"' in head:
+            category_id = data.decode("utf-8", "replace").strip()
+    return pdf_name, pdf_data, url, tenant_id, group_id, category_id
 
 
 def validate_context_id(value: object, label: str) -> str:
@@ -256,6 +260,11 @@ def validate_search_context(query: dict[str, list[str]]) -> tuple[str, str | Non
     return tenant_id, group_id
 
 
+def validate_category_query(query: dict[str, list[str]]) -> str | None:
+    value = query.get("category_id", [""])[0]
+    return validate_context_id(value, "category_id") if value else None
+
+
 FIELD_TYPES = {"text", "date", "time", "email", "tel", "number", "password", "checkbox", "select", "textarea"}
 
 
@@ -271,6 +280,7 @@ def validate_fields_payload(value: object) -> list[dict]:
         name = str(raw.get("name", "")).strip()[:64]
         label = str(raw.get("label", "")).strip()[:160]
         kind = str(raw.get("type", "text"))
+        mask = str(raw.get("mask", "")).strip()[:80]
         if not name or not re.fullmatch(r"[a-zA-Z0-9_\-]+", name) or name in used_names:
             raise ValueError(f"Nome invalido ou duplicado no campo {index}")
         if not label or kind not in FIELD_TYPES:
@@ -291,6 +301,7 @@ def validate_fields_payload(value: object) -> list[dict]:
             "x": x, "y": y, "width": width, "height": height,
             "source": str(raw.get("source", "manual"))[:32],
             "required": bool(raw.get("required", False)),
+            "mask": mask,
             "href": f"index.html#{name}",
         })
     return fields
@@ -386,9 +397,9 @@ def deliver_callback(callback_url: str, payload: dict) -> None:
     raise RuntimeError(f"Falha ao enviar callback: {error}")
 
 
-def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, base_url: str, tenant_id: str | None = None, group_id: str | None = None) -> None:
+def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, base_url: str, tenant_id: str | None = None, group_id: str | None = None, category_id: str | None = None) -> None:
     LOGGER.info("Iniciando background job: %s", job)
-    common = {"job_id": job, "reference": reference, "tenant_id": tenant_id, "group_id": group_id}
+    common = {"job_id": job, "reference": reference, "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id}
 
     def update_job_status(payload: dict):
         if not db or not db.is_available():
@@ -420,6 +431,7 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
             content_hash=content_hash,
             tenant_id=tenant_id,
             group_id=group_id,
+            category_id=category_id,
         )
         LOGGER.info("Documento salvo no MongoDB para job %s", job)
 
@@ -441,6 +453,8 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
 
 
 class Handler(BaseHTTPRequestHandler):
+    _identity: Identity | None = None
+
     def send_json(self, status: int, value: object) -> None:
         payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -448,6 +462,39 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def authenticate(self) -> Identity | None:
+        if self._identity is not None:
+            return self._identity
+        try:
+            self._identity = authenticator.authenticate(self.headers.get("Authorization"))
+            return self._identity
+        except AuthenticationError as exc:
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Bearer realm="pdf-neural"')
+            payload = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return None
+
+    def require_admin(self, identity: Identity) -> bool:
+        if identity.has_role(authenticator.admin_role):
+            return True
+        self.send_json(403, {"error": "Role pdf-admin necessaria"})
+        return False
+
+    def authorize_context(
+        self, identity: Identity, tenant_id: str, group_id: str | None = None,
+        permission: str = "reader",
+    ) -> bool:
+        if identity.has_role(authenticator.admin_role):
+            return True
+        if db and db.is_available() and db.user_has_access(identity.subject, tenant_id, group_id, permission):
+            return True
+        self.send_json(403, {"error": "Usuario sem acesso ao tenant ou grupo solicitado"})
+        return False
 
     def base_url(self) -> str:
         proto = self.headers.get("X-Forwarded-Proto", "http").split(",", 1)[0].strip()
@@ -476,29 +523,78 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(STATIC / "swagger.html")
         if path == "/openapi.json":
             return self.send_file(STATIC / "openapi.json")
+        if path == "/auth/config":
+            return self.send_json(200, {
+                "issuer": authenticator.issuer,
+                "client_id": authenticator.audience,
+            })
+        identity = self.authenticate()
+        if identity is None:
+            return
+        if path == "/api/me":
+            access = db.list_user_access(identity.subject) if db and db.is_available() else []
+            return self.send_json(200, json_safe({
+                "sub": identity.subject, "username": identity.username,
+                "roles": sorted(identity.roles), "access": access,
+            }))
+        user_match = re.fullmatch(r"/api/users/([^/]+)/access", path)
+        if user_match:
+            if not self.require_admin(identity):
+                return
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            return self.send_json(200, json_safe(db.list_user_access(urllib.parse.unquote(user_match.group(1)))))
         if path == "/api/documents":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
             try:
                 tenant_id, group_id = validate_search_context(query)
+                category_id = validate_category_query(query)
             except ValueError as exc:
                 return self.send_json(400, {"error": str(exc)})
-            docs = db.list_documents(tenant_id=tenant_id, group_id=group_id)
-            return self.send_json(200, json_safe(docs))
+            if category_id and (
+                not group_id or not db.category_belongs_to_group(tenant_id, group_id, category_id)
+            ):
+                return self.send_json(400, {"error": "category_id deve pertencer ao group_id informado"})
+            if not self.authorize_context(identity, tenant_id, group_id):
+                return
+            try:
+                page = int(query.get("page", ["1"])[0])
+                page_size = int(query.get("page_size", ["10"])[0])
+            except (TypeError, ValueError):
+                return self.send_json(400, {"error": "page e page_size devem ser numeros inteiros"})
+            name = query.get("name", [""])[0].strip()
+            if page < 1 or not 1 <= page_size <= 100:
+                return self.send_json(400, {"error": "page deve ser maior que zero e page_size deve estar entre 1 e 100"})
+            if len(name) > 255:
+                return self.send_json(400, {"error": "name deve ter no maximo 255 caracteres"})
+            result = db.list_documents(
+                page=page, page_size=page_size, tenant_id=tenant_id,
+                group_id=group_id, category_id=category_id, name=name or None,
+            )
+            return self.send_json(200, json_safe(result))
 
         if path == "/api/tenants":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            return self.send_json(200, json_safe(db.list_tenants()))
+            tenants = db.list_tenants() if identity.has_role(authenticator.admin_role) else db.list_tenants_for_user(identity.subject)
+            return self.send_json(200, json_safe(tenants))
         
         if path == "/api/jobs":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
             try:
                 tenant_id, group_id = validate_search_context(query)
+                category_id = validate_category_query(query)
             except ValueError as exc:
                 return self.send_json(400, {"error": str(exc)})
-            jobs = db.list_jobs(tenant_id=tenant_id, group_id=group_id)
+            if category_id and (
+                not group_id or not db.category_belongs_to_group(tenant_id, group_id, category_id)
+            ):
+                return self.send_json(400, {"error": "category_id deve pertencer ao group_id informado"})
+            if not self.authorize_context(identity, tenant_id, group_id):
+                return
+            jobs = db.list_jobs(tenant_id=tenant_id, group_id=group_id, category_id=category_id)
             for j in jobs:
                 j["_id"] = str(j["_id"])
                 if "created_at" in j: j["created_at"] = j["created_at"].isoformat()
@@ -509,7 +605,24 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ("api", "tenants") and re.fullmatch(r"[0-9a-f]{32}", parts[2]) and parts[3] == "groups":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            return self.send_json(200, json_safe(db.list_groups(parts[2])))
+            groups = (
+                db.list_groups(parts[2])
+                if identity.has_role(authenticator.admin_role)
+                else db.list_groups_for_user(identity.subject, parts[2])
+            )
+            return self.send_json(200, json_safe(groups))
+        if (
+            len(parts) == 6 and parts[:2] == ("api", "tenants")
+            and re.fullmatch(r"[0-9a-f]{32}", parts[2]) and parts[3] == "groups"
+            and re.fullmatch(r"[0-9a-f]{32}", parts[4]) and parts[5] == "categories"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            if not db.group_belongs_to_tenant(parts[2], parts[4]):
+                return self.send_json(404, {"error": "Grupo nao encontrado no tenant"})
+            if not self.authorize_context(identity, parts[2], parts[4]):
+                return
+            return self.send_json(200, json_safe(db.list_categories(parts[2], parts[4])))
         document_id_pattern = r"(?:[0-9a-f]{32}|[0-9a-f]{64})"
         if len(parts) == 4 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions":
             if not db or not db.is_available():
@@ -518,6 +631,8 @@ class Handler(BaseHTTPRequestHandler):
                 tenant_id, group_id = validate_search_context(query)
             except ValueError as exc:
                 return self.send_json(400, {"error": str(exc)})
+            if not self.authorize_context(identity, tenant_id, group_id):
+                return
             return self.send_json(200, json_safe(db.list_document_versions(parts[2], tenant_id, group_id)))
 
         if len(parts) == 5 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions" and parts[4].isdigit():
@@ -527,6 +642,8 @@ class Handler(BaseHTTPRequestHandler):
                 tenant_id, group_id = validate_search_context(query)
             except ValueError as exc:
                 return self.send_json(400, {"error": str(exc)})
+            if not self.authorize_context(identity, tenant_id, group_id):
+                return
             doc = db.get_document_summary(parts[2], int(parts[4]), tenant_id, group_id)
             return self.send_json(200, json_safe(doc)) if doc else self.send_json(404, {"error": "Versao nao encontrada"})
 
@@ -537,6 +654,8 @@ class Handler(BaseHTTPRequestHandler):
                 tenant_id, group_id = validate_search_context(query)
             except ValueError as exc:
                 return self.send_json(400, {"error": str(exc)})
+            if not self.authorize_context(identity, tenant_id, group_id):
+                return
             doc = db.get_document_summary(parts[2], tenant_id=tenant_id, group_id=group_id)
             if doc:
                 return self.send_json(200, json_safe(doc))
@@ -550,6 +669,8 @@ class Handler(BaseHTTPRequestHandler):
                 tenant_id, group_id = validate_search_context(query)
             except ValueError as exc:
                 return self.send_json(400, {"error": str(exc)})
+            if not self.authorize_context(identity, tenant_id, group_id):
+                return
             job_data = db.get_job(job_id, tenant_id, group_id)
             if job_data:
                 job_data["_id"] = str(job_data["_id"])
@@ -562,7 +683,12 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[2] == "html" and parts[3] == "index.html":
                 if not db or not db.is_available():
                     return self.send_error(503, "Servico de banco de dados indisponivel")
-                doc = db.get_document(job_id)
+                job = db.get_job(job_id)
+                if not job or not job.get("tenant_id"):
+                    return self.send_error(404, "Documento nao encontrado")
+                if not self.authorize_context(identity, job["tenant_id"], job.get("group_id")):
+                    return
+                doc = db.get_document(job_id, tenant_id=job["tenant_id"], group_id=job.get("group_id"))
                 if not doc or "html_content" not in doc:
                     return self.send_error(404, "Documento nao encontrado")
                 content = doc["html_content"].encode("utf-8")
@@ -576,8 +702,97 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_PUT(self) -> None:
-        path = urllib.parse.unquote(self.path.split("?", 1)[0])
+        identity = self.authenticate()
+        if identity is None:
+            return
+        parsed_request = urllib.parse.urlsplit(self.path)
+        path = urllib.parse.unquote(parsed_request.path)
+        query = urllib.parse.parse_qs(parsed_request.query)
+        user_match = re.fullmatch(r"/api/users/([^/]+)/access", path)
+        if user_match:
+            if not self.require_admin(identity):
+                return
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                tenant_id = validate_context_id(request.get("tenant_id"), "tenant_id")
+                group_id = validate_context_id(request.get("group_id"), "group_id") if request.get("group_id") else None
+                permission = str(request.get("permission", "reader"))
+                access = db.grant_user_access(
+                    urllib.parse.unquote(user_match.group(1)), tenant_id, group_id,
+                    permission, request.get("username"),
+                )
+                if not access:
+                    raise ValueError("Tenant/grupo inexistente ou permissao invalida")
+                return self.send_json(200, json_safe(access))
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
         parts = Path(path.lstrip("/")).parts
+        if (
+            len(parts) == 4 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "name"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                name = str(request.get("name") or "").strip()
+                if not 1 <= len(name) <= 255 or any(ord(char) < 32 for char in name):
+                    raise ValueError("name deve possuir entre 1 e 255 caracteres validos")
+                if not db.rename_document(parts[2], name, tenant_id, group_id):
+                    return self.send_json(404, {"error": "Documento nao encontrado"})
+                return self.send_json(200, {"document_id": parts[2], "name": name})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+        if (
+            len(parts) == 4 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "category"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                category_id = validate_context_id(request.get("category_id"), "category_id") if request.get("category_id") else None
+                if category_id and not db.category_belongs_to_group(tenant_id, group_id, category_id):
+                    raise ValueError("category_id deve pertencer ao grupo informado")
+                if not db.update_document_category(parts[2], category_id, tenant_id, group_id):
+                    return self.send_json(404, {"error": "Documento nao encontrado"})
+                return self.send_json(200, {"document_id": parts[2], "category_id": category_id})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+        if (
+            len(parts) == 6 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions"
+            and parts[4].isdigit() and parts[5] == "deprecated"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                updated = db.set_version_deprecated(parts[2], int(parts[4]), True, tenant_id, group_id)
+                if not updated:
+                    return self.send_json(404, {"error": "Versao nao encontrada"})
+                return self.send_json(200, json_safe(updated))
+            except ValueError as exc:
+                return self.send_json(409, {"error": str(exc)})
         if (
             len(parts) == 6 and parts[:2] == ("api", "documents")
             and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions"
@@ -585,10 +800,17 @@ class Handler(BaseHTTPRequestHandler):
         ):
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            selected = db.set_current_version(parts[2], int(parts[4]))
-            if not selected:
-                return self.send_json(404, {"error": "Versao nao encontrada"})
-            return self.send_json(200, json_safe(selected))
+            try:
+                tenant_id, group_id = validate_search_context(query)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                selected = db.set_current_version(parts[2], int(parts[4]), tenant_id, group_id)
+                if not selected:
+                    return self.send_json(404, {"error": "Versao nao encontrada"})
+                return self.send_json(200, json_safe(selected))
+            except ValueError as exc:
+                status_code = 409 if "deprecated" in str(exc) else 400
+                return self.send_json(status_code, {"error": str(exc)})
         if not (
             len(parts) == 4 and parts[:2] == ("api", "documents")
             and re.fullmatch(r"[0-9a-f]{32}", parts[2]) and parts[3] == "fields"
@@ -597,6 +819,9 @@ class Handler(BaseHTTPRequestHandler):
         if not db or not db.is_available():
             return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
         try:
+            tenant_id, group_id = validate_search_context(query)
+            if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                return
             length = int(self.headers.get("Content-Length", 0))
             if length <= 0 or length > MAX_JSON_SIZE:
                 raise ValueError("Corpo JSON ausente ou maior que 64 KB")
@@ -604,10 +829,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Content-Type deve ser application/json")
             request = json.loads(self.rfile.read(length))
             fields = validate_fields_payload(request.get("fields") if isinstance(request, dict) else None)
-            result = db.update_document_fields(parts[2], fields)
+            result = db.update_document_fields(parts[2], fields, tenant_id, group_id)
             if result is None or getattr(result, "matched_count", 1) == 0:
                 return self.send_json(404, {"error": "Documento nao encontrado"})
-            job_data = db.get_job(parts[2])
+            job_data = db.get_job(parts[2], tenant_id, group_id)
             if job_data and isinstance(job_data.get("result"), dict):
                 updated = dict(job_data)
                 updated.pop("_id", None)
@@ -618,8 +843,42 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(400, {"error": str(exc)})
 
     def do_DELETE(self) -> None:
-        path = urllib.parse.unquote(self.path.split("?", 1)[0])
+        identity = self.authenticate()
+        if identity is None:
+            return
+        parsed_request = urllib.parse.urlsplit(self.path)
+        path = urllib.parse.unquote(parsed_request.path)
+        query = urllib.parse.parse_qs(parsed_request.query)
+        user_match = re.fullmatch(r"/api/users/([^/]+)/access", path)
+        if user_match:
+            if not self.require_admin(identity):
+                return
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+                deleted = db.revoke_user_access(urllib.parse.unquote(user_match.group(1)), tenant_id, group_id)
+                return self.send_json(200, {"deleted": True}) if deleted else self.send_json(404, {"error": "Acesso nao encontrado"})
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
         parts = Path(path.lstrip("/")).parts
+        if (
+            len(parts) == 6 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions"
+            and parts[4].isdigit() and parts[5] == "deprecated"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                updated = db.set_version_deprecated(parts[2], int(parts[4]), False, tenant_id, group_id)
+                if not updated:
+                    return self.send_json(404, {"error": "Versao nao encontrada"})
+                return self.send_json(200, json_safe(updated))
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
         if not (
             len(parts) == 3 and parts[:2] == ("api", "documents")
             and re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{64})", parts[2])
@@ -628,7 +887,10 @@ class Handler(BaseHTTPRequestHandler):
         if not db or not db.is_available():
             return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
         try:
-            if not db.delete_document(parts[2]):
+            tenant_id, group_id = validate_search_context(query)
+            if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                return
+            if not db.delete_document(parts[2], tenant_id, group_id):
                 return self.send_json(404, {"error": "Documento nao encontrado"})
             return self.send_json(200, {"job_id": parts[2], "deleted": True})
         except Exception:
@@ -636,7 +898,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(500, {"error": "Erro interno ao excluir documento"})
 
     def do_POST(self) -> None:
-        if self.path == "/api/tenants" or re.fullmatch(r"/api/tenants/[0-9a-f]{32}/groups", self.path):
+        identity = self.authenticate()
+        if identity is None:
+            return
+        path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        if (
+            path == "/api/tenants"
+            or re.fullmatch(r"/api/tenants/[0-9a-f]{32}/groups", path)
+            or re.fullmatch(r"/api/tenants/[0-9a-f]{32}/groups/[0-9a-f]{32}/categories", path)
+        ):
+            if not self.require_admin(identity):
+                return
             try:
                 if not db or not db.is_available():
                     return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
@@ -650,14 +922,18 @@ class Handler(BaseHTTPRequestHandler):
                 metadata = request.get("metadata", {})
                 if not isinstance(metadata, dict):
                     raise ValueError("metadata deve ser um objeto")
-                if self.path == "/api/tenants":
+                if path == "/api/tenants":
                     return self.send_json(201, json_safe(db.create_tenant(name, metadata)))
-                tenant_id = self.path.split("/")[3]
-                group = db.create_group(tenant_id, name, metadata)
-                return self.send_json(201, json_safe(group)) if group else self.send_json(404, {"error": "Tenant nao encontrado"})
+                path_parts = Path(path.lstrip("/")).parts
+                tenant_id = path_parts[2]
+                resource = (
+                    db.create_category(tenant_id, path_parts[4], name, metadata)
+                    if path.endswith("/categories") else db.create_group(tenant_id, name, metadata)
+                )
+                return self.send_json(201, json_safe(resource)) if resource else self.send_json(404, {"error": "Tenant ou grupo nao encontrado"})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 return self.send_json(400, {"error": str(exc)})
-        if self.path == "/api/jobs":
+        if path == "/api/jobs":
             try:
                 LOGGER.info("Recebida requisição POST /api/jobs")
                 if not db or not db.is_available():
@@ -675,13 +951,18 @@ class Handler(BaseHTTPRequestHandler):
                 reference = request.get("reference")
                 tenant_id = validate_context_id(request.get("tenant_id"), "tenant_id")
                 group_id = validate_context_id(request.get("group_id"), "group_id") if request.get("group_id") else None
+                category_id = validate_context_id(request.get("category_id"), "category_id") if request.get("category_id") else None
                 if not db.group_belongs_to_tenant(tenant_id, group_id):
                     raise ValueError("tenant_id deve existir e group_id, quando informado, deve pertencer ao tenant")
+                if not db.category_belongs_to_group(tenant_id, group_id, category_id):
+                    raise ValueError("category_id deve pertencer ao grupo informado")
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
                 job = uuid.uuid4().hex
                 LOGGER.info("Criando background job %s para URL: %s", job, pdf_url)
-                initial = {"job_id": job, "reference": reference, "status": "queued", "tenant_id": tenant_id, "group_id": group_id}
+                initial = {"job_id": job, "reference": reference, "status": "queued", "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id}
                 db.save_job(job, initial)
-                EXECUTOR.submit(run_api_job, job, pdf_url, callback_url, reference, self.base_url(), tenant_id, group_id)
+                EXECUTOR.submit(run_api_job, job, pdf_url, callback_url, reference, self.base_url(), tenant_id, group_id, category_id)
                 status_query = urllib.parse.urlencode({key: value for key, value in {"tenant_id": tenant_id, "group_id": group_id}.items() if value})
                 return self.send_json(202, {**initial, "status_url": f"{self.base_url()}/api/jobs/{job}?{status_query}"})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -690,7 +971,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 LOGGER.exception("Erro ao criar job")
                 return self.send_json(500, {"error": "Erro interno ao criar job"})
-        if self.path != "/api/convert":
+        if path != "/api/convert":
             self.send_error(404); return
         try:
             LOGGER.info("Iniciando requisicao /api/convert")
@@ -700,11 +981,16 @@ class Handler(BaseHTTPRequestHandler):
             if length > MAX_PDF_SIZE + 1024 * 1024:
                 raise ValueError("O limite e 30 MB")
             body = self.rfile.read(length)
-            name, data, url, tenant_id, group_id = multipart_data(self.headers.get("Content-Type", ""), body)
-            tenant_id = validate_context_id(tenant_id, "tenant_id") if tenant_id else None
+            name, data, url, tenant_id, group_id, category_id = multipart_data(self.headers.get("Content-Type", ""), body)
+            tenant_id = validate_context_id(tenant_id, "tenant_id")
             group_id = validate_context_id(group_id, "group_id") if group_id else None
-            if (tenant_id or group_id) and not db.group_belongs_to_tenant(tenant_id, group_id):
+            category_id = validate_context_id(category_id, "category_id") if category_id else None
+            if not db.group_belongs_to_tenant(tenant_id, group_id):
                 raise ValueError("tenant_id deve existir e group_id, quando informado, deve pertencer ao tenant")
+            if not db.category_belongs_to_group(tenant_id, group_id, category_id):
+                raise ValueError("category_id deve pertencer ao grupo informado")
+            if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                return
             if not data and url:
                 LOGGER.info("Baixando PDF remoto: %s", url)
                 name, data = download_pdf(url)
@@ -728,6 +1014,7 @@ class Handler(BaseHTTPRequestHandler):
                 content_hash=content_hash,
                 tenant_id=tenant_id,
                 group_id=group_id,
+                category_id=category_id,
             )
             identity = identity or {"document_id": content_hash, "version": 1, "job_id": job, "is_current": True}
             db.save_job(job, {
@@ -744,6 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
                 "sync": True,
                 "tenant_id": tenant_id,
                 "group_id": group_id,
+                "category_id": category_id,
             })
             LOGGER.info("Documento e job salvos no MongoDB para job síncrono %s", job)
             
@@ -757,6 +1045,8 @@ class Handler(BaseHTTPRequestHandler):
                 "neural_tables": result.neural_tables,
                 "tenant_id": tenant_id,
                 "group_id": group_id,
+                "category_id": category_id,
+                "metadata": {"filename": name},
             }, ensure_ascii=False).encode("utf-8")
             
             self.send_response(200)

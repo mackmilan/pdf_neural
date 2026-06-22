@@ -108,6 +108,64 @@ possa ser executado.
 A documentacao interativa Swagger fica em `http://127.0.0.1:8000/docs` e a
 especificacao OpenAPI 3.1 em `http://127.0.0.1:8000/openapi.json`.
 
+## Autenticação e autorização
+
+A API valida access tokens JWT emitidos pelo Keycloak. O Keycloak mantém
+identidade, credenciais e a role administrativa `pdf-admin`; o MongoDB mantém os
+acessos de cada `sub` a tenants e grupos, com permissão `reader` ou `editor`.
+
+Ao abrir `http://localhost:8000`, a aplicação mostra somente a tela de login.
+O botão **Entrar com Keycloak** usa Authorization Code com PKCE; após o retorno,
+os tokens ficam apenas em `sessionStorage`, são renovados automaticamente e todas
+as chamadas à API recebem o header Bearer. O botão **Sair** encerra também a sessão
+no Keycloak. O conteúdo da aplicação nunca é exibido sem uma sessão válida.
+
+Com o Keycloak local em `http://localhost:8080` e o administrador `admin/admin`,
+configure o realm, o client e um administrador inicial da aplicação:
+
+```bash
+python scripts/configure_keycloak.py --app-password admin
+```
+
+O script cria o realm `pdf-neural`, o client público `pdf-neural-api`, a role
+`pdf-admin` e o usuário inicial `pdf-admin/admin`. Troque essa senha antes de usar
+fora do ambiente local. Obtenha um token de desenvolvimento:
+
+```bash
+TOKEN=$(curl -s -X POST \
+  http://localhost:8080/realms/pdf-neural/protocol/openid-connect/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'client_id=pdf-neural-api' -d 'grant_type=password' \
+  -d 'username=pdf-admin' -d 'password=admin' | jq -r .access_token)
+
+curl http://localhost:8000/api/me -H "Authorization: Bearer $TOKEN"
+```
+
+Todas as rotas de API e as prévias em `/jobs/...` exigem o header Bearer. A raiz,
+o Swagger e o OpenAPI permanecem públicos. Para conceder acesso a um usuário,
+copie seu claim `sub` e, usando um token com a role `pdf-admin`, execute:
+
+```bash
+curl -X PUT http://localhost:8000/api/users/KEYCLOAK_SUB/access \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"tenant_id":"TENANT_ID","permission":"editor","username":"maria"}'
+```
+
+Um acesso sem `group_id` vale para todo o tenant. Um acesso com `group_id` vale
+somente para aquele grupo. `reader` permite consultas e `editor` também permite
+converter, editar e excluir documentos. Criação de tenants, grupos, categorias e gestão de
+acessos exigem `pdf-admin`.
+
+As variáveis relevantes estão em `.env.example`. Em Docker Desktop, mantenha
+`KEYCLOAK_ISSUER` igual ao issuer presente no token e use `KEYCLOAK_JWKS_URL` com
+`host.docker.internal` para a API conseguir buscar as chaves públicas.
+
+Para o Keycloak remoto configurado para este projeto, use os valores de
+`config/keycloak.remote.env.example`. As credenciais administrativas do Keycloak
+servem apenas ao script de provisionamento e não devem ser copiadas para a API.
+Ao publicar a aplicação em outro domínio, execute novamente o provisionamento
+com `--app-url https://dominio-da-aplicacao` para autorizar callback e logout.
+
 Uso direto pela linha de comando:
 
 ```bash
@@ -148,6 +206,8 @@ A API responde imediatamente com HTTP `202`:
 O conteúdo binário do PDF é identificado por SHA-256. A primeira conversão cria
 o documento canônico e a versão 1; novas conversões do mesmo arquivo acrescentam
 versões sem duplicar o documento. Apenas uma versão possui `is_current: true`.
+Versões anteriores podem ser marcadas como `deprecated`; elas continuam acessíveis
+no histórico, mas não podem ser definidas como padrão.
 
 ```bash
 # Versão atual (tenant obrigatório; grupo opcional)
@@ -158,12 +218,15 @@ curl 'http://localhost:8000/api/documents/{document_id}/versions?tenant_id={tena
 
 # Versão específica
 curl 'http://localhost:8000/api/documents/{document_id}/versions/2?tenant_id={tenant_id}'
+
+# Marcar como deprecated (use DELETE na mesma URL para restaurar)
+curl -X PUT 'http://localhost:8000/api/documents/{document_id}/versions/2/deprecated?tenant_id={tenant_id}'
 ```
 
 O retorno da conversão inclui `document_id`, `job_id` e `version`. Links antigos
 baseados em `job_id` continuam aceitos.
 
-## Tenants e grupos
+## Tenants, grupos e categorias
 
 Tenants representam qualquer organização, conta ou domínio de dados. Cada tenant
 pode possuir grupos com nomes livres; os grupos podem representar departamentos,
@@ -181,12 +244,22 @@ curl -X POST http://localhost:8000/api/tenants/{tenant_id}/groups \
 
 # Filtrar o histórico pelo contexto
 curl 'http://localhost:8000/api/documents?tenant_id={tenant_id}&group_id={group_id}'
+
+# Criar e listar categorias de documentos vinculadas ao grupo
+curl -X POST http://localhost:8000/api/tenants/{tenant_id}/groups/{group_id}/categories \
+  -H 'Content-Type: application/json' -d '{"name":"Contrato"}'
+curl http://localhost:8000/api/tenants/{tenant_id}/groups/{group_id}/categories
+
+# Filtrar e reclassificar documentos (use null para remover a categoria)
+curl 'http://localhost:8000/api/documents?tenant_id={tenant_id}&category_id={category_id}'
+curl -X PUT 'http://localhost:8000/api/documents/{document_id}/category?tenant_id={tenant_id}' \
+  -H 'Content-Type: application/json' -d '{"category_id":"CATEGORY_ID"}'
 ```
 
-As conversões síncronas aceitam `tenant_id` e `group_id` no multipart. Jobs
-assíncronos aceitam os mesmos campos no JSON e exigem `tenant_id`. O `group_id` é
-opcional e, quando informado, precisa pertencer ao tenant. Todas as consultas de
-documentos e jobs exigem `tenant_id`; `group_id` pode restringir a busca. A identidade
+As conversões síncronas aceitam `tenant_id`, `group_id` e `category_id` no multipart. Jobs
+assíncronos aceitam os mesmos campos no JSON e exigem `tenant_id`. `group_id` e
+`category_id` são opcionais; a categoria, quando informada, precisa pertencer ao `group_id`. Todas as consultas de
+documentos e jobs exigem `tenant_id`; grupo e categoria podem restringir a busca. A identidade
 canônica do documento é isolada por tenant e grupo, portanto o mesmo PDF pode ter
 históricos de versão independentes em contextos diferentes.
 
