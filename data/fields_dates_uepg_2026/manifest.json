@@ -1,0 +1,15 @@
+{
+  "image_size": 512,
+  "samples": [
+    {
+      "image": "images/field-001-page-0001.png",
+      "mask": "masks/field-001-page-0001.png",
+      "fields": 3
+    },
+    {
+      "image": "images/field-002-page-0001.png",
+      "mask": "masks/field-002-page-0001.png",
+      "fields": 8
+    }
+  ]
+}

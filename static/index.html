@@ -29,6 +29,18 @@
         .fields { max-height: 720px; overflow: auto }
         .field-link { display: block; text-decoration: none; color: inherit; padding: 10px; border-bottom: 1px solid #283653; transition: background .2s }
         .field-link:hover { background: #1c2945 }
+        .field-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; border-bottom: 1px solid #283653 }
+        .field-row .field-link { border: 0; min-width: 0 }
+        .delete-field { background: transparent; color: #ff8790; padding: 8px 10px; margin-right: 4px; font-size: 18px }
+        .delete-field:hover { background: #4a2030 }
+        .edit-field { background: transparent; color: #86b3ff; padding: 8px 10px; font-size: 15px }
+        .edit-field:hover { background: #1c3558 }
+        .field-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px }
+        .field-toolbar button { padding: 8px 11px; font-size: 13px }
+        .editor { display: none; padding: 12px; margin-bottom: 12px; border: 1px solid #4c668f; border-radius: 10px; background: #101a2d }
+        .editor.show { display: grid; gap: 8px }
+        .editor input, .editor select { width: 100%; border: 1px solid #4c668f; border-radius: 7px; background: #0c1425; color: #edf3ff; padding: 8px }
+        .editor small { color: #aab8d4 }
         .field code, .confidence { color: #86b3ff }
         .section-title { margin-top: 26px }
         
@@ -38,10 +50,32 @@
         .history-item:hover { transform: translateY(-2px); border-color: #75a7ff }
         .history-item h4 { margin: 0 0 8px 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
         .history-item small { color: #8090ac }
+        .history-delete { float: right; margin: -6px -6px 4px 8px; padding: 6px 9px; background: transparent; color: #ff8790; font-size: 13px }
+        .history-delete:hover { background: #4a2030 }
+        .modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(3, 8, 18, .76); backdrop-filter: blur(4px) }
+        .modal-backdrop.show { display: flex }
+        .modal { width: min(440px, 100%); border: 1px solid #344768; border-radius: 16px; padding: 22px; background: #141d31; box-shadow: 0 22px 70px #0009 }
+        .modal h3 { margin: 0 0 8px; font-size: 21px }
+        .modal p { margin: 0; color: #aab8d4 }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px }
+        .button-secondary { background: #25344f; color: #edf3ff }
+        .button-danger { background: #e05260; color: white }
+        .version-controls { display: none; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 18px; padding: 12px; border: 1px solid #344768; border-radius: 12px; background: #101a2d }
+        .version-controls.show { display: flex }
+        .version-controls label { color: #aab8d4; font-size: 14px }
+        .version-controls select { margin-left: 6px; border: 1px solid #4c668f; border-radius: 8px; background: #0c1425; color: #edf3ff; padding: 8px 10px }
+        .version-controls button { padding: 8px 12px }
+        .version-note { color: #86b3ff; font-size: 13px }
+        .context-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+        .context-field { display: grid; gap: 6px; color: #aab8d4; font-size: 14px }
+        .context-field select, .context-create input { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 10px }
+        .context-create { display: flex; gap: 8px; margin-top: 10px }
+        .context-create button { padding: 9px 12px; white-space: nowrap }
 
         @media(max-width: 760px) {
             .layout { grid-template-columns: 1fr }
             .preview { height: 560px }
+            .context-grid { grid-template-columns: 1fr }
         }
     </style>
 </head>
@@ -49,6 +83,32 @@
     <main>
         <h1>PDF → HTML vivo.</h1>
         <p class="lead">Extraia campos, tipos, imagens e logotipos. A rede neural treinada com documentos da UEPG localiza regioes de tabela, inclusive em paginas rasterizadas.</p>
+
+        <section class="card" aria-labelledby="context-title">
+            <h2 id="context-title">Contexto dos documentos</h2>
+            <p class="status">Organize documentos por tenants e grupos com nomes livres, adequados a qualquer área.</p>
+            <div class="context-grid">
+                <div>
+                    <label class="context-field" for="tenant-select">Tenant
+                        <select id="tenant-select"><option value="">Selecione um tenant</option></select>
+                    </label>
+                    <div class="context-create">
+                        <input id="tenant-name" maxlength="120" placeholder="Nome do novo tenant" aria-label="Nome do novo tenant">
+                        <button type="button" id="create-tenant">Criar tenant</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="context-field" for="group-select">Grupo
+                        <select id="group-select" disabled><option value="">Sem grupo</option></select>
+                    </label>
+                    <div class="context-create">
+                        <input id="group-name" maxlength="120" placeholder="Nome do novo grupo" aria-label="Nome do novo grupo" disabled>
+                        <button type="button" id="create-group" disabled>Criar grupo</button>
+                    </div>
+                </div>
+            </div>
+            <div class="status" id="context-status"></div>
+        </section>
         
         <section class="card">
             <form id="form">
@@ -77,10 +137,34 @@
             <div class="actions">
                 <h2 style="margin-right:auto">Resultado</h2>
             </div>
+            <div class="version-controls" id="version-controls">
+                <label for="version-select">Versão
+                    <select id="version-select" aria-label="Selecionar versão do documento"></select>
+                </label>
+                <button type="button" id="set-current-version">Definir como padrão</button>
+                <span class="version-note" id="version-note"></span>
+            </div>
             <div class="layout">
                 <iframe class="preview" id="preview" title="Documento convertido"></iframe>
                 <aside class="fields">
                     <h3>Campos detectados</h3>
+                    <div class="field-toolbar">
+                        <button type="button" id="add-field">+ Adicionar campo</button>
+                        <button type="button" id="save-fields">Salvar alterações</button>
+                    </div>
+                    <small style="display:block;color:#aab8d4;margin:-4px 0 12px">Use Editar para renomear. Arraste campos manuais para mover e use as alças azuis para redimensionar qualquer campo.</small>
+                    <div class="editor" id="field-editor">
+                        <input id="field-label" maxlength="160" placeholder="Nome do campo" aria-label="Nome do campo">
+                        <select id="field-type" aria-label="Tipo do campo">
+                            <option value="text">Texto</option><option value="date">Data</option>
+                            <option value="time">Horário</option><option value="email">E-mail</option>
+                            <option value="tel">Telefone</option><option value="number">Número</option>
+                            <option value="checkbox">Checkbox</option><option value="textarea">Área de texto</option>
+                        </select>
+                        <small>Arraste sobre a página para marcar a área do novo campo.</small>
+                        <button type="button" id="apply-field" style="display:none">Aplicar edição</button>
+                        <button type="button" id="cancel-field">Cancelar</button>
+                    </div>
                     <div id="fields"></div>
                     <h3 class="section-title">Tabelas - rede neural</h3>
                     <div id="neural-tables"></div>
@@ -88,6 +172,17 @@
             </div>
         </section>
     </main>
+
+    <div class="modal-backdrop" id="confirm-modal" aria-hidden="true">
+        <section class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+            <h3 id="confirm-title">Confirmar ação</h3>
+            <p id="confirm-message"></p>
+            <div class="modal-actions">
+                <button type="button" class="button-secondary" id="confirm-cancel">Cancelar</button>
+                <button type="button" class="button-danger" id="confirm-accept">Confirmar</button>
+            </div>
+        </section>
+    </div>
 
     <script>
         const form = document.querySelector('#form');
@@ -98,6 +193,70 @@
         const button = document.querySelector('#submit');
         const historyList = document.querySelector('#history-list');
         const historySection = document.querySelector('#history-section');
+        const tenantSelect = document.querySelector('#tenant-select');
+        const groupSelect = document.querySelector('#group-select');
+        const contextStatus = document.querySelector('#context-status');
+        const preview = document.querySelector('#preview');
+        let currentFields = [];
+        let currentJobId = null;
+        let currentDocumentId = null;
+        let currentVersion = null;
+        let availableVersions = [];
+        let addingField = false;
+        let draft = null;
+        let editingFieldIndex = null;
+        let confirmationResolver = null;
+        let confirmationFocus = null;
+        let availableTenants = [];
+        let availableGroups = [];
+
+        const searchContext = () => {
+            const params = new URLSearchParams({ tenant_id: tenantSelect.value });
+            if (groupSelect.value) params.set('group_id', groupSelect.value);
+            return params.toString();
+        };
+
+        const closeConfirmation = accepted => {
+            const modal = document.querySelector('#confirm-modal');
+            modal.classList.remove('show');
+            modal.setAttribute('aria-hidden', 'true');
+            const resolver = confirmationResolver;
+            confirmationResolver = null;
+            if (confirmationFocus) confirmationFocus.focus();
+            confirmationFocus = null;
+            if (resolver) resolver(accepted);
+        };
+
+        const showConfirmation = ({ title='Confirmar ação', message, confirmLabel='Confirmar', danger=false }) => {
+            if (confirmationResolver) closeConfirmation(false);
+            confirmationFocus = document.activeElement;
+            document.querySelector('#confirm-title').textContent = title;
+            document.querySelector('#confirm-message').textContent = message;
+            const accept = document.querySelector('#confirm-accept');
+            accept.textContent = confirmLabel;
+            accept.className = danger ? 'button-danger' : '';
+            const modal = document.querySelector('#confirm-modal');
+            modal.classList.add('show');
+            modal.setAttribute('aria-hidden', 'false');
+            document.querySelector('#confirm-cancel').focus();
+            return new Promise(resolve => { confirmationResolver = resolve; });
+        };
+
+        document.querySelector('#confirm-cancel').onclick = () => closeConfirmation(false);
+        document.querySelector('#confirm-accept').onclick = () => closeConfirmation(true);
+        document.querySelector('#confirm-modal').onclick = event => {
+            if (event.target.id === 'confirm-modal') closeConfirmation(false);
+        };
+        document.addEventListener('keydown', event => {
+            if (!confirmationResolver) return;
+            if (event.key === 'Escape') { event.preventDefault(); closeConfirmation(false); }
+            if (event.key === 'Tab') {
+                const cancel = document.querySelector('#confirm-cancel');
+                const accept = document.querySelector('#confirm-accept');
+                if (event.shiftKey && document.activeElement === cancel) { event.preventDefault(); accept.focus(); }
+                else if (!event.shiftKey && document.activeElement === accept) { event.preventDefault(); cancel.focus(); }
+            }
+        });
 
         input.onchange = () => {
             label.textContent = input.files[0]?.name || 'Escolha ou arraste um PDF';
@@ -110,18 +269,28 @@
 
         const loadHistory = async () => {
             try {
-                const response = await fetch('/api/documents');
+                if (!tenantSelect.value) {
+                    historyList.innerHTML = '';
+                    historySection.style.display = 'none';
+                    return;
+                }
+                const response = await fetch(`/api/documents?${searchContext()}`);
                 if (response.ok) {
                     const docs = await response.json();
                     if (docs.length > 0) {
                         historySection.style.display = 'block';
                         historyList.innerHTML = docs.map(doc => `
-                            <div class="history-item" onclick="loadJob('${doc.job_id}')">
+                            <div class="history-item" onclick="loadJob('${doc.document_id || doc.job_id}')">
+                                <button type="button" class="history-delete" onclick="event.stopPropagation(); deleteDocument('${doc.document_id || doc.job_id}')" aria-label="Excluir ${escapeHtml(doc.metadata?.filename || 'documento')}">Excluir</button>
                                 <h4>${escapeHtml(doc.metadata?.filename || doc.metadata?.pdf_url || doc.job_id)}</h4>
                                 <small>${new Date(doc.created_at).toLocaleString()}</small><br>
-                                <small>${doc.fields.length} campos · ${doc.tables.length} tabelas</small>
+                                <small>${escapeHtml(availableGroups.find(group => group.group_id === doc.group_id)?.name || (doc.group_id ? 'Outro grupo' : 'Sem grupo'))}</small><br>
+                                <small>v${doc.current_version || doc.version || 1} · ${doc.fields.length} campos · ${doc.tables.length} tabelas</small>
                             </div>
                         `).join('');
+                    } else {
+                        historyList.innerHTML = '';
+                        historySection.style.display = 'none';
                     }
                 }
             } catch (err) {
@@ -129,16 +298,89 @@
             }
         };
 
+        const loadGroups = async preferredGroup => {
+            const tenantId = tenantSelect.value;
+            availableGroups = [];
+            groupSelect.innerHTML = '<option value="">Todos os grupos</option>';
+            groupSelect.disabled = !tenantId;
+            document.querySelector('#group-name').disabled = !tenantId;
+            document.querySelector('#create-group').disabled = !tenantId;
+            if (!tenantId) { await loadHistory(); return; }
+            const response = await fetch(`/api/tenants/${encodeURIComponent(tenantId)}/groups`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error);
+            availableGroups = data;
+            groupSelect.innerHTML += data.map(group => `<option value="${group.group_id}">${escapeHtml(group.name)}</option>`).join('');
+            groupSelect.value = preferredGroup && data.some(group => group.group_id === preferredGroup) ? preferredGroup : '';
+            localStorage.setItem('pdf-neural-tenant', tenantId);
+            localStorage.setItem('pdf-neural-group', groupSelect.value);
+            await loadHistory();
+        };
+
+        const loadTenants = async () => {
+            try {
+                const response = await fetch('/api/tenants');
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                availableTenants = data;
+                tenantSelect.innerHTML = '<option value="">Selecione um tenant</option>' + data.map(tenant => `<option value="${tenant.tenant_id}">${escapeHtml(tenant.name)}</option>`).join('');
+                const savedTenant = localStorage.getItem('pdf-neural-tenant');
+                tenantSelect.value = data.some(tenant => tenant.tenant_id === savedTenant) ? savedTenant : '';
+                await loadGroups(localStorage.getItem('pdf-neural-group'));
+            } catch (error) {
+                contextStatus.textContent = 'Erro ao carregar tenants: ' + error.message;
+                await loadHistory();
+            }
+        };
+
+        tenantSelect.onchange = async () => {
+            localStorage.setItem('pdf-neural-tenant', tenantSelect.value);
+            localStorage.removeItem('pdf-neural-group');
+            await loadGroups('');
+        };
+        groupSelect.onchange = () => {
+            localStorage.setItem('pdf-neural-group', groupSelect.value);
+            loadHistory();
+        };
+
+        document.querySelector('#create-tenant').onclick = async () => {
+            const input = document.querySelector('#tenant-name');
+            const name = input.value.trim();
+            if (!name) { contextStatus.textContent = 'Informe o nome do tenant.'; return; }
+            try {
+                const response = await fetch('/api/tenants', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name}) });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                input.value = ''; contextStatus.textContent = `Tenant “${data.name}” criado.`;
+                localStorage.setItem('pdf-neural-tenant', data.tenant_id);
+                await loadTenants();
+            } catch (error) { contextStatus.textContent = 'Erro ao criar tenant: ' + error.message; }
+        };
+
+        document.querySelector('#create-group').onclick = async () => {
+            const input = document.querySelector('#group-name');
+            const name = input.value.trim();
+            if (!name || !tenantSelect.value) { contextStatus.textContent = 'Selecione um tenant e informe o nome do grupo.'; return; }
+            try {
+                const response = await fetch(`/api/tenants/${encodeURIComponent(tenantSelect.value)}/groups`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name}) });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                input.value = ''; contextStatus.textContent = `Grupo “${data.name}” criado.`;
+                await loadGroups(data.group_id);
+            } catch (error) { contextStatus.textContent = 'Erro ao criar grupo: ' + error.message; }
+        };
+
         const loadJob = async (jobId) => {
             status.textContent = 'Carregando documento do histórico...';
             try {
-                const response = await fetch(`/api/documents/${jobId}`);
+                if (!tenantSelect.value) throw new Error('Selecione um tenant.');
+                const response = await fetch(`/api/documents/${jobId}?${searchContext()}`);
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error);
 
                 displayResult({
                     ...data,
-                    preview: `/jobs/${encodeURIComponent(jobId)}/html/index.html`
+                    preview: `/jobs/${encodeURIComponent(data.job_id || jobId)}/html/index.html`
                 });
                 status.textContent = 'Documento carregado do histórico';
             } catch (err) {
@@ -146,20 +388,59 @@
             }
         };
 
-        const displayResult = (data) => {
+        window.deleteDocument = async jobId => {
+            const confirmed = await showConfirmation({
+                title:'Excluir documento?',
+                message:'O documento e todos os dados associados serão removidos. Esta ação não pode ser desfeita.',
+                confirmLabel:'Excluir documento', danger:true,
+            });
+            if (!confirmed) return;
+            status.textContent = 'Excluindo documento...';
+            try {
+                const response = await fetch(`/api/documents/${encodeURIComponent(jobId)}`, { method:'DELETE' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                if (currentJobId === jobId || currentDocumentId === jobId) {
+                    currentJobId = null; currentDocumentId = null; currentFields = []; preview.src = 'about:blank';
+                    document.querySelector('#result').classList.remove('show');
+                }
+                await loadHistory();
+                status.textContent = 'Documento excluído.';
+            } catch (error) {
+                status.textContent = 'Erro ao excluir: ' + error.message;
+            }
+        };
+
+        const loadVersions = async selectedVersion => {
+            const controls = document.querySelector('#version-controls');
+            if (!currentDocumentId || !/^[0-9a-f]{64}$/.test(currentDocumentId)) {
+                controls.classList.remove('show');
+                return;
+            }
+            const response = await fetch(`/api/documents/${encodeURIComponent(currentDocumentId)}/versions?${searchContext()}`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Não foi possível carregar as versões');
+            availableVersions = data;
+            const select = document.querySelector('#version-select');
+            select.innerHTML = data.map(item => `<option value="${item.version}">v${item.version}${item.is_current ? ' (padrão)' : ''}</option>`).join('');
+            select.value = String(selectedVersion || data[0]?.version || '');
+            const selected = data.find(item => item.version === Number(select.value));
+            document.querySelector('#version-note').textContent = selected?.is_current ? 'Versão padrão atual' : 'Visualizando uma versão anterior';
+            document.querySelector('#set-current-version').disabled = !selected || selected.is_current;
+            controls.classList.toggle('show', data.length > 0);
+        };
+
+        const displayResult = (data, refreshVersions=true) => {
             const result = data.result || data;
             const previewUrl = result.preview_url || result.preview || data.preview;
-            document.querySelector('#preview').src = previewUrl;
-
-            const fields = result.fields || [];
+            currentJobId = result.job_id || data.job_id || currentJobId;
+            currentDocumentId = result.document_id || data.document_id || currentDocumentId;
+            currentVersion = Number(result.version || data.version || currentVersion) || null;
+            currentFields = (result.fields || []).map(field => ({ ...field }));
+            preview.onload = () => { renderPreviewFields(); installDrawingHandlers(); };
+            preview.src = previewUrl;
             const neural = result.neural_tables || [];
-
-            document.querySelector('#fields').innerHTML = fields.length ? fields.map(f => `
-                <a href="#${f.name}" class="field-link" onclick="scrollToElement('${f.name}'); return false;">
-                    <strong>${escapeHtml(f.label)}</strong><br>
-                    <code>${escapeHtml(f.type)}</code> · pagina ${f.page} · ${escapeHtml(f.source)}
-                </a>
-            `).join('') : 'Nenhum campo encontrado.';
+            renderFieldList();
 
             document.querySelector('#neural-tables').innerHTML = neural && neural.length ? neural.map(t => `
                 <a href="#page-${t.page}" class="field-link" onclick="scrollToElement('page-${t.page}'); return false;">
@@ -171,6 +452,293 @@
 
             document.querySelector('#result').classList.add('show');
             document.querySelector('#result').scrollIntoView({ behavior: 'smooth' });
+            if (refreshVersions) loadVersions(currentVersion).catch(error => { status.textContent = 'Erro ao carregar versões: ' + error.message; });
+        };
+
+        document.querySelector('#version-select').onchange = async event => {
+            const version = Number(event.target.value);
+            status.textContent = `Carregando versão ${version}...`;
+            try {
+                const response = await fetch(`/api/documents/${encodeURIComponent(currentDocumentId)}/versions/${version}?${searchContext()}`);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                displayResult({...data, preview: `/jobs/${encodeURIComponent(data.job_id)}/html/index.html`});
+                status.textContent = `Versão ${version} carregada.`;
+            } catch (error) {
+                status.textContent = 'Erro ao carregar versão: ' + error.message;
+            }
+        };
+
+        document.querySelector('#set-current-version').onclick = async () => {
+            const version = Number(document.querySelector('#version-select').value);
+            const confirmed = await showConfirmation({
+                title:'Definir versão padrão?',
+                message:`A versão ${version} passará a abrir automaticamente para este documento.`,
+                confirmLabel:'Definir como padrão',
+            });
+            if (!confirmed) return;
+            status.textContent = 'Atualizando versão padrão...';
+            try {
+                const response = await fetch(`/api/documents/${encodeURIComponent(currentDocumentId)}/versions/${version}/current`, { method:'PUT' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                currentVersion = version;
+                await loadVersions(version);
+                await loadHistory();
+                status.textContent = `Versão ${version} definida como padrão.`;
+            } catch (error) {
+                status.textContent = 'Erro ao definir versão padrão: ' + error.message;
+            }
+        };
+
+        const renderFieldList = () => {
+            document.querySelector('#fields').innerHTML = currentFields.length ? currentFields.map((f, index) => `
+                <div class="field-row">
+                    <a href="#${escapeHtml(f.name)}" class="field-link" onclick="scrollToElement('${escapeHtml(f.name)}'); return false;">
+                        <strong>${escapeHtml(f.label)}</strong><br>
+                        <code>${escapeHtml(f.type)}</code> · pagina ${f.page} · ${escapeHtml(f.source)}
+                    </a>
+                    <button type="button" class="edit-field" onclick="editField(${index})" aria-label="Editar ${escapeHtml(f.label)}" title="Editar campo">Editar</button>
+                    <button type="button" class="delete-field" onclick="deleteField(${index})" aria-label="Excluir ${escapeHtml(f.label)}" title="Excluir campo">×</button>
+                </div>
+            `).join('') : 'Nenhum campo encontrado.';
+        };
+
+        const renderPreviewFields = () => {
+            const doc = preview.contentDocument;
+            if (!doc) return;
+            doc.querySelectorAll('.pdf-field').forEach(element => element.remove());
+            currentFields.forEach(field => {
+                const page = doc.querySelector(`.pdf-page[data-page="${field.page}"]`);
+                if (!page) return;
+                const element = doc.createElement('a');
+                element.id = field.name;
+                element.className = 'pdf-field';
+                element.dataset.name = field.name;
+                element.dataset.type = field.type;
+                element.dataset.manual = field.source === 'manual' ? 'true' : 'false';
+                element.title = field.label;
+                Object.assign(element.style, {
+                    left: `${field.x}px`, top: `${field.y}px`, width: `${field.width}px`, height: `${field.height}px`,
+                    cursor: field.source === 'manual' ? 'move' : 'pointer'
+                });
+                const handles = [];
+                ['nw','ne','sw','se'].forEach(direction => {
+                    const handle = doc.createElement('span');
+                    handle.dataset.resize = direction;
+                    const vertical = direction[0] === 'n' ? '-5px' : 'auto';
+                    const bottom = direction[0] === 's' ? '-5px' : 'auto';
+                    const horizontal = direction[1] === 'w' ? '-5px' : 'auto';
+                    const right = direction[1] === 'e' ? '-5px' : 'auto';
+                    Object.assign(handle.style, {
+                        position:'absolute', width:'9px', height:'9px', border:'1px solid white',
+                        borderRadius:'2px', background:'#1677ff', zIndex:'100', opacity:'0',
+                        top:vertical, bottom, left:horizontal, right, cursor:`${direction}-resize`, pointerEvents:'auto'
+                    });
+                    handles.push(handle); element.appendChild(handle);
+                });
+                element.addEventListener('mouseenter', () => handles.forEach(handle => handle.style.opacity = '1'));
+                element.addEventListener('mouseleave', () => handles.forEach(handle => handle.style.opacity = '0'));
+                page.appendChild(element);
+            });
+        };
+
+        window.deleteField = index => {
+            currentFields.splice(index, 1);
+            renderFieldList();
+            renderPreviewFields();
+            status.textContent = 'Campo excluído. Clique em Salvar alterações.';
+        };
+
+        window.editField = index => {
+            const field = currentFields[index];
+            if (!field) return;
+            addingField = false;
+            editingFieldIndex = index;
+            document.querySelector('#field-label').value = field.label;
+            document.querySelector('#field-type').value = field.type;
+            document.querySelector('#field-editor small').textContent = 'Altere o nome ou o tipo e aplique a edição.';
+            document.querySelector('#apply-field').style.display = 'block';
+            document.querySelector('#field-editor').classList.add('show');
+            document.querySelector('#field-label').focus();
+        };
+
+        const slug = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 64) || 'campo';
+
+        const uniqueName = (label, ignoredIndex = null) => {
+            const base = slug(label); let name = base; let suffix = 2;
+            const used = new Set(currentFields.filter((_field, index) => index !== ignoredIndex).map(field => field.name));
+            while (used.has(name)) name = `${base}_${suffix++}`;
+            return name;
+        };
+
+        const stopAdding = () => {
+            addingField = false;
+            editingFieldIndex = null;
+            document.querySelector('#field-editor').classList.remove('show');
+            document.querySelector('#apply-field').style.display = 'none';
+            document.querySelector('#field-editor small').textContent = 'Arraste sobre a página para marcar a área do novo campo.';
+            if (draft) draft.remove();
+            draft = null;
+        };
+
+        document.querySelector('#add-field').onclick = () => {
+            if (!currentJobId || !preview.contentDocument) return;
+            addingField = true;
+            editingFieldIndex = null;
+            document.querySelector('#field-label').value = '';
+            document.querySelector('#field-type').value = 'text';
+            document.querySelector('#apply-field').style.display = 'none';
+            document.querySelector('#field-editor small').textContent = 'Arraste sobre a página para marcar a área do novo campo.';
+            document.querySelector('#field-editor').classList.add('show');
+            document.querySelector('#field-label').focus();
+            status.textContent = 'Informe o nome e arraste sobre a página.';
+        };
+        document.querySelector('#cancel-field').onclick = stopAdding;
+        document.querySelector('#apply-field').onclick = () => {
+            if (editingFieldIndex === null) return;
+            const labelValue = document.querySelector('#field-label').value.trim();
+            if (!labelValue) { status.textContent = 'Informe o nome do campo.'; return; }
+            const field = currentFields[editingFieldIndex];
+            field.label = labelValue;
+            field.name = uniqueName(labelValue, editingFieldIndex);
+            field.type = document.querySelector('#field-type').value;
+            stopAdding(); renderFieldList(); renderPreviewFields();
+            status.textContent = 'Campo editado. Clique em Salvar alterações.';
+        };
+
+        const installDrawingHandlers = () => {
+            const doc = preview.contentDocument;
+            if (!doc || doc.documentElement.dataset.fieldEditorReady) return;
+            doc.documentElement.dataset.fieldEditorReady = '1';
+            let start = null;
+            let moving = null;
+            let resizing = null;
+            doc.addEventListener('pointerdown', event => {
+                const resizeHandle = event.target.closest('[data-resize]');
+                if (!addingField && resizeHandle) {
+                    const fieldElement = resizeHandle.closest('.pdf-field');
+                    const fieldIndex = currentFields.findIndex(field => field.name === fieldElement?.dataset.name);
+                    const page = fieldElement?.closest('.pdf-page');
+                    if (fieldIndex < 0 || !page) return;
+                    event.preventDefault(); event.stopPropagation();
+                    const rect = page.getBoundingClientRect();
+                    const pageWidth = Number(page.closest('.pdf-page-shell')?.dataset.pageWidth) || rect.width;
+                    const pageHeight = Number(page.closest('.pdf-page-shell')?.dataset.pageHeight) || rect.height;
+                    const scale = pageWidth / rect.width;
+                    resizing = {
+                        fieldIndex, element:fieldElement, direction:resizeHandle.dataset.resize,
+                        rect, scale, pageWidth, pageHeight,
+                        pointerX:(event.clientX-rect.left)*scale, pointerY:(event.clientY-rect.top)*scale,
+                        original:{...currentFields[fieldIndex]},
+                    };
+                    fieldElement.style.outline = '2px solid #1677ff';
+                    return;
+                }
+                const fieldElement = event.target.closest('.pdf-field[data-manual="true"]');
+                if (!addingField && fieldElement) {
+                    const fieldIndex = currentFields.findIndex(field => field.name === fieldElement.dataset.name);
+                    const page = fieldElement.closest('.pdf-page');
+                    if (fieldIndex < 0 || !page) return;
+                    event.preventDefault();
+                    const rect = page.getBoundingClientRect();
+                    const pageWidth = Number(page.closest('.pdf-page-shell')?.dataset.pageWidth) || rect.width;
+                    const scale = pageWidth / rect.width;
+                    moving = {
+                        fieldIndex, element:fieldElement, page, rect, scale,
+                        offsetX:(event.clientX - rect.left) * scale - currentFields[fieldIndex].x,
+                        offsetY:(event.clientY - rect.top) * scale - currentFields[fieldIndex].y,
+                    };
+                    fieldElement.style.outline = '2px solid #1677ff';
+                    return;
+                }
+                if (!addingField) return;
+                const page = event.target.closest('.pdf-page');
+                if (!page) return;
+                event.preventDefault();
+                const rect = page.getBoundingClientRect();
+                const pageWidth = Number(page.closest('.pdf-page-shell')?.dataset.pageWidth) || rect.width;
+                const scale = pageWidth / rect.width;
+                start = { page, rect, scale, x: (event.clientX - rect.left) * scale, y: (event.clientY - rect.top) * scale };
+                draft = doc.createElement('div');
+                Object.assign(draft.style, { position:'absolute', zIndex:'90', border:'2px dashed #1677ff', background:'#1677ff22', pointerEvents:'none' });
+                page.appendChild(draft);
+            });
+            doc.addEventListener('pointermove', event => {
+                if (resizing) {
+                    const pointerX = (event.clientX-resizing.rect.left)*resizing.scale;
+                    const pointerY = (event.clientY-resizing.rect.top)*resizing.scale;
+                    const dx = pointerX-resizing.pointerX, dy = pointerY-resizing.pointerY;
+                    const original = resizing.original, direction = resizing.direction;
+                    let x=original.x, y=original.y, width=original.width, height=original.height;
+                    if (direction.includes('e')) width=Math.max(5,Math.min(original.width+dx,resizing.pageWidth-original.x));
+                    if (direction.includes('s')) height=Math.max(5,Math.min(original.height+dy,resizing.pageHeight-original.y));
+                    if (direction.includes('w')) { x=Math.max(0,Math.min(original.x+dx,original.x+original.width-5)); width=original.width+(original.x-x); }
+                    if (direction.includes('n')) { y=Math.max(0,Math.min(original.y+dy,original.y+original.height-5)); height=original.height+(original.y-y); }
+                    Object.assign(resizing.element.style,{left:`${x}px`,top:`${y}px`,width:`${width}px`,height:`${height}px`});
+                    return;
+                }
+                if (moving) {
+                    const field = currentFields[moving.fieldIndex];
+                    const pageHeight = Number(moving.page.closest('.pdf-page-shell')?.dataset.pageHeight) || moving.rect.height * moving.scale;
+                    const x = Math.max(0, Math.min((event.clientX-moving.rect.left)*moving.scale-moving.offsetX, moving.rect.width*moving.scale-field.width));
+                    const y = Math.max(0, Math.min((event.clientY-moving.rect.top)*moving.scale-moving.offsetY, pageHeight-field.height));
+                    moving.element.style.left = `${x}px`; moving.element.style.top = `${y}px`;
+                    return;
+                }
+                if (!start || !draft) return;
+                const x = (event.clientX - start.rect.left) * start.scale;
+                const y = (event.clientY - start.rect.top) * start.scale;
+                Object.assign(draft.style, { left:`${Math.min(start.x,x)}px`, top:`${Math.min(start.y,y)}px`, width:`${Math.abs(x-start.x)}px`, height:`${Math.abs(y-start.y)}px` });
+            });
+            doc.addEventListener('pointerup', event => {
+                if (resizing) {
+                    const field = currentFields[resizing.fieldIndex];
+                    field.x=parseFloat(resizing.element.style.left); field.y=parseFloat(resizing.element.style.top);
+                    field.width=parseFloat(resizing.element.style.width); field.height=parseFloat(resizing.element.style.height);
+                    resizing.element.style.outline=''; resizing=null; renderFieldList();
+                    status.textContent='Campo redimensionado. Clique em Salvar alterações.';
+                    return;
+                }
+                if (moving) {
+                    const field = currentFields[moving.fieldIndex];
+                    field.x = parseFloat(moving.element.style.left);
+                    field.y = parseFloat(moving.element.style.top);
+                    moving.element.style.outline = '';
+                    moving = null; renderFieldList();
+                    status.textContent = 'Campo movido. Clique em Salvar alterações.';
+                    return;
+                }
+                if (!start || !draft) return;
+                const x = (event.clientX - start.rect.left) * start.scale;
+                const y = (event.clientY - start.rect.top) * start.scale;
+                const box = { x:Math.min(start.x,x), y:Math.min(start.y,y), width:Math.abs(x-start.x), height:Math.abs(y-start.y) };
+                const labelValue = document.querySelector('#field-label').value.trim();
+                if (box.width >= 3 && box.height >= 3 && labelValue) {
+                    currentFields.push({ name:uniqueName(labelValue), label:labelValue, type:document.querySelector('#field-type').value,
+                        page:Number(start.page.dataset.page), ...box, source:'manual', required:false });
+                    stopAdding(); renderFieldList(); renderPreviewFields();
+                    status.textContent = 'Campo adicionado. Clique em Salvar alterações.';
+                } else {
+                    draft.remove(); draft = null;
+                    status.textContent = labelValue ? 'A área desenhada é muito pequena.' : 'Informe o nome antes de desenhar.';
+                }
+                start = null;
+            });
+        };
+
+        document.querySelector('#save-fields').onclick = async () => {
+            if (!currentJobId) return;
+            try {
+                const response = await fetch(`/api/documents/${encodeURIComponent(currentJobId)}/fields`, {
+                    method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields:currentFields})
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                currentFields = data.fields; renderFieldList(); renderPreviewFields();
+                status.textContent = `${currentFields.length} campo(s) salvo(s)`;
+            } catch (error) { status.textContent = 'Erro ao salvar: ' + error.message; }
         };
 
         const scrollToElement = (id) => {
@@ -190,7 +758,11 @@
             status.textContent = urlInput.value ? 'Baixando, convertendo e analisando…' : 'Convertendo e analisando com a rede neural…';
             
             try {
-                const response = await fetch('/api/convert', { method: 'POST', body: new FormData(form) });
+                if (!tenantSelect.value) throw new Error('Selecione um tenant antes de converter.');
+                const payload = new FormData(form);
+                if (tenantSelect.value) payload.append('tenant_id', tenantSelect.value);
+                if (groupSelect.value) payload.append('group_id', groupSelect.value);
+                const response = await fetch('/api/convert', { method: 'POST', body: payload });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error);
                 
@@ -212,7 +784,7 @@
         }
 
         // Inicializar
-        loadHistory();
+        loadTenants();
     </script>
 </body>
 </html>

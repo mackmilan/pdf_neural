@@ -70,6 +70,20 @@ normalmente exige dezenas ou centenas de paginas variadas, incluindo paginas sem
 tabelas. Revise as mascaras em `data/tables/masks/` e
 `data/tables/grid-masks/` antes do treino; elas sao os rotulos aprendidos pela rede.
 
+## Detector neural de campos
+
+O preparo reconhece AcroForms, linhas vetoriais e campos textuais como
+`Data: ____`. Durante o treino tambem sao sintetizados exemplos de data no rodape,
+o que cobre documentos digitalizados sem camada de texto. Para ajustar o modelo
+existente sem perder o aprendizado anterior:
+
+```bash
+python neural_field_detector.py prepare data/uepg/pdfs -o data/fields_uepg_v6
+python neural_field_detector.py train data/fields_uepg_v6 \
+  --resume models/field_detector.pt \
+  -o models/field_detector.pt --epochs 10 --learning-rate 0.0002
+```
+
 Abra `http://127.0.0.1:8000`. Na interface, envie um arquivo local ou informe uma
 URL publica HTTP/HTTPS que aponte para o PDF. Downloads remotos possuem limite de
 30 MB e enderecos locais ou de rede privada sao bloqueados.
@@ -128,6 +142,53 @@ A API responde imediatamente com HTTP `202`:
   "status_url": "https://pdf.exemplo.com/api/jobs/9a46c0ef8db14a119a006f239683ef9f"
 }
 ```
+
+## Documentos e versões
+
+O conteúdo binário do PDF é identificado por SHA-256. A primeira conversão cria
+o documento canônico e a versão 1; novas conversões do mesmo arquivo acrescentam
+versões sem duplicar o documento. Apenas uma versão possui `is_current: true`.
+
+```bash
+# Versão atual (tenant obrigatório; grupo opcional)
+curl 'http://localhost:8000/api/documents/{document_id}?tenant_id={tenant_id}&group_id={group_id}'
+
+# Histórico de versões
+curl 'http://localhost:8000/api/documents/{document_id}/versions?tenant_id={tenant_id}'
+
+# Versão específica
+curl 'http://localhost:8000/api/documents/{document_id}/versions/2?tenant_id={tenant_id}'
+```
+
+O retorno da conversão inclui `document_id`, `job_id` e `version`. Links antigos
+baseados em `job_id` continuam aceitos.
+
+## Tenants e grupos
+
+Tenants representam qualquer organização, conta ou domínio de dados. Cada tenant
+pode possuir grupos com nomes livres; os grupos podem representar departamentos,
+projetos, equipes, categorias ou qualquer outra divisão necessária. O sistema não
+impõe significado de negócio a esses nomes.
+
+```bash
+# Criar tenant
+curl -X POST http://localhost:8000/api/tenants \
+  -H 'Content-Type: application/json' -d '{"name":"Organização Alfa"}'
+
+# Criar grupo no tenant
+curl -X POST http://localhost:8000/api/tenants/{tenant_id}/groups \
+  -H 'Content-Type: application/json' -d '{"name":"Projeto Norte"}'
+
+# Filtrar o histórico pelo contexto
+curl 'http://localhost:8000/api/documents?tenant_id={tenant_id}&group_id={group_id}'
+```
+
+As conversões síncronas aceitam `tenant_id` e `group_id` no multipart. Jobs
+assíncronos aceitam os mesmos campos no JSON e exigem `tenant_id`. O `group_id` é
+opcional e, quando informado, precisa pertencer ao tenant. Todas as consultas de
+documentos e jobs exigem `tenant_id`; `group_id` pode restringir a busca. A identidade
+canônica do documento é isolada por tenant e grupo, portanto o mesmo PDF pode ter
+históricos de versão independentes em contextos diferentes.
 
 Ao terminar, o callback recebe um `POST application/json`. Em caso de sucesso, o
 corpo contem `status: "completed"` e `result` com `fields`, `tables`, `preview_url`

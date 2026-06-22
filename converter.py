@@ -77,6 +77,7 @@ def infer_type(label: str, width: float, height: float) -> str:
     rules = [
         (r"e-?mail", "email"),
         (r"telefone|celular|fone|whats", "tel"),
+        (r"hor[aá]rio|\bhora\b|minuto", "time"),
         (r"data|nascimento|emiss[aã]o|validade", "date"),
         (r"cpf|cnpj|cep|rg|\bano\b|n[uú]mero|valor|quantidade", "number"),
         (r"senha", "password"),
@@ -126,6 +127,64 @@ def acro_fields(reader: PdfReader) -> dict[int, list[Field]]:
     return result
 
 
+def textual_segmented_fields(
+    page: pdfplumber.page.Page,
+    words: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Separa segmentos de data e hora delimitados por ``/`` e ``:``."""
+    fields: list[dict[str, Any]] = []
+    underscore_rows = sorted({round(float(char["bottom"]), 1) for char in page.chars if str(char.get("text", "")) == "_"})
+    for row_bottom in underscore_rows:
+        row_chars = sorted(
+            [char for char in page.chars if abs(float(char["bottom"]) - row_bottom) <= 2],
+            key=lambda char: float(char["x0"]),
+        )
+        row_words = [word for word in words if abs(float(word["bottom"]) - row_bottom) <= 2]
+        row_text = " ".join(str(word.get("text", "")) for word in row_words).lower()
+        slash_count = sum(str(char.get("text", "")) == "/" for char in row_chars)
+        colon_count = sum(str(char.get("text", "")) == ":" for char in row_chars)
+        is_date = "data" in row_text or slash_count >= 2
+        is_time = "horário" in row_text or "horario" in row_text
+        if not is_date and not is_time:
+            continue
+
+        groups: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        for char in row_chars:
+            if str(char.get("text", "")) == "_":
+                current.append(char)
+            elif current:
+                groups.append(current)
+                current = []
+        if current:
+            groups.append(current)
+
+        labels = ("hora", "minuto") if is_time and not is_date else ("dia", "mes", "ano")
+        kind = "time" if is_time and not is_date else "date"
+        for index, group in enumerate(groups):
+            if len(group) < 2:
+                continue
+            x0 = min(float(char["x0"]) for char in group)
+            x1 = max(float(char["x1"]) for char in group)
+            bottom = max(float(char["bottom"]) for char in group)
+            if x1 - x0 >= 10:
+                part = labels[index] if index < len(labels) else str(index + 1)
+                fields.append({
+                    "bbox": (x0, max(0.0, bottom - 20.0), x1, bottom),
+                    "label": f"{'Horário' if kind == 'time' else 'Data'} - {part}",
+                    "type": kind,
+                })
+    return fields
+
+
+def textual_date_boxes(
+    page: pdfplumber.page.Page,
+    words: list[dict[str, Any]],
+) -> list[tuple[float, float, float, float]]:
+    """Compatibilidade para consumidores que precisam apenas das datas."""
+    return [field["bbox"] for field in textual_segmented_fields(page, words) if field["type"] == "date"]
+
+
 def inferred_fields(
     page: pdfplumber.page.Page,
     page_no: int,
@@ -159,6 +218,20 @@ def inferred_fields(
             continue
         seen.add(key)
         fields.append(Field(slug(label), label, infer_type(label, width, 20), page_no, x0, max(0, top-20), width, 20))
+
+    # Datas produzidas por editores como o LibreOffice podem ser texto puro, por
+    # exemplo: "Data: ___ de __________ de 20___.". Nesse caso nao existe uma
+    # linha PDF para a heuristica acima. Agrupamos todos os underscores da mesma
+    # linha em um unico campo, incluindo os separadores literais no seu interior.
+    for segmented in textual_segmented_fields(page, words):
+        x0, top, x1, bottom = segmented["bbox"]
+        width = x1 - x0
+        key = (round(x0), round(bottom))
+        if width < 10 or key in seen or inside_table(x0, top, width, 20) or overlaps(x0, top, width, 20):
+            continue
+        seen.add(key)
+        label = segmented["label"]
+        fields.append(Field(slug(label), label, segmented["type"], page_no, x0, top, width, 20))
 
     # Empty small rectangles usually represent checkboxes; larger ones are inputs/areas.
     for rect in page.rects:
@@ -381,6 +454,7 @@ def convert(
     pdf_path: str | Path,
     output_dir: str | Path | None = None,
     table_detector: Any | None = None,
+    field_detector: Any | None = None,
     job_id: str | None = None,
 ) -> Path | ConversionResult:
     """Converte um PDF.
@@ -404,6 +478,16 @@ def convert(
     page_sizes: list[dict[str, Any]] = []
     pages_html: list[str] = []
 
+    # Inferência neural de campos (se disponível) para o documento todo de uma vez
+    neural_fields_by_page: dict[int, list[dict[str, Any]]] = {}
+    if field_detector:
+        try:
+            neural_fields_data = field_detector.detect(pdf_path)
+            for nf in neural_fields_data:
+                neural_fields_by_page.setdefault(nf["page"], []).append(nf)
+        except Exception as e:
+            LOGGER.error("Erro na detecção neural de campos: %s", e)
+
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page_no, page in enumerate(pdf.pages, 1):
             page_width, page_height = float(page.width), float(page.height)
@@ -426,6 +510,103 @@ def convert(
                 for table in layouts
             ]
             fields += inferred_fields(page, page_no, words, fields, table_bboxes)
+
+            if page_no in neural_fields_by_page:
+                # Obter bboxes de imagens para filtragem
+                image_bboxes = []
+                for img in page.images:
+                    ix0, iy0, ix1, iy1 = float(img["x0"]), float(img["top"]), float(img["x1"]), float(img["bottom"])
+                    image_bboxes.append((ix0, iy0, ix1, iy1))
+
+                # Obter bboxes de texto para filtragem
+                text_bboxes = []
+                for word in words:
+                    text_bboxes.append((float(word["x0"]), float(word["top"]), float(word["x1"]), float(word["bottom"])))
+
+                # Bboxes de cabeçalhos de tabelas
+                header_bboxes = []
+                for table in layouts:
+                    # Assumimos que a primeira linha de cada tabela pode conter cabeçalhos.
+                    # Mais seguro: filtrar qualquer área de célula que contenha texto na tabela.
+                    for row in table.get("rows", []):
+                        for cell in row.get("cells", []):
+                            if cell.get("text") and cell["text"].strip():
+                                header_bboxes.append((cell["x"], cell["y"], cell["x"] + cell["width"], cell["y"] + cell["height"]))
+
+                # Obter bboxes de linhas para detectar sublinhados
+                line_bboxes = []
+                for line in page.lines:
+                    lx0, ly0, lx1, ly1 = float(line["x0"]), float(line["top"]), float(line["x1"]), float(line["bottom"])
+                    # Sublinhados costumam ser linhas horizontais finas
+                    line_bboxes.append((lx0, ly0, lx1, ly1))
+
+                for nf in neural_fields_by_page[page_no]:
+                    nx, ny, nw, nh = nf["x"], nf["y"], nf["width"], nf["height"]
+                    nx1, ny1 = nx + nw, ny + nh
+                    label = nf.get("label") or nearby_label(words, nx, ny + nh) or f"Campo Neural {len(all_fields) + len(fields) + 1}"
+                    if infer_type(label, nw, nh) == "date" and "_" in label:
+                        label = "Data"
+
+                    # Evitar sobreposição com imagens
+                    if any(not (nx1 <= ix0 or ix1 <= nx or ny1 <= iy0 or iy1 <= ny) for (ix0, iy0, ix1, iy1) in image_bboxes):
+                        # LOGGER.debug("Neural field at (%f, %f) filtered by image", nx, ny)
+                        continue
+
+                    # Evitar sobreposição com texto
+                    # Relaxamos um pouco a margem (usando < em vez de <= para permitir encostar)
+                    overlaps_text = any(
+                        not (nx1 < tx0 or tx1 < nx or ny1 < ty0 or ty1 < ny)
+                        for (tx0, ty0, tx1, ty1) in text_bboxes
+                    )
+                    # Em datas compostas, "de" e "20" fazem parte da mascara
+                    # consolidada e ficam deliberadamente dentro da caixa.
+                    if overlaps_text and infer_type(label, nw, nh) not in {"date", "time"}:
+                        # LOGGER.debug("Neural field at (%f, %f) filtered by text", nx, ny)
+                        continue
+
+                    # Evitar sobreposição com células preenchidas de tabelas (incluindo cabeçalhos)
+                    if any(not (nx1 < hx0 or hx1 < nx or ny1 < hy0 or hy1 < ny) for (hx0, hy0, hx1, hy1) in header_bboxes):
+                        # LOGGER.debug("Neural field at (%f, %f) filtered by table header", nx, ny)
+                        continue
+
+                    # Evitar sobreposição com linhas (possíveis sublinhados)
+                    # Um campo não deve estar "atravessado" por uma linha ou muito perto de uma linha de texto.
+                    # Se a linha estiver dentro ou muito próxima da base do campo, pode ser um sublinhado.
+                    overlaps_line = any(
+                        not (nx1 < lx0 or lx1 < nx or ny1 < ly0 or ly1 < ny)
+                        for (lx0, ly0, lx1, ly1) in line_bboxes
+                    )
+                    # O traco e a aparencia esperada de campos como
+                    # "Data: ____". A excecao fica restrita ao tipo date para
+                    # manter a protecao contra falsos positivos em outras linhas.
+                    if overlaps_line and infer_type(label, nw, nh) != "date":
+                        continue
+
+                    # Evitar sobreposição com campos já detectados (AcroForms, tabelas ou heurística)
+                    # Usamos uma margem pequena para tolerar imprecisões na rede
+                    is_overlap = False
+                    replace_inferred_date = None
+                    for field_index, f in enumerate(fields):
+                        # Intersecção simples
+                        if not (nx1 < f.x or f.x + f.width < nx or ny1 < f.y or f.y + f.height < ny):
+                            if f.source == "inferred" and f.type in {"date", "time"} and infer_type(label, nw, nh) == f.type:
+                                replace_inferred_date = field_index
+                                continue
+                            is_overlap = True
+                            break
+                    if is_overlap:
+                        continue
+                    if replace_inferred_date is not None:
+                        fields.pop(replace_inferred_date)
+
+                    # Padronizar a altura do campo detectado neuralmente para 20 pixels
+                    # Isso garante consistência visual mesmo que a rede tenha variações pequenas
+                    target_h = 20.0
+                    if nh != target_h:
+                        # Ajustamos ny para que a base do campo (ny + nh) permaneça a mesma
+                        ny = ny + nh - target_h
+                        nh = target_h
+                    fields.append(Field(slug(label), label, infer_type(label, nw, nh), page_no, nx, ny, nw, nh, source="neural_field"))
             # Keep names unique across repeated labels.
             used = {f.name for f in all_fields}
             for field in fields:

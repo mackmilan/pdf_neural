@@ -2,10 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import app
 from converter import ConversionResult
+from database import Database
 
 
 class FakeDatabase:
@@ -52,9 +53,163 @@ class AsyncApiTest(unittest.TestCase):
         self.assertEqual("3.1.0", spec["openapi"])
         operations = {(method, path) for path, methods in spec["paths"].items() for method in methods}
         self.assertTrue(
-            {("post", "/api/convert"), ("post", "/api/jobs"), ("get", "/api/jobs/{job_id}")} <= operations
+            {("post", "/api/convert"), ("post", "/api/jobs"), ("get", "/api/jobs/{job_id}"),
+             ("put", "/api/documents/{job_id}/fields"), ("delete", "/api/documents/{document_id}"),
+             ("get", "/api/documents/{document_id}/versions"),
+             ("get", "/api/documents/{document_id}/versions/{version}"),
+             ("put", "/api/documents/{document_id}/versions/{version}/current")} <= operations
         )
+        self.assertTrue({("get", "/api/tenants"), ("post", "/api/tenants"),
+                         ("get", "/api/tenants/{tenant_id}/groups"),
+                         ("post", "/api/tenants/{tenant_id}/groups")} <= operations)
         self.assertIn("extractionFinished", spec["paths"]["/api/jobs"]["post"]["callbacks"])
+
+    def test_validates_manually_edited_fields(self):
+        fields = app.validate_fields_payload([{
+            "name": "data_dia", "label": "Data - dia", "type": "date",
+            "page": 1, "x": 10, "y": 20, "width": 30, "height": 20,
+            "source": "manual",
+        }])
+        self.assertEqual(fields[0]["href"], "index.html#data_dia")
+        self.assertEqual(fields[0]["source"], "manual")
+
+        with self.assertRaises(ValueError):
+            app.validate_fields_payload([
+                {**fields[0], "name": "duplicado"},
+                {**fields[0], "name": "duplicado"},
+            ])
+
+    def test_search_context_requires_tenant_and_accepts_optional_group(self):
+        with self.assertRaisesRegex(ValueError, "tenant_id invalido"):
+            app.validate_search_context({})
+
+        tenant_id, group_id = app.validate_search_context({"tenant_id": ["a" * 32]})
+        self.assertEqual(tenant_id, "a" * 32)
+        self.assertIsNone(group_id)
+
+        tenant_id, group_id = app.validate_search_context({
+            "tenant_id": ["a" * 32], "group_id": ["b" * 32],
+        })
+        self.assertEqual(group_id, "b" * 32)
+
+    def test_openapi_searches_require_tenant_and_make_group_optional(self):
+        spec = json.loads((app.STATIC / "openapi.json").read_text())
+        parameters = spec["components"]["parameters"]
+        self.assertTrue(parameters["TenantQuery"]["required"])
+        self.assertFalse(parameters["GroupQuery"]["required"])
+        for path in (
+            "/api/documents", "/api/documents/{document_id}",
+            "/api/documents/{document_id}/versions",
+            "/api/documents/{document_id}/versions/{version}",
+            "/api/jobs", "/api/jobs/{job_id}",
+        ):
+            refs = {item.get("$ref") for item in spec["paths"][path]["get"].get("parameters", [])}
+            self.assertIn("#/components/parameters/TenantQuery", refs)
+            self.assertIn("#/components/parameters/GroupQuery", refs)
+
+    def test_delete_document_removes_related_records(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        database.db = MagicMock()
+        database.documents.find_one.return_value = None
+        database.documents.delete_one.return_value.deleted_count = 1
+
+        self.assertTrue(database.delete_document("a" * 32))
+
+        database.documents.delete_one.assert_called_once_with({"job_id": "a" * 32})
+        database.jobs.delete_one.assert_called_once_with({"job_id": "a" * 32})
+        database.db.get_collection.return_value.delete_many.assert_called_once_with({"job_id": "a" * 32})
+
+    def test_repeated_document_creates_new_current_version(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        database.db = MagicMock()
+        database.documents.find_one_and_update.return_value = {"current_version": 2}
+
+        identity = database.save_document(
+            "b" * 32, "<html></html>", [], [], metadata={"filename": "form.pdf"},
+            content_hash="c" * 64,
+        )
+
+        self.assertEqual(identity["document_id"], "c" * 64)
+        self.assertEqual(identity["version"], 2)
+        database.versions.update_many.assert_called_once_with(
+            {"document_id": "c" * 64, "is_current": True}, {"$set": {"is_current": False}}
+        )
+        inserted = database.versions.insert_one.call_args.args[0]
+        self.assertTrue(inserted["is_current"])
+        self.assertEqual(inserted["version"], 2)
+
+    def test_tenant_group_scopes_document_identity(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        database.documents.find_one_and_update.return_value = {"current_version": 1}
+
+        identity = database.save_document(
+            "b" * 32, "<html></html>", [], [], content_hash="c" * 64,
+            tenant_id="d" * 32, group_id="e" * 32,
+        )
+
+        self.assertNotEqual(identity["document_id"], "c" * 64)
+        self.assertEqual(len(identity["document_id"]), 64)
+        inserted = database.versions.insert_one.call_args.args[0]
+        self.assertEqual(inserted["tenant_id"], "d" * 32)
+        self.assertEqual(inserted["group_id"], "e" * 32)
+
+    def test_lists_documents_scoped_by_tenant_and_group(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.jobs = MagicMock()
+        database.documents.find.return_value.sort.return_value.limit.return_value = []
+
+        database.list_documents(tenant_id="d" * 32, group_id="e" * 32)
+
+        database.documents.find.assert_called_once_with(
+            {"tenant_id": "d" * 32, "group_id": "e" * 32}, {"html_content": 0}
+        )
+
+    def test_fetches_current_document_and_explicit_version(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        current = {"document_id": "c" * 64, "version": 3, "is_current": True}
+        explicit = {"document_id": "c" * 64, "version": 1, "is_current": False}
+        database.versions.find_one.side_effect = [None, current, explicit]
+
+        self.assertEqual(database.get_document("c" * 64), current)
+        self.assertEqual(database.get_document("c" * 64, 1), explicit)
+        self.assertEqual(
+            database.versions.find_one.call_args_list[-1].args[0],
+            {"document_id": "c" * 64, "version": 1},
+        )
+
+    def test_selects_document_default_version(self):
+        database = Database.__new__(Database)
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.jobs = MagicMock()
+        database.versions.find_one.return_value = {
+            "document_id": "c" * 64, "version": 1, "job_id": "b" * 32,
+            "fields": [{"name": "data"}], "tables": [], "metadata": {"filename": "form.pdf"},
+        }
+
+        selected = database.set_current_version("c" * 64, 1)
+
+        self.assertTrue(selected["is_current"])
+        self.assertEqual(selected["job_id"], "b" * 32)
+        database.versions.update_many.assert_called_once_with(
+            {"document_id": "c" * 64}, {"$set": {"is_current": False}}
+        )
+        canonical_update = database.documents.update_one.call_args.args[1]["$set"]
+        self.assertEqual(canonical_update["current_version"], 1)
+        self.assertEqual(canonical_update["fields"], [{"name": "data"}])
 
     def test_completed_job_is_persisted_and_sent_to_callback(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -73,7 +228,7 @@ class AsyncApiTest(unittest.TestCase):
                 patch.object(app, "download_pdf", return_value=("form.pdf", b"%PDF fake")),
                 patch.object(app, "convert_pdf_bytes", return_value=result),
                 patch.object(app, "deliver_callback", side_effect=lambda _url, payload: callbacks.append(payload)),
-                patch.object(app, "get_table_detector", return_value=None),
+                patch.object(app, "get_detectors", return_value=(None, None)),
                 patch.object(app, "NEURAL_REQUIRED", False),
             ):
                 app.run_api_job(job, "https://files.example/form.pdf", "https://api.example/callback", "doc-7", "https://pdf.example")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import html
+import hashlib
 import ipaddress
 import logging
 import mimetypes
@@ -18,6 +19,7 @@ import urllib.error
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -29,6 +31,7 @@ load_dotenv()
 from converter import ConversionResult, convert
 from database import db
 from neural_table_detector import DEFAULT_THRESHOLD, TableDetector
+from neural_field_detector import FieldDetector
 
 ROOT = Path(__file__).parent.resolve()
 JOBS = ROOT / "output" / "jobs"
@@ -39,6 +42,7 @@ TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 WORKERS = int(os.environ.get("PDF_WORKERS", "2"))
 TABLE_MODEL = Path(os.environ.get("TABLE_MODEL", ROOT / "models" / "uepg_table_detector.pt"))
+FIELD_MODEL = Path(os.environ.get("FIELD_MODEL", ROOT / "models" / "field_detector.pt"))
 NEURAL_THRESHOLD = float(os.environ.get("NEURAL_THRESHOLD", str(DEFAULT_THRESHOLD)))
 NEURAL_MIN_CONFIDENCE = float(os.environ.get("NEURAL_MIN_CONFIDENCE", "0.65"))
 NEURAL_ENABLED = os.environ.get("NEURAL_ENABLED", "true").lower() not in ("0", "false", "no")
@@ -47,7 +51,21 @@ EXECUTOR = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="pdf-job")
 LOGGER = logging.getLogger("pdf-neural")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 _TABLE_DETECTOR: TableDetector | None = None
-_TABLE_DETECTOR_LOCK = threading.Lock()
+_FIELD_DETECTOR: FieldDetector | None = None
+_DETECTOR_LOCK = threading.Lock()
+
+
+def json_safe(value: object) -> object:
+    """Converte valores MongoDB/datetime recursivamente para JSON."""
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if value.__class__.__name__ == "ObjectId":
+        return str(value)
+    return value
 
 
 def write_json(path: Path, value: object) -> None:
@@ -57,19 +75,27 @@ def write_json(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
-def get_table_detector() -> TableDetector | None:
-    """Carrega o checkpoint uma unica vez, na primeira conversao."""
-    global _TABLE_DETECTOR
+def get_detectors() -> tuple[TableDetector | None, FieldDetector | None]:
+    """Carrega os modelos uma única vez."""
+    global _TABLE_DETECTOR, _FIELD_DETECTOR
     if not NEURAL_ENABLED:
-        return None
-    if _TABLE_DETECTOR is None:
-        with _TABLE_DETECTOR_LOCK:
-            if _TABLE_DETECTOR is None:
-                if not TABLE_MODEL.is_file():
-                    raise FileNotFoundError(f"Modelo neural nao encontrado: {TABLE_MODEL}")
-                _TABLE_DETECTOR = TableDetector(TABLE_MODEL, NEURAL_THRESHOLD, NEURAL_MIN_CONFIDENCE)
-                LOGGER.info("Modelo neural carregado: %s", TABLE_MODEL)
-    return _TABLE_DETECTOR
+        return None, None
+    if _TABLE_DETECTOR is None or _FIELD_DETECTOR is None:
+        with _DETECTOR_LOCK:
+            if _TABLE_DETECTOR is None and TABLE_MODEL.is_file():
+                try:
+                    _TABLE_DETECTOR = TableDetector(TABLE_MODEL, NEURAL_THRESHOLD, NEURAL_MIN_CONFIDENCE)
+                    LOGGER.info("Modelo neural de tabelas carregado: %s", TABLE_MODEL)
+                except Exception:
+                    LOGGER.exception("Erro ao carregar detector de tabelas")
+
+            if _FIELD_DETECTOR is None and FIELD_MODEL.is_file():
+                try:
+                    _FIELD_DETECTOR = FieldDetector(FIELD_MODEL)
+                    LOGGER.info("Modelo neural de campos carregado: %s", FIELD_MODEL)
+                except Exception:
+                    LOGGER.exception("Erro ao carregar detector de campos")
+    return _TABLE_DETECTOR, _FIELD_DETECTOR
 
 
 def render_neural_tables(result: Path, tables: list[dict]) -> None:
@@ -145,10 +171,10 @@ def render_neural_tables(result: Path, tables: list[dict]) -> None:
 def run_neural_detection(source: Path, result: Path) -> list[dict]:
     """Detecta tabelas e garante que neural-tables.json exista para o ZIP."""
     LOGGER.info("Iniciando detecção neural de tabelas: %s", source.name)
-    detector = get_table_detector()
-    if detector:
+    table_detector, _ = get_detectors()
+    if table_detector:
         try:
-            tables = detector.detect(source, result / "neural-tables.json")
+            tables = table_detector.detect(source, result / "neural-tables.json")
             LOGGER.info("Detecção neural concluída: %d tabelas encontradas", len(tables))
             return tables
         except Exception:
@@ -178,18 +204,19 @@ def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResu
     with tempfile.TemporaryDirectory(prefix="pdf-neural-") as temporary:
         source = Path(temporary) / safe_name
         source.write_bytes(data)
-        result = convert(source, table_detector=get_table_detector(), job_id=job_id)
+        table_detector, field_detector = get_detectors()
+        result = convert(source, table_detector=table_detector, field_detector=field_detector, job_id=job_id)
         if not isinstance(result, ConversionResult):
             raise RuntimeError("A conversao nao retornou os artefatos em memoria")
         return result
 
 
-def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str]:
+def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str]:
     marker = "boundary="
     if marker not in content_type:
         raise ValueError("Requisicao multipart invalida")
     boundary = content_type.split(marker, 1)[1].strip().strip('"').encode()
-    pdf_name, pdf_data, url = "", b"", ""
+    pdf_name, pdf_data, url, tenant_id, group_id = "", b"", "", "", ""
     for part in body.split(b"--" + boundary):
         head, sep, data = part.partition(b"\r\n\r\n")
         if not sep:
@@ -201,7 +228,72 @@ def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str]:
                 pdf_name, pdf_data = Path(filename).name, data
         elif b'name="url"' in head:
             url = data.decode("utf-8", "replace").strip()
-    return pdf_name, pdf_data, url
+        elif b'name="tenant_id"' in head:
+            tenant_id = data.decode("utf-8", "replace").strip()
+        elif b'name="group_id"' in head:
+            group_id = data.decode("utf-8", "replace").strip()
+    return pdf_name, pdf_data, url, tenant_id, group_id
+
+
+def validate_context_id(value: object, label: str) -> str:
+    identifier = str(value or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+        raise ValueError(f"{label} invalido")
+    return identifier
+
+
+def validate_resource_name(value: object, label: str) -> str:
+    name = str(value or "").strip()
+    if not 1 <= len(name) <= 120:
+        raise ValueError(f"{label} deve possuir entre 1 e 120 caracteres")
+    return name
+
+
+def validate_search_context(query: dict[str, list[str]]) -> tuple[str, str | None]:
+    tenant_id = validate_context_id(query.get("tenant_id", [""])[0], "tenant_id")
+    group_value = query.get("group_id", [""])[0]
+    group_id = validate_context_id(group_value, "group_id") if group_value else None
+    return tenant_id, group_id
+
+
+FIELD_TYPES = {"text", "date", "time", "email", "tel", "number", "password", "checkbox", "select", "textarea"}
+
+
+def validate_fields_payload(value: object) -> list[dict]:
+    """Valida e normaliza campos editados pela interface."""
+    if not isinstance(value, list) or len(value) > 1000:
+        raise ValueError("fields deve ser uma lista com no maximo 1000 itens")
+    fields = []
+    used_names = set()
+    for index, raw in enumerate(value, 1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Campo {index} invalido")
+        name = str(raw.get("name", "")).strip()[:64]
+        label = str(raw.get("label", "")).strip()[:160]
+        kind = str(raw.get("type", "text"))
+        if not name or not re.fullmatch(r"[a-zA-Z0-9_\-]+", name) or name in used_names:
+            raise ValueError(f"Nome invalido ou duplicado no campo {index}")
+        if not label or kind not in FIELD_TYPES:
+            raise ValueError(f"Rotulo ou tipo invalido no campo {index}")
+        try:
+            page = int(raw.get("page"))
+            x, y = float(raw.get("x")), float(raw.get("y"))
+            width, height = float(raw.get("width")), float(raw.get("height"))
+        except (TypeError, ValueError):
+            raise ValueError(f"Coordenadas invalidas no campo {index}") from None
+        if page < 1 or not all(math.isfinite(v) for v in (x, y, width, height)):
+            raise ValueError(f"Coordenadas invalidas no campo {index}")
+        if x < 0 or y < 0 or width <= 0 or height <= 0 or width > 10000 or height > 10000:
+            raise ValueError(f"Dimensoes invalidas no campo {index}")
+        used_names.add(name)
+        fields.append({
+            "name": name, "label": label, "type": kind, "page": page,
+            "x": x, "y": y, "width": width, "height": height,
+            "source": str(raw.get("source", "manual"))[:32],
+            "required": bool(raw.get("required", False)),
+            "href": f"index.html#{name}",
+        })
+    return fields
 
 
 def validate_public_url(raw_url: str) -> str:
@@ -294,9 +386,9 @@ def deliver_callback(callback_url: str, payload: dict) -> None:
     raise RuntimeError(f"Falha ao enviar callback: {error}")
 
 
-def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, base_url: str) -> None:
+def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, base_url: str, tenant_id: str | None = None, group_id: str | None = None) -> None:
     LOGGER.info("Iniciando background job: %s", job)
-    common = {"job_id": job, "reference": reference}
+    common = {"job_id": job, "reference": reference, "tenant_id": tenant_id, "group_id": group_id}
 
     def update_job_status(payload: dict):
         if not db or not db.is_available():
@@ -310,24 +402,29 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
         if not data.startswith(b"%PDF"):
             raise ValueError("O conteudo recebido nao e um PDF valido")
         if NEURAL_REQUIRED:
-            detector = get_table_detector()
-            if not detector:
-                raise RuntimeError("Detector neural obrigatorio nao disponivel")
+            table_detector, field_detector = get_detectors()
+            if not table_detector or not field_detector:
+                raise RuntimeError("Detectores neurais obrigatorios nao disponiveis")
 
         LOGGER.info("Iniciando conversão do PDF para job %s", job)
         result = convert_pdf_bytes(data, name, job)
-        db.save_document(
+        content_hash = hashlib.sha256(data).hexdigest()
+        identity = db.save_document(
             job_id=job,
             html_content=result.html_content,
             fields=result.fields,
             tables=result.tables,
             pages=result.pages,
             neural_tables=result.neural_tables,
-            metadata={"pdf_url": pdf_url, "reference": reference},
+            metadata={"filename": name, "pdf_url": pdf_url, "reference": reference, "content_hash": content_hash},
+            content_hash=content_hash,
+            tenant_id=tenant_id,
+            group_id=group_id,
         )
         LOGGER.info("Documento salvo no MongoDB para job %s", job)
 
-        payload = {**common, "status": "completed", "result": {"fields": result.fields, "tables": result.tables, "neural_tables": result.neural_tables, **job_urls(job, base_url)}}
+        identity = identity or {"document_id": content_hash, "version": 1, "job_id": job, "is_current": True}
+        payload = {**common, "document_id": identity["document_id"], "version": identity["version"], "status": "completed", "result": {"document_id": identity["document_id"], "version": identity["version"], "fields": result.fields, "tables": result.tables, "neural_tables": result.neural_tables, **job_urls(job, base_url)}}
         update_job_status(payload)
         LOGGER.info("Background job %s concluído com sucesso", job)
     except Exception as exc:
@@ -370,7 +467,9 @@ class Handler(BaseHTTPRequestHandler):
             shutil.copyfileobj(handle, self.wfile)
 
     def do_GET(self) -> None:
-        path = urllib.parse.unquote(self.path.split("?", 1)[0])
+        parsed_request = urllib.parse.urlsplit(self.path)
+        path = urllib.parse.unquote(parsed_request.path)
+        query = urllib.parse.parse_qs(parsed_request.query)
         if path == "/":
             return self.send_file(STATIC / "index.html")
         if path in ("/docs", "/docs/"):
@@ -380,18 +479,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/documents":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            docs = db.list_documents()
-            # Convert ObjectId and datetime to string
-            for d in docs:
-                d["_id"] = str(d["_id"])
-                if "created_at" in d:
-                    d["created_at"] = d["created_at"].isoformat()
-            return self.send_json(200, docs)
+            try:
+                tenant_id, group_id = validate_search_context(query)
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            docs = db.list_documents(tenant_id=tenant_id, group_id=group_id)
+            return self.send_json(200, json_safe(docs))
+
+        if path == "/api/tenants":
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            return self.send_json(200, json_safe(db.list_tenants()))
         
         if path == "/api/jobs":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            jobs = db.list_jobs()
+            try:
+                tenant_id, group_id = validate_search_context(query)
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            jobs = db.list_jobs(tenant_id=tenant_id, group_id=group_id)
             for j in jobs:
                 j["_id"] = str(j["_id"])
                 if "created_at" in j: j["created_at"] = j["created_at"].isoformat()
@@ -399,22 +506,51 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, jobs)
 
         parts = Path(path.lstrip("/")).parts
-        if len(parts) == 3 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{32}", parts[2]):
+        if len(parts) == 4 and parts[:2] == ("api", "tenants") and re.fullmatch(r"[0-9a-f]{32}", parts[2]) and parts[3] == "groups":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            doc = db.get_document_summary(parts[2])
+            return self.send_json(200, json_safe(db.list_groups(parts[2])))
+        document_id_pattern = r"(?:[0-9a-f]{32}|[0-9a-f]{64})"
+        if len(parts) == 4 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions":
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            return self.send_json(200, json_safe(db.list_document_versions(parts[2], tenant_id, group_id)))
+
+        if len(parts) == 5 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions" and parts[4].isdigit():
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            doc = db.get_document_summary(parts[2], int(parts[4]), tenant_id, group_id)
+            return self.send_json(200, json_safe(doc)) if doc else self.send_json(404, {"error": "Versao nao encontrada"})
+
+        if len(parts) == 3 and parts[:2] == ("api", "documents") and re.fullmatch(document_id_pattern, parts[2]):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            doc = db.get_document_summary(parts[2], tenant_id=tenant_id, group_id=group_id)
             if doc:
-                doc["_id"] = str(doc["_id"])
-                if "created_at" in doc:
-                    doc["created_at"] = doc["created_at"].isoformat()
-                return self.send_json(200, doc)
+                return self.send_json(200, json_safe(doc))
             return self.send_json(404, {"error": "Documento nao encontrado"})
 
         if len(parts) == 3 and parts[:2] == ("api", "jobs") and re.fullmatch(r"[0-9a-f]{32}", parts[2]):
             job_id = parts[2]
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            job_data = db.get_job(job_id)
+            try:
+                tenant_id, group_id = validate_search_context(query)
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            job_data = db.get_job(job_id, tenant_id, group_id)
             if job_data:
                 job_data["_id"] = str(job_data["_id"])
                 if "created_at" in job_data: job_data["created_at"] = job_data["created_at"].isoformat()
@@ -439,7 +575,88 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_error(404)
         self.send_error(404)
 
+    def do_PUT(self) -> None:
+        path = urllib.parse.unquote(self.path.split("?", 1)[0])
+        parts = Path(path.lstrip("/")).parts
+        if (
+            len(parts) == 6 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions"
+            and parts[4].isdigit() and parts[5] == "current"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            selected = db.set_current_version(parts[2], int(parts[4]))
+            if not selected:
+                return self.send_json(404, {"error": "Versao nao encontrada"})
+            return self.send_json(200, json_safe(selected))
+        if not (
+            len(parts) == 4 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{32}", parts[2]) and parts[3] == "fields"
+        ):
+            return self.send_error(404)
+        if not db or not db.is_available():
+            return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0 or length > MAX_JSON_SIZE:
+                raise ValueError("Corpo JSON ausente ou maior que 64 KB")
+            if self.headers.get_content_type() != "application/json":
+                raise ValueError("Content-Type deve ser application/json")
+            request = json.loads(self.rfile.read(length))
+            fields = validate_fields_payload(request.get("fields") if isinstance(request, dict) else None)
+            result = db.update_document_fields(parts[2], fields)
+            if result is None or getattr(result, "matched_count", 1) == 0:
+                return self.send_json(404, {"error": "Documento nao encontrado"})
+            job_data = db.get_job(parts[2])
+            if job_data and isinstance(job_data.get("result"), dict):
+                updated = dict(job_data)
+                updated.pop("_id", None)
+                updated["result"] = {**job_data["result"], "fields": fields}
+                db.save_job(parts[2], updated)
+            return self.send_json(200, {"job_id": parts[2], "fields": fields})
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            return self.send_json(400, {"error": str(exc)})
+
+    def do_DELETE(self) -> None:
+        path = urllib.parse.unquote(self.path.split("?", 1)[0])
+        parts = Path(path.lstrip("/")).parts
+        if not (
+            len(parts) == 3 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"(?:[0-9a-f]{32}|[0-9a-f]{64})", parts[2])
+        ):
+            return self.send_error(404)
+        if not db or not db.is_available():
+            return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+        try:
+            if not db.delete_document(parts[2]):
+                return self.send_json(404, {"error": "Documento nao encontrado"})
+            return self.send_json(200, {"job_id": parts[2], "deleted": True})
+        except Exception:
+            LOGGER.exception("Erro ao excluir documento %s", parts[2])
+            return self.send_json(500, {"error": "Erro interno ao excluir documento"})
+
     def do_POST(self) -> None:
+        if self.path == "/api/tenants" or re.fullmatch(r"/api/tenants/[0-9a-f]{32}/groups", self.path):
+            try:
+                if not db or not db.is_available():
+                    return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                if not isinstance(request, dict):
+                    raise ValueError("O corpo JSON deve ser um objeto")
+                name = validate_resource_name(request.get("name"), "name")
+                metadata = request.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    raise ValueError("metadata deve ser um objeto")
+                if self.path == "/api/tenants":
+                    return self.send_json(201, json_safe(db.create_tenant(name, metadata)))
+                tenant_id = self.path.split("/")[3]
+                group = db.create_group(tenant_id, name, metadata)
+                return self.send_json(201, json_safe(group)) if group else self.send_json(404, {"error": "Tenant nao encontrado"})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
         if self.path == "/api/jobs":
             try:
                 LOGGER.info("Recebida requisição POST /api/jobs")
@@ -456,12 +673,17 @@ class Handler(BaseHTTPRequestHandler):
                 pdf_url = validate_public_url(str(request.get("pdf_url", "")))
                 callback_url = validate_public_url(str(request.get("callback_url", "")))
                 reference = request.get("reference")
+                tenant_id = validate_context_id(request.get("tenant_id"), "tenant_id")
+                group_id = validate_context_id(request.get("group_id"), "group_id") if request.get("group_id") else None
+                if not db.group_belongs_to_tenant(tenant_id, group_id):
+                    raise ValueError("tenant_id deve existir e group_id, quando informado, deve pertencer ao tenant")
                 job = uuid.uuid4().hex
                 LOGGER.info("Criando background job %s para URL: %s", job, pdf_url)
-                initial = {"job_id": job, "reference": reference, "status": "queued"}
+                initial = {"job_id": job, "reference": reference, "status": "queued", "tenant_id": tenant_id, "group_id": group_id}
                 db.save_job(job, initial)
-                EXECUTOR.submit(run_api_job, job, pdf_url, callback_url, reference, self.base_url())
-                return self.send_json(202, {**initial, "status_url": f"{self.base_url()}/api/jobs/{job}"})
+                EXECUTOR.submit(run_api_job, job, pdf_url, callback_url, reference, self.base_url(), tenant_id, group_id)
+                status_query = urllib.parse.urlencode({key: value for key, value in {"tenant_id": tenant_id, "group_id": group_id}.items() if value})
+                return self.send_json(202, {**initial, "status_url": f"{self.base_url()}/api/jobs/{job}?{status_query}"})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 LOGGER.warning("Requisição inválida para /api/jobs: %s", str(exc))
                 return self.send_json(400, {"error": str(exc)})
@@ -478,7 +700,11 @@ class Handler(BaseHTTPRequestHandler):
             if length > MAX_PDF_SIZE + 1024 * 1024:
                 raise ValueError("O limite e 30 MB")
             body = self.rfile.read(length)
-            name, data, url = multipart_data(self.headers.get("Content-Type", ""), body)
+            name, data, url, tenant_id, group_id = multipart_data(self.headers.get("Content-Type", ""), body)
+            tenant_id = validate_context_id(tenant_id, "tenant_id") if tenant_id else None
+            group_id = validate_context_id(group_id, "group_id") if group_id else None
+            if (tenant_id or group_id) and not db.group_belongs_to_tenant(tenant_id, group_id):
+                raise ValueError("tenant_id deve existir e group_id, quando informado, deve pertencer ao tenant")
             if not data and url:
                 LOGGER.info("Baixando PDF remoto: %s", url)
                 name, data = download_pdf(url)
@@ -490,15 +716,20 @@ class Handler(BaseHTTPRequestHandler):
             job = uuid.uuid4().hex
             LOGGER.info("Iniciando job síncrono: %s", job)
             result = convert_pdf_bytes(data, name, job)
-            db.save_document(
+            content_hash = hashlib.sha256(data).hexdigest()
+            identity = db.save_document(
                 job_id=job,
                 html_content=result.html_content,
                 fields=result.fields,
                 tables=result.tables,
                 pages=result.pages,
                 neural_tables=result.neural_tables,
-                metadata={"filename": name, "sync": True},
+                metadata={"filename": name, "sync": True, "content_hash": content_hash},
+                content_hash=content_hash,
+                tenant_id=tenant_id,
+                group_id=group_id,
             )
+            identity = identity or {"document_id": content_hash, "version": 1, "job_id": job, "is_current": True}
             db.save_job(job, {
                 "job_id": job,
                 "status": "completed",
@@ -507,16 +738,25 @@ class Handler(BaseHTTPRequestHandler):
                     "tables": result.tables,
                     "neural_tables": result.neural_tables,
                     "preview": f"/jobs/{job}/html/index.html",
+                    "document_id": identity["document_id"],
+                    "version": identity["version"],
                 },
                 "sync": True,
+                "tenant_id": tenant_id,
+                "group_id": group_id,
             })
             LOGGER.info("Documento e job salvos no MongoDB para job síncrono %s", job)
             
             payload = json.dumps({
+                "job_id": job,
+                "document_id": identity["document_id"],
+                "version": identity["version"],
                 "preview": f"/jobs/{job}/html/index.html",
                 "fields": result.fields,
                 "tables": result.tables,
-                "neural_tables": result.neural_tables
+                "neural_tables": result.neural_tables,
+                "tenant_id": tenant_id,
+                "group_id": group_id,
             }, ensure_ascii=False).encode("utf-8")
             
             self.send_response(200)
