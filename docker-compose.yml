@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file: .env
     environment:
       HOST: 0.0.0.0
       PORT: 8000
@@ -13,21 +14,12 @@ services:
       NEURAL_THRESHOLD: ${NEURAL_THRESHOLD:-0.7}
       NEURAL_MIN_CONFIDENCE: ${NEURAL_MIN_CONFIDENCE:-0.65}
       NEURAL_REQUIRED: ${NEURAL_REQUIRED:-true}
-      AUTH_ENABLED: ${AUTH_ENABLED:-true}
-      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/pdf-neural}
-      KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL:-http://host.docker.internal:8080/realms/pdf-neural/protocol/openid-connect/certs}
-      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-pdf-neural-api}
-      KEYCLOAK_ADMIN_ROLE: ${KEYCLOAK_ADMIN_ROLE:-pdf-admin}
     expose:
       - "8000"
     volumes:
       - pdf-neural-data:/app/output
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
       interval: 30s
       timeout: 5s
       start_period: 15s

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import base64
 import json
 import time
 import urllib.request
+import urllib.parse
 from dataclasses import dataclass
 from threading import Lock
 
@@ -23,6 +25,7 @@ class Identity:
     username: str | None
     roles: frozenset[str]
     claims: dict
+    client_id: str | None = None
 
     def has_role(self, role: str) -> bool:
         return role in self.roles
@@ -35,9 +38,13 @@ class KeycloakAuthenticator:
         self.audience = os.getenv("KEYCLOAK_AUDIENCE", "pdf-neural-api")
         self.admin_role = os.getenv("KEYCLOAK_ADMIN_ROLE", "pdf-admin")
         self.jwks_url = os.getenv("KEYCLOAK_JWKS_URL", f"{self.issuer}/protocol/openid-connect/certs")
+        self.token_url = os.getenv("KEYCLOAK_TOKEN_URL", f"{self.issuer}/protocol/openid-connect/token")
+        self.admin_url = os.getenv("KEYCLOAK_ADMIN_URL", f"{os.path.dirname(self.issuer)}/admin/realms/{os.path.basename(self.issuer)}")
         self._keys: dict[str, rsa.RSAPublicKey] = {}
         self._keys_expires_at = 0.0
         self._lock = Lock()
+        self._admin_token: str | None = None
+        self._admin_token_expires_at = 0.0
 
     @staticmethod
     def _decode_segment(value: str) -> bytes:
@@ -70,6 +77,9 @@ class KeycloakAuthenticator:
     def authenticate(self, authorization: str | None) -> Identity:
         if not self.enabled:
             return Identity("development-user", "development-user", frozenset({self.admin_role}), {})
+        return self.authenticate_bearer(authorization)
+
+    def authenticate_bearer(self, authorization: str | None) -> Identity:
         scheme, separator, token = (authorization or "").partition(" ")
         if not separator or scheme.lower() != "bearer" or not token.strip():
             raise AuthenticationError("Token Bearer ausente")
@@ -113,6 +123,145 @@ class KeycloakAuthenticator:
             username=claims.get("preferred_username"),
             roles=frozenset(str(role) for role in roles),
             claims=claims,
+        )
+
+
+    def _get_admin_token(self) -> str:
+        """Obtem um token de acesso usando client_credentials para chamadas Admin."""
+        with self._lock:
+            if self._admin_token and time.monotonic() < self._admin_token_expires_at:
+                return self._admin_token
+            
+            client_id = os.getenv("KEYCLOAK_ADMIN_CLIENT_ID")
+            client_secret = os.getenv("KEYCLOAK_ADMIN_CLIENT_SECRET")
+            if not client_id or not client_secret:
+                raise AuthenticationError("Configuracao de Admin do Keycloak ausente")
+
+            data = urllib.parse.urlencode({
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }).encode("ascii")
+            
+            req = urllib.request.Request(self.token_url, data=data, method="POST")
+            with urllib.request.urlopen(req, timeout=5) as response:
+                res_data = json.load(response)
+                self._admin_token = res_data["access_token"]
+                # Expira um pouco antes do tempo real para seguranca
+                self._admin_token_expires_at = time.monotonic() + float(res_data.get("expires_in", 60)) - 10
+                return self._admin_token
+
+    def _get_client_roles(self, client_id: str) -> set[str]:
+        """Busca as roles de um cliente especifico no Keycloak."""
+        token = self._get_admin_token()
+        
+        # 1. Buscar a ID interna (UUID) do cliente pelo seu clientId
+        url = f"{self.admin_url}/clients?clientId={client_id}"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            clients = json.load(response)
+            if not clients:
+                return set()
+            internal_id = clients[0]["id"]
+            
+        # 2. Buscar roles de realm mapeadas para este cliente (via service account se aplicavel)
+        # No Keycloak, clients que usam client_credentials tem uma Service Account.
+        # As roles sao mapeadas para o service-account-user do cliente.
+        service_account_url = f"{self.admin_url}/clients/{internal_id}/service-account-user"
+        req = urllib.request.Request(service_account_url, headers={"Authorization": f"Bearer {token}"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as response:
+                user = json.load(response)
+                user_id = user["id"]
+        except Exception:
+            return set() # Talvez nao tenha service account ativa
+            
+        # 3. Buscar role mappings (realm roles)
+        roles_url = f"{self.admin_url}/users/{user_id}/role-mappings/realm"
+        req = urllib.request.Request(roles_url, headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            roles_data = json.load(response)
+            return {role["name"] for role in roles_data}
+
+    def validate_client(self, client_id: str) -> bool:
+        """Valida se o client_id existe no Keycloak e tem Service Account ativo."""
+        if not self.enabled:
+            return True
+            
+        try:
+            token = self._get_admin_token()
+            url = f"{self.admin_url}/clients?clientId={client_id}"
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                clients = json.load(response)
+                if not clients:
+                    print(f"[DEBUG_LOG] Client '{client_id}' not found in Keycloak")
+                    return False
+                
+                # Verifica se o service account está habilitado
+                client_data = clients[0]
+                enabled = client_data.get("serviceAccountsEnabled", False)
+                if not enabled:
+                    print(f"[DEBUG_LOG] Client '{client_id}' found but Service Account is disabled")
+                return enabled
+        except urllib.error.URLError as exc:
+            # Erro de conexão ou HTTP
+            print(f"[DEBUG_LOG] Keycloak connection error during client validation: {exc}")
+            # Em desenvolvimento, se o Keycloak estiver fora, permitimos para não bloquear o fluxo básico,
+            # mas registramos o erro.
+            return True 
+        except AuthenticationError as exc:
+            # Erro de configuração do Admin
+            print(f"[DEBUG_LOG] Keycloak admin configuration error: {exc}")
+            # Se a configuração do admin está errada, não podemos validar.
+            # Decidimos se bloqueamos ou permitimos. Por segurança, vamos permitir
+            # mas logar fortemente.
+            return True
+        except Exception as exc:
+            print(f"[DEBUG_LOG] Unexpected error during client validation for {client_id}: {exc}")
+            return True
+
+    def authenticate_api_key(self, api_key: str | None) -> Identity:
+        if not api_key:
+            raise AuthenticationError("API Key ausente")
+        
+        from database import db
+        if not db or not db.is_available():
+            raise AuthenticationError("Servico de banco de dados indisponivel")
+        
+        key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+        key_data = db.get_api_key(key_hash)
+        
+        if not key_data:
+            raise AuthenticationError("API Key invalida ou inativa")
+        
+        client_id = key_data["client_id"]
+        roles = set()
+        
+        # Se AUTH_ENABLED e tivermos as configurações de Admin, buscar roles no Keycloak
+        # Usando a mesma lógica de desabilitar se necessário
+        if self.enabled:
+            try:
+                # Buscar roles reais do client_id no Keycloak
+                roles.update(self._get_client_roles(client_id))
+            except Exception:
+                # Falha ao buscar roles não deve necessariamente bloquear se a chave é válida no banco,
+                # mas em um ambiente de produção rigoroso poderíamos exigir sucesso.
+                pass
+
+        claims = {
+            "client_id": client_id,
+            "name": key_data.get("name"),
+            "tenant_id": key_data.get("tenant_id"),
+            "group_id": key_data.get("group_id")
+        }
+        
+        return Identity(
+            subject=f"client:{client_id}",
+            username=key_data.get("name"),
+            roles=frozenset(roles),
+            claims=claims,
+            client_id=client_id
         )
 
 

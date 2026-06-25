@@ -3,10 +3,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from pathlib import Path
 import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
+
+
+def default_app_urls() -> list[str]:
+    port = os.getenv("PORT")
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not port and env_path.is_file():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key.strip() == "PORT":
+                port = value.strip().strip("\"'")
+                break
+    port = port or "8000"
+    return [f"http://localhost:{port}", f"http://127.0.0.1:{port}"]
 
 
 def request(url: str, method: str = "GET", token: str | None = None, payload: object = None):
@@ -41,7 +56,7 @@ def main() -> None:
     parser.add_argument("--reset-app-password", action="store_true")
     parser.add_argument(
         "--app-url", action="append",
-        default=["http://localhost:8000", "http://127.0.0.1:8000"],
+        default=default_app_urls(),
         help="Origem permitida para login/logout; pode ser repetida",
     )
     args = parser.parse_args()

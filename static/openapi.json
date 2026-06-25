@@ -6,7 +6,7 @@
     "description": "Gera uma representacao HTML fiel do PDF, extrai campos e usa uma rede neural para localizar regioes de tabela. Oferece conversao sincrona e processamento assincrono com callback."
   },
   "servers": [{"url": "/", "description": "Servidor atual"}],
-  "security": [{"bearerAuth": []}],
+  "security": [{"bearerAuth": []}, {"apiKeyAuth": []}],
   "tags": [
     {"name": "Usuarios", "description": "Identidade do Keycloak e autorizacoes armazenadas no MongoDB"},
     {"name": "Tenants", "description": "Organizacoes e seus grupos genericos"},
@@ -140,6 +140,22 @@
         "responses": {"200": {"description": "Documento renomeado"}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}}
       }
     },
+    "/api/documents/{document_id}/html": {
+      "put": {
+        "tags": ["Historico"],
+        "summary": "Salva HTML editado como nova versão",
+        "description": "Cria uma nova versão padrão do documento com o HTML revisado manualmente.",
+        "operationId": "updateDocumentHtml",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateHtmlRequest"}}}},
+        "responses": {
+          "200": {"description": "Nova versão criada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
     "/api/documents/{job_id}/fields": {
       "put": {
         "tags": ["Historico"],
@@ -172,6 +188,20 @@
         }
       }
     },
+    "/api/documents/{document_id}/versions/current": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Busca a versão padrão do documento",
+        "description": "Retorna somente a versão marcada como padrão para o documento informado.",
+        "operationId": "getCurrentDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão padrão encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
     "/api/documents/{document_id}/versions/{version}": {
       "get": {
         "tags": ["Historico"],
@@ -181,6 +211,19 @@
         "responses": {
           "200": {"description": "Versão encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
           "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      },
+      "delete": {
+        "tags": ["Historico"],
+        "summary": "Exclui uma versão do documento",
+        "description": "Remove uma versão não padrão do histórico. A versão padrão atual não pode ser excluída.",
+        "operationId": "deleteDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/Version"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão excluída"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"description": "A versão é a versão padrão atual", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
           "503": {"$ref": "#/components/responses/ServiceUnavailable"}
         }
       }
@@ -297,6 +340,7 @@
             }
           }
         },
+        "security": [{"apiKeyAuth": []}, {"bearerAuth": []}],
         "callbacks": {
           "extractionFinished": {
             "{$request.body#/callback_url}": {
@@ -345,7 +389,8 @@
   },
   "components": {
     "securitySchemes": {
-      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "Access token emitido pelo realm pdf-neural no Keycloak"}
+      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "Access token emitido pelo realm pdf-neural no Keycloak"},
+      "apiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-API-Key", "description": "Chave de API para integracao server-to-server"}
     },
     "parameters": {
       "JobId": {
@@ -373,8 +418,8 @@
         "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
       },
       "TenantQuery": {
-        "name": "tenant_id", "in": "query", "required": true,
-        "description": "Tenant obrigatório que delimita a consulta.",
+        "name": "tenant_id", "in": "query", "required": false,
+        "description": "Tenant que delimita a consulta.",
         "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
       },
       "GroupQuery": {
@@ -506,10 +551,19 @@
           }
         ]
       },
+      "UpdateHtmlRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["html_content"],
+        "properties": {
+          "html_content": {"type": "string", "description": "Documento HTML completo revisado manualmente.", "maxLength": 8388608},
+          "base_version": {"type": "integer", "minimum": 1, "description": "Versão visualizada que serviu de base para a edição."}
+        }
+      },
       "CreateJobRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["pdf_url", "callback_url", "tenant_id"],
+        "required": ["pdf_url", "callback_url"],
         "properties": {
           "pdf_url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS do PDF."},
           "callback_url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS que recebera um POST JSON."},
@@ -531,8 +585,11 @@
           "y": {"type": "number"},
           "width": {"type": "number"},
           "height": {"type": "number"},
+          "align": {"type": "string", "enum": ["left", "center", "justify", "right"], "default": "left"},
           "source": {"type": "string", "enum": ["inferred", "acroform", "table", "neural_field", "manual"]},
-          "required": {"type": "boolean"}
+          "required": {"type": "boolean"},
+          "min": {"type": "number", "description": "Valor minimo permitido para campos do tipo number."},
+          "max": {"type": "number", "description": "Valor maximo permitido para campos do tipo number."}
         }
       },
       "Table": {

@@ -31,8 +31,8 @@
         .status { color: #aab8d4 }
         .result { display: none }
         .result.show { display: block }
-        .page-layout { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(0, 2fr); gap: 24px; align-items: stretch; flex: 1; min-height: 0; margin-top: 16px; overflow: hidden }
-        .left-column { display: grid; gap: 24px; min-width: 0; min-height: 0; overflow-y: auto; align-content: start; padding-right: 4px }
+        .page-layout { display: grid; grid-template-columns: 25% minmax(0, 1fr); gap: 24px; align-items: stretch; flex: 1; min-height: 0; margin-top: 16px; overflow: hidden }
+        .left-column { display: grid; gap: 24px; min-width: 300px; max-width: 450px; min-height: 0; overflow-y: auto; align-content: start; padding-right: 4px }
         .left-column .context-grid, .left-column .history-list { grid-template-columns: 1fr }
         .page-layout > .card, .left-column > .card { margin-top: 0 }
         .result { min-width: 0; min-height: 0; height: 100%; margin-top: 0; overflow-y: auto }
@@ -41,6 +41,10 @@
         .preview:fullscreen { width: 100vw; height: 100vh; border-radius: 0; background: white }
         .preview:-webkit-full-screen { width: 100vw; height: 100vh; border-radius: 0; background: white }
         .fullscreen-button { padding: 9px 13px; background: #25344f; color: #edf3ff }
+        .text-edit-button { padding: 9px 13px; background: #25344f; color: #edf3ff }
+        .text-edit-button.active { background: #75a7ff; color: #08101e }
+        .text-save-button { padding: 9px 13px }
+        .text-discard-button { padding: 9px 13px; background: #25344f; color: #edf3ff }
         .fields { max-height: 720px; overflow: auto }
         .field-link { display: block; text-decoration: none; color: inherit; padding: 10px; border-bottom: 1px solid #283653; transition: background .2s }
         .field-link:hover { background: #1c2945 }
@@ -52,20 +56,21 @@
         .edit-field:hover { background: #1c3558 }
         .field-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px }
         .field-toolbar button { padding: 8px 11px; font-size: 13px }
-        .form-values { margin-top: 18px }
-        .form-values pre { max-height: 220px; overflow: auto; margin: 8px 0 0; padding: 12px; border: 1px solid #344768; border-radius: 9px; background: #0c1425; color: #b9d2ff; font: 13px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere }
         .editor { display: none; padding: 12px; margin-bottom: 12px; border: 1px solid #4c668f; border-radius: 10px; background: #101a2d }
         .editor.show { display: grid; gap: 8px }
         .editor input, .editor select { width: 100%; border: 1px solid #4c668f; border-radius: 7px; background: #0c1425; color: #edf3ff; padding: 8px }
+        .editor input[type="checkbox"] { width: 18px; height: 18px; padding: 0 }
+        .editor .checkbox-row { display: flex; align-items: center; gap: 8px; color: #aab8d4; font-size: 14px }
+        .number-rules { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
         .editor small { color: #aab8d4 }
         .field code, .confidence { color: #86b3ff }
         .section-title { margin-top: 26px }
         
         /* History Styles */
-        .history-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin-top: 16px }
+        .history-list { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px }
         .history-item { background: #1c2945; border: 1px solid #283653; border-radius: 10px; padding: 16px; cursor: pointer; transition: transform 0.2s }
         .history-item:hover { transform: translateY(-2px); border-color: #75a7ff }
-        .history-item h4 { margin: 0 0 8px 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+        .history-item h4 { margin: 0 0 8px 0; font-size: 16px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal }
         .history-item small { color: #8090ac }
         .history-action { float: right; margin: -6px -6px 4px 8px; padding: 6px 9px; background: transparent; font-size: 13px }
         .history-rename { color: #86b3ff }
@@ -106,11 +111,11 @@
         .document-controls label { display: grid; gap: 5px; color: #aab8d4; font-size: 13px }
         .document-controls input, .document-controls select { width: 100%; border: 1px solid #4c668f; border-radius: 8px; background: #0c1425; color: #edf3ff; padding: 9px 10px; font: inherit }
         .document-controls button { padding: 10px 13px }
-        .context-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+        .context-grid { display: grid; grid-template-columns: 1fr; gap: 14px }
         .context-field { display: grid; gap: 6px; color: #aab8d4; font-size: 14px }
         .context-field select, .context-create input { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 10px }
-        .context-create { display: flex; gap: 8px; margin-top: 10px }
-        .context-create button { padding: 9px 12px; white-space: nowrap }
+        .context-create { display: flex; flex-direction: column; gap: 8px; margin-top: 10px }
+        .context-create button { padding: 9px 12px; white-space: normal }
         .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px }
         .login-card { width: min(480px, 100%); text-align: center }
         .login-card h1 { font-size: clamp(36px, 8vw, 64px) }
@@ -119,6 +124,7 @@
         .session-bar #session-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
         .session-title { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.035em; text-align: center; white-space: nowrap }
         .session-bar button { justify-self: end; padding: 8px 12px; background: #25344f; color: #edf3ff }
+        .session-bar .button-group { justify-self: end; display: flex; gap: 8px }
         .app-description { max-width: none; margin: 0; font-size: 14px; line-height: 1.35 }
 
         @media(max-width: 980px) {
@@ -151,7 +157,10 @@
         <div class="session-bar">
             <span id="session-user"></span>
             <h1 class="session-title">Neural PDF</h1>
-            <button type="button" id="logout-button">Sair</button>
+            <div class="button-group">
+                <button type="button" id="generate-api-key-button" style="display:none">API Key</button>
+                <button type="button" id="logout-button">Sair</button>
+            </div>
         </div>
         <p class="lead app-description">Extraia campos, tipos, imagens e logotipos. A rede neural treinada com documentos da UEPG localiza regioes de tabela, inclusive em paginas rasterizadas.</p>
 
@@ -235,6 +244,9 @@
         <section class="card result" id="result">
             <div class="result-heading">
                 <div><small>Resultado</small><h2 id="result-document-title">Documento</h2></div>
+                <button type="button" class="text-edit-button" id="toggle-text-edit" disabled>Editar textos</button>
+                <button type="button" class="text-save-button" id="save-html-text" disabled>Salvar textos</button>
+                <button type="button" class="text-discard-button" id="discard-html-text" disabled>Descartar textos</button>
                 <button type="button" class="fullscreen-button" id="fullscreen-preview" disabled>⛶ Tela cheia</button>
             </div>
             <div class="document-controls">
@@ -253,6 +265,7 @@
                 </label>
                 <button type="button" id="set-current-version">Definir como padrão</button>
                 <button type="button" id="toggle-deprecated-version">Marcar como deprecated</button>
+                <button type="button" class="button-danger" id="delete-version">Excluir versão</button>
                 <span class="version-note" id="version-note"></span>
             </div>
             <div class="layout">
@@ -264,7 +277,7 @@
                         <button type="button" id="save-fields">Salvar alterações</button>
                         <button type="button" class="button-secondary" id="discard-fields" disabled>Descartar alterações</button>
                     </div>
-                    <small style="display:block;color:#aab8d4;margin:-4px 0 12px">Dê duplo clique em um campo para preenchê-lo. Arraste campos manuais para mover e use as alças azuis para redimensionar qualquer campo.</small>
+                    <small style="display:block;color:#aab8d4;margin:-4px 0 12px">Dê duplo clique em um campo para preenchê-lo. Arraste campos para mover; as linhas-guia ajudam no alinhamento. Use as alças azuis para redimensionar.</small>
                     <div class="editor" id="field-editor">
                         <input id="field-label" maxlength="160" placeholder="Nome do campo" aria-label="Nome do campo">
                         <select id="field-type" aria-label="Tipo do campo">
@@ -274,16 +287,25 @@
                             <option value="checkbox">Checkbox</option><option value="textarea">Área de texto</option>
                         </select>
                         <input id="field-mask" maxlength="80" placeholder="Máscara opcional, ex.: (00) 00000-0000" aria-label="Máscara do campo">
+                        <select id="field-align" aria-label="Alinhamento do texto">
+                            <option value="left">Alinhado à esquerda</option>
+                            <option value="center">Centralizado</option>
+                            <option value="justify">Justificado</option>
+                            <option value="right">Alinhado à direita</option>
+                        </select>
+                        <label class="checkbox-row" for="field-required">
+                            <input id="field-required" type="checkbox"> Campo obrigatório
+                        </label>
+                        <div class="number-rules" id="number-rules">
+                            <input id="field-min" type="number" step="any" placeholder="Valor mínimo" aria-label="Valor mínimo">
+                            <input id="field-max" type="number" step="any" placeholder="Valor máximo" aria-label="Valor máximo">
+                        </div>
                         <span class="mask-hint">0 = número, A = letra, * = letra ou número. Os demais caracteres são fixos.</span>
                         <small>Arraste sobre a página para marcar a área do novo campo.</small>
                         <button type="button" id="apply-field" style="display:none">Aplicar edição</button>
                         <button type="button" id="cancel-field">Cancelar</button>
                     </div>
                     <div id="fields"></div>
-                    <div class="form-values">
-                        <h3>Valores do formulário (memória)</h3>
-                        <pre id="form-values-json" aria-live="polite">{}</pre>
-                    </div>
                     <h3 class="section-title">Tabelas - rede neural</h3>
                     <div id="neural-tables"></div>
                 </aside>
@@ -334,6 +356,48 @@
         </section>
     </div>
 
+    <div class="modal-backdrop" id="api-key-modal" aria-hidden="true">
+        <section class="modal" role="dialog" aria-modal="true" aria-labelledby="api-key-title">
+            <h3 id="api-key-title">Gerar API Key</h3>
+            <p id="api-key-message">Informe os detalhes para a nova chave de API.</p>
+            <div id="api-key-context-info" style="margin-bottom:15px; padding:10px; background:#1c2b42; border-radius:6px; font-size:13px; color:#aab8d4; border:1px solid #2d3e5a">
+                A chave será restrita ao Tenant/Grupo selecionado no momento da geração.
+                <div id="api-key-active-context" style="margin-top:5px; color:#fff; font-weight:600"></div>
+            </div>
+
+            <div id="api-key-list-container" style="margin-bottom:20px; max-height:200px; overflow-y:auto; background:#0c1425; border-radius:6px; border:1px solid #2d3e5a; display:none">
+                <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left">
+                    <thead style="position:sticky; top:0; background:#1c2b42; color:#aab8d4">
+                        <tr>
+                            <th style="padding:8px">Cliente</th>
+                            <th style="padding:8px">Nome</th>
+                            <th style="padding:8px">Criada em</th>
+                            <th style="padding:8px">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="api-key-list-body" style="color:#edf3ff"></tbody>
+                </table>
+            </div>
+
+            <form class="field-form" id="api-key-form">
+                <label for="api-key-client">ID do Cliente (ex.: meu-servico)
+                    <input id="api-key-client" maxlength="120" required>
+                </label>
+                <label for="api-key-name">Nome Descritivo
+                    <input id="api-key-name" maxlength="120" required placeholder="Ex.: Integração ERP">
+                </label>
+                <div id="api-key-result" style="display:none; margin-top:10px; padding:12px; background:#0c1425; border:1px solid #4c668f; border-radius:9px; word-break:break-all">
+                    <small style="display:block; color:#aab8d4; margin-bottom:4px">Sua nova API Key (copie agora, ela não será exibida novamente):</small>
+                    <code id="api-key-value" style="color:#86b3ff; font-weight:700; font-size:16px"></code>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="button-secondary" id="api-key-cancel">Fechar</button>
+                    <button type="submit" id="api-key-submit">Gerar Chave</button>
+                </div>
+            </form>
+        </section>
+    </div>
+
     <script>
         const form = document.querySelector('#form');
         const input = document.querySelector('#pdf');
@@ -351,6 +415,9 @@
         const contextStatus = document.querySelector('#context-status');
         const preview = document.querySelector('#preview');
         const fullscreenButton = document.querySelector('#fullscreen-preview');
+        const toggleTextEditButton = document.querySelector('#toggle-text-edit');
+        const saveHtmlTextButton = document.querySelector('#save-html-text');
+        const discardHtmlTextButton = document.querySelector('#discard-html-text');
         const resultDocumentName = document.querySelector('#result-document-name');
         const resultCategorySelect = document.querySelector('#result-category-select');
         let authConfig = null;
@@ -381,10 +448,15 @@
         };
         const redirectUri = () => `${location.origin}${location.pathname}`;
         const exchangeToken = async parameters => {
-            const response = await window.fetch(`${authConfig.issuer}/protocol/openid-connect/token`, {
-                method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                body:new URLSearchParams({client_id:authConfig.client_id, ...parameters}),
-            });
+            let response;
+            try {
+                response = await window.fetch(`${authConfig.issuer}/protocol/openid-connect/token`, {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body:new URLSearchParams({client_id:authConfig.client_id, ...parameters}),
+                });
+            } catch (error) {
+                throw new Error(`Não foi possível acessar o Keycloak em ${authConfig.issuer}. Verifique se ele está online e se a origem ${location.origin} está autorizada em Web Origins/Redirect URIs.`);
+            }
             const data = await response.json();
             if (!response.ok) throw new Error(data.error_description || 'Não foi possível autenticar no Keycloak');
             storeTokens(data);
@@ -419,17 +491,34 @@
             document.querySelector('#session-user').textContent = claims.name || claims.preferred_username || 'Usuário autenticado';
             document.querySelector('#login-screen').style.display = 'none';
             document.querySelector('#app-shell').hidden = false;
+            
+            // Exibir botão de API Key apenas para administradores
+            const roles = claims.realm_access?.roles || [];
+            if (roles.includes('pdf-admin')) {
+                document.querySelector('#generate-api-key-button').style.display = 'inline-block';
+            } else {
+                document.querySelector('#generate-api-key-button').style.display = 'none';
+            }
             await loadTenants();
         };
         const apiFetch = async (url, options={}) => {
             if (!tokenIsValid()) await refreshSession();
             const headers = new Headers(options.headers || {});
             headers.set('Authorization', `Bearer ${authTokens.access_token}`);
-            let response = await window.fetch(url, {...options, headers});
+            let response;
+            try {
+                response = await window.fetch(url, {...options, headers});
+            } catch (error) {
+                throw new Error('Não foi possível acessar a API. Verifique se o servidor está online e se a URL da aplicação está correta.');
+            }
             if (response.status === 401 && authTokens?.refresh_token) {
                 await refreshSession();
                 headers.set('Authorization', `Bearer ${authTokens.access_token}`);
-                response = await window.fetch(url, {...options, headers});
+                try {
+                    response = await window.fetch(url, {...options, headers});
+                } catch (error) {
+                    throw new Error('Não foi possível acessar a API. Verifique se o servidor está online e se a URL da aplicação está correta.');
+                }
             }
             return response;
         };
@@ -464,9 +553,136 @@
             if (idToken) query.set('id_token_hint', idToken);
             location.assign(`${authConfig.issuer}/protocol/openid-connect/logout?${query}`);
         };
+
+        // Lógica do Modal de API Key
+        const apiKeyModal = document.querySelector('#api-key-modal');
+        const apiKeyForm = document.querySelector('#api-key-form');
+        const apiKeyResult = document.querySelector('#api-key-result');
+        const apiKeyValue = document.querySelector('#api-key-value');
+        const apiKeyMessage = document.querySelector('#api-key-message');
+        const apiKeyListBody = document.querySelector('#api-key-list-body');
+        const apiKeyListContainer = document.querySelector('#api-key-list-container');
+
+        const loadApiKeys = async () => {
+            if (!tenantSelect.value) return;
+            try {
+                const params = new URLSearchParams({ tenant_id: tenantSelect.value });
+                if (groupSelect.value) params.set('group_id', groupSelect.value);
+                const response = await apiFetch(`/api/api-keys?${params.toString()}`);
+                if (!response.ok) return;
+                const keys = await response.json();
+                
+                apiKeyListBody.innerHTML = '';
+                if (keys.length === 0) {
+                    apiKeyListContainer.style.display = 'none';
+                    return;
+                }
+                
+                keys.forEach(key => {
+                    const tr = document.createElement('tr');
+                    tr.style.borderBottom = '1px solid #1c2b42';
+                    const date = new Date(key.created_at).toLocaleDateString();
+                    tr.innerHTML = `
+                        <td style="padding:8px">${escapeHtml(key.client_id)}</td>
+                        <td style="padding:8px">${escapeHtml(key.name)}</td>
+                        <td style="padding:8px">${date}</td>
+                        <td style="padding:8px">
+                            <button type="button" class="button-danger" style="padding:4px 8px; font-size:10px" onclick="revokeKey('${key.client_id}')">Revogar</button>
+                        </td>
+                    `;
+                    apiKeyListBody.appendChild(tr);
+                });
+                apiKeyListContainer.style.display = 'block';
+            } catch (err) {
+                console.error('Erro ao carregar API Keys:', err);
+            }
+        };
+
+        window.revokeKey = async (clientId) => {
+            if (!confirm(`Deseja realmente revogar o acesso do cliente ${clientId}?`)) return;
+            try {
+                const response = await apiFetch('/api/api-keys/revoke', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_id: clientId,
+                        tenant_id: tenantSelect.value,
+                        group_id: groupSelect.value || null
+                    })
+                });
+                if (response.ok) {
+                    loadApiKeys();
+                } else {
+                    const err = await response.json();
+                    alert(err.error || 'Erro ao revogar chave');
+                }
+            } catch (err) {
+                alert(err.message);
+            }
+        };
+
+        document.querySelector('#generate-api-key-button').onclick = () => {
+            apiKeyModal.classList.add('show');
+            apiKeyForm.reset();
+            apiKeyResult.style.display = 'none';
+            apiKeyMessage.textContent = 'Informe os detalhes para a nova chave de API.';
+            document.querySelector('#api-key-submit').style.display = 'inline-block';
+            
+            const tenantName = tenantSelect.options[tenantSelect.selectedIndex]?.text || 'Nenhum';
+            const groupName = groupSelect.options[groupSelect.selectedIndex]?.text || 'Todos os grupos';
+            document.querySelector('#api-key-active-context').textContent = `Tenant: ${tenantName} | Grupo: ${groupName}`;
+            
+            loadApiKeys();
+        };
+
+        document.querySelector('#api-key-cancel').onclick = () => {
+            apiKeyModal.classList.remove('show');
+        };
+
+        apiKeyForm.onsubmit = async (e) => {
+            e.preventDefault();
+            const submitBtn = document.querySelector('#api-key-submit');
+            submitBtn.disabled = true;
+            
+            try {
+                const payload = {
+                    client_id: document.querySelector('#api-key-client').value,
+                    name: document.querySelector('#api-key-name').value,
+                    tenant_id: tenantSelect.value || null,
+                    group_id: groupSelect.value || null
+                };
+
+                if (!payload.tenant_id) {
+                    throw new Error('Selecione um tenant antes de gerar uma API Key.');
+                }
+
+                const response = await apiFetch('/api/api-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Erro ao gerar API Key');
+                }
+
+                const data = await response.json();
+                apiKeyValue.textContent = data.api_key;
+                apiKeyResult.style.display = 'block';
+                apiKeyMessage.textContent = 'Chave gerada com sucesso!';
+                submitBtn.style.display = 'none';
+                loadApiKeys();
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                submitBtn.disabled = false;
+            }
+        };
         let currentFields = [];
         let formValues = {};
         let activeValueFieldIndex = null;
+        let activeInlineFieldName = null;
         let savedFields = [];
         let currentJobId = null;
         let currentDocumentId = null;
@@ -474,6 +690,9 @@
         let currentCategoryId = null;
         let currentVersion = null;
         let availableVersions = [];
+        let textEditMode = false;
+        let textEditDirty = false;
+        let savedPreviewHtml = '';
         let addingField = false;
         let draft = null;
         let editingFieldIndex = null;
@@ -486,6 +705,150 @@
         let availableTenants = [];
         let availableGroups = [];
         let availableCategories = [];
+        const fieldTextFontSize = 12;
+        const fieldTextLineHeight = 1.2;
+        const fieldTextVerticalPadding = 4;
+        const fieldTextHeight = Math.ceil(fieldTextFontSize * fieldTextLineHeight + fieldTextVerticalPadding);
+        const alignmentGuideThreshold = 4;
+
+        const normalizedFieldHeight = field => field.type === 'checkbox' ? 18 : fieldTextHeight;
+        const optionalNumber = value => value === '' || value === null || value === undefined ? null : Number(value);
+        const normalizeFieldBox = field => {
+            const normalized = {
+                ...field,
+                required: Boolean(field.required),
+                height: normalizedFieldHeight(field),
+                align: ['left', 'center', 'justify', 'right'].includes(field.align) ? field.align : 'left',
+            };
+            const min = optionalNumber(field.min);
+            const max = optionalNumber(field.max);
+            if (normalized.type === 'number' && Number.isFinite(min)) normalized.min = min;
+            else delete normalized.min;
+            if (normalized.type === 'number' && Number.isFinite(max)) normalized.max = max;
+            else delete normalized.max;
+            return normalized;
+        };
+        const fieldTextAlign = field => ['left', 'center', 'justify', 'right'].includes(field.align) ? field.align : 'left';
+        const fieldBoxEdges = box => ({
+            x: box.x,
+            centerX: box.x + box.width / 2,
+            right: box.x + box.width,
+            y: box.y,
+            centerY: box.y + box.height / 2,
+            bottom: box.y + box.height,
+        });
+        const clearAlignmentGuides = doc => {
+            (doc || preview.contentDocument)?.querySelectorAll('.pdf-alignment-guide').forEach(element => element.remove());
+        };
+        const closestFromEvent = (event, selector) => {
+            const target = event.target;
+            if (target?.closest) return target.closest(selector);
+            return target?.parentElement?.closest(selector) || null;
+        };
+        const capturePointer = event => {
+            if (event.target?.setPointerCapture && event.pointerId !== undefined) {
+                try { event.target.setPointerCapture(event.pointerId); } catch (_) {}
+            }
+        };
+        const showAlignmentGuides = (page, guides) => {
+            const doc = page?.ownerDocument;
+            if (!doc) return;
+            clearAlignmentGuides(doc);
+            guides.forEach(guide => {
+                const line = doc.createElement('div');
+                line.className = 'pdf-alignment-guide';
+                Object.assign(line.style, {
+                    position:'absolute', zIndex:'88', pointerEvents:'none',
+                    background:'#1677ff', boxShadow:'0 0 0 1px rgba(255,255,255,.75)',
+                    opacity:'.95'
+                });
+                if (guide.axis === 'x') {
+                    Object.assign(line.style, { left:`${guide.value}px`, top:'0', width:'1px', height:'100%' });
+                } else {
+                    Object.assign(line.style, { left:'0', top:`${guide.value}px`, width:'100%', height:'1px' });
+                }
+                page.appendChild(line);
+            });
+        };
+        const snapFieldBox = (box, pageNumber, ignoredIndex = null) => {
+            const guides = [];
+            const snapped = { ...box };
+            const edges = fieldBoxEdges(box);
+            const candidates = currentFields
+                .filter((field, index) => index !== ignoredIndex && Number(field.page) === Number(pageNumber))
+                .flatMap(field => {
+                    const fieldEdges = fieldBoxEdges({ ...field, height: normalizedFieldHeight(field) });
+                    return [
+                        { axis:'x', value:fieldEdges.x },
+                        { axis:'x', value:fieldEdges.centerX },
+                        { axis:'x', value:fieldEdges.right },
+                        { axis:'y', value:fieldEdges.y },
+                        { axis:'y', value:fieldEdges.centerY },
+                        { axis:'y', value:fieldEdges.bottom },
+                    ];
+                });
+            let bestX = null, bestY = null;
+            for (const candidate of candidates) {
+                const names = candidate.axis === 'x' ? ['x', 'centerX', 'right'] : ['y', 'centerY', 'bottom'];
+                for (const name of names) {
+                    const delta = candidate.value - edges[name];
+                    if (Math.abs(delta) > alignmentGuideThreshold) continue;
+                    const best = candidate.axis === 'x' ? bestX : bestY;
+                    if (!best || Math.abs(delta) < Math.abs(best.delta)) {
+                        const next = { delta, value:candidate.value };
+                        if (candidate.axis === 'x') bestX = next;
+                        else bestY = next;
+                    }
+                }
+            }
+            if (bestX) {
+                snapped.x += bestX.delta;
+                guides.push({ axis:'x', value:bestX.value });
+            }
+            if (bestY) {
+                snapped.y += bestY.delta;
+                guides.push({ axis:'y', value:bestY.value });
+            }
+            return { box:snapped, guides };
+        };
+        const snapHorizontalResize = (box, pageNumber, direction, ignoredIndex = null) => {
+            const activeEdge = direction.includes('w') ? box.x : box.x + box.width;
+            let best = null;
+            currentFields
+                .filter((field, index) => index !== ignoredIndex && Number(field.page) === Number(pageNumber))
+                .forEach(field => {
+                    const edges = fieldBoxEdges({ ...field, height: normalizedFieldHeight(field) });
+                    [edges.x, edges.centerX, edges.right].forEach(value => {
+                        const delta = value - activeEdge;
+                        if (Math.abs(delta) <= alignmentGuideThreshold && (!best || Math.abs(delta) < Math.abs(best.delta))) {
+                            best = { delta, value };
+                        }
+                    });
+                });
+            if (!best) return { box, guides:[] };
+            if (direction.includes('w')) {
+                return {
+                    box:{ ...box, x:box.x + best.delta, width:box.width - best.delta },
+                    guides:[{ axis:'x', value:best.value }],
+                };
+            }
+            return {
+                box:{ ...box, width:box.width + best.delta },
+                guides:[{ axis:'x', value:best.value }],
+            };
+        };
+        const fieldValidationSummary = field => [
+            field.required ? 'obrigatório' : '',
+            field.type === 'number' && Number.isFinite(optionalNumber(field.min)) ? `mín. ${field.min}` : '',
+            field.type === 'number' && Number.isFinite(optionalNumber(field.max)) ? `máx. ${field.max}` : '',
+        ].filter(Boolean).join(' · ');
+
+        const updateNumberRulesVisibility = () => {
+            const isNumber = document.querySelector('#field-type').value === 'number';
+            document.querySelector('#number-rules').style.display = isNumber ? 'grid' : 'none';
+            document.querySelector('#field-min').disabled = !isNumber;
+            document.querySelector('#field-max').disabled = !isNumber;
+        };
 
         const searchContext = () => {
             const params = new URLSearchParams({ tenant_id: tenantSelect.value });
@@ -834,7 +1197,9 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error);
                 if (currentJobId === jobId || currentDocumentId === jobId) {
-                    currentJobId = null; currentDocumentId = null; currentDocumentName = ''; currentCategoryId = null; currentFields = []; preview.src = 'about:blank';
+                    currentJobId = null; currentDocumentId = null; currentDocumentName = ''; currentCategoryId = null; currentFields = [];
+                    textEditMode = false; textEditDirty = false; savedPreviewHtml = ''; preview.src = 'about:blank';
+                    updateTextEditActions();
                     document.querySelector('#result').classList.remove('show');
                 }
                 await loadHistory();
@@ -904,13 +1269,155 @@
             const deprecatedButton = document.querySelector('#toggle-deprecated-version');
             deprecatedButton.disabled = !selected || selected.is_current;
             deprecatedButton.textContent = selected?.deprecated ? 'Restaurar versão' : 'Marcar como deprecated';
+            document.querySelector('#delete-version').disabled = !selected || selected.is_current || data.length <= 1;
             controls.classList.toggle('show', data.length > 0);
         };
 
         const loadPreview = async previewUrl => {
             const response = await apiFetch(previewUrl);
             if (!response.ok) throw new Error('Não foi possível abrir a prévia autenticada');
-            preview.srcdoc = await response.text();
+            savedPreviewHtml = await response.text();
+            preview.srcdoc = savedPreviewHtml;
+        };
+
+        const textEditorStyle = doc => {
+            let style = doc.getElementById('pdf-neural-text-editor-style');
+            if (!style) {
+                style = doc.createElement('style');
+                style.id = 'pdf-neural-text-editor-style';
+                style.textContent = `
+                    [data-pdf-text-editable="true"] {
+                        outline: 1px dashed rgba(22, 119, 255, .65);
+                        outline-offset: 2px;
+                        cursor: text;
+                    }
+                    [data-pdf-text-editable="true"]:focus {
+                        outline: 2px solid #1677ff;
+                        background: rgba(255,255,255,.72);
+                    }
+                `;
+                doc.head.appendChild(style);
+            }
+            return style;
+        };
+
+        const isEditableTextElement = element => {
+            if (!element || !element.childNodes) return false;
+            if (element.closest('.pdf-field, .pdf-field-value, script, style, noscript')) return false;
+            if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'BUTTON'].includes(element.tagName)) return false;
+            return Array.from(element.childNodes).some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+        };
+
+        const updateTextEditActions = () => {
+            toggleTextEditButton.disabled = !currentDocumentId || !preview.contentDocument;
+            toggleTextEditButton.classList.toggle('active', textEditMode);
+            toggleTextEditButton.textContent = textEditMode ? 'Finalizar edição' : 'Editar textos';
+            saveHtmlTextButton.disabled = !currentDocumentId || !textEditDirty;
+            discardHtmlTextButton.disabled = !textEditDirty;
+        };
+
+        const setTextEditMode = enabled => {
+            const doc = preview.contentDocument;
+            if (!doc) return;
+            textEditMode = enabled;
+            doc.documentElement.dataset.pdfTextEditMode = enabled ? 'true' : 'false';
+            doc.querySelectorAll('[data-pdf-text-editable="true"]').forEach(element => {
+                element.contentEditable = enabled ? 'true' : 'false';
+                if (!enabled) element.blur();
+            });
+            if (enabled) textEditorStyle(doc);
+            status.textContent = enabled ? 'Clique em qualquer texto da prévia para editar.' : (textEditDirty ? 'Edição pausada. Salve ou descarte as alterações.' : 'Edição de texto encerrada.');
+            updateTextEditActions();
+        };
+
+        const installTextEditing = () => {
+            const doc = preview.contentDocument;
+            if (!doc) return;
+            doc.querySelectorAll('[data-pdf-text-editable="true"]').forEach(element => {
+                element.removeAttribute('data-pdf-text-editable');
+                element.contentEditable = 'false';
+            });
+            Array.from(doc.body?.querySelectorAll('*') || [])
+                .filter(isEditableTextElement)
+                .forEach(element => {
+                    element.dataset.pdfTextEditable = 'true';
+                    element.contentEditable = textEditMode ? 'true' : 'false';
+                    element.spellcheck = true;
+                });
+            if (!doc.documentElement.dataset.pdfTextEditorReady) {
+                doc.documentElement.dataset.pdfTextEditorReady = '1';
+                doc.addEventListener('input', event => {
+                    if (!event.target.closest('[data-pdf-text-editable="true"]')) return;
+                    textEditDirty = true;
+                    updateTextEditActions();
+                });
+                doc.addEventListener('keydown', event => {
+                    if (!textEditMode || !event.target.closest('[data-pdf-text-editable="true"]')) return;
+                    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+                        event.preventDefault();
+                        saveHtmlTextButton.click();
+                    }
+                    if (event.key === 'Escape') setTextEditMode(false);
+                });
+            }
+            if (textEditMode) textEditorStyle(doc);
+            updateTextEditActions();
+        };
+
+        const serializedPreviewHtml = () => {
+            const doc = preview.contentDocument;
+            if (!doc) return '';
+            const clone = doc.documentElement.cloneNode(true);
+            clone.querySelectorAll('.pdf-field, .pdf-field-value, .pdf-alignment-guide, #pdf-neural-text-editor-style').forEach(element => element.remove());
+            clone.querySelectorAll('[data-pdf-text-editable]').forEach(element => {
+                element.removeAttribute('data-pdf-text-editable');
+                element.removeAttribute('contenteditable');
+                element.removeAttribute('spellcheck');
+            });
+            clone.removeAttribute('data-pdf-text-editor-ready');
+            clone.removeAttribute('data-pdf-text-edit-mode');
+            clone.removeAttribute('data-field-editor-ready');
+            return `<!doctype html>\n${clone.outerHTML}`;
+        };
+
+        toggleTextEditButton.onclick = () => setTextEditMode(!textEditMode);
+
+        saveHtmlTextButton.onclick = async () => {
+            if (!currentDocumentId || !textEditDirty) return;
+            status.textContent = 'Salvando textos como nova versão...';
+            try {
+                setTextEditMode(false);
+                const response = await apiFetch(`/api/documents/${encodeURIComponent(currentDocumentId)}/html?${searchContext()}`, {
+                    method:'PUT',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({html_content: serializedPreviewHtml(), base_version: currentVersion}),
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                textEditDirty = false;
+                displayResult(data);
+                await loadHistory();
+                status.textContent = `Textos salvos na versão ${data.version}.`;
+            } catch (error) {
+                status.textContent = 'Erro ao salvar textos: ' + error.message;
+                updateTextEditActions();
+            }
+        };
+
+        discardHtmlTextButton.onclick = async () => {
+            if (!textEditDirty) return;
+            const confirmed = await showConfirmation({
+                title:'Descartar textos editados?',
+                message:'As alterações de texto ainda não salvas serão perdidas.',
+                confirmLabel:'Descartar textos',
+                danger:true,
+            });
+            if (!confirmed) return;
+            textEditDirty = false;
+            textEditMode = false;
+            preview.srcdoc = savedPreviewHtml;
+            status.textContent = 'Alterações de texto descartadas.';
+            updateTextEditActions();
         };
 
         fullscreenButton.onclick = async () => {
@@ -943,12 +1450,15 @@
                 ? (result.category_id || null)
                 : (data.category_id !== undefined ? (data.category_id || null) : currentCategoryId);
             syncResultMetadataControls();
-            currentFields = (result.fields || []).map(field => ({ ...field }));
+            currentFields = (result.fields || []).map(field => normalizeFieldBox(field));
             savedFields = currentFields.map(field => ({ ...field }));
             formValues = {};
+            textEditMode = false;
+            textEditDirty = false;
             renderFormValues();
             fullscreenButton.disabled = !previewUrl;
-            preview.onload = () => { renderPreviewFields(); installDrawingHandlers(); };
+            updateTextEditActions();
+            preview.onload = preparePreviewRuntime;
             loadPreview(previewUrl).catch(error => { status.textContent = error.message; });
             const neural = result.neural_tables || [];
             renderFieldList();
@@ -1028,12 +1538,45 @@
             }
         };
 
+        document.querySelector('#delete-version').onclick = async () => {
+            const version = Number(document.querySelector('#version-select').value);
+            const selected = availableVersions.find(item => item.version === version);
+            if (!selected || selected.is_current || availableVersions.length <= 1) return;
+            const confirmed = await showConfirmation({
+                title:'Excluir versão?',
+                message:`A versão ${version} será removida do histórico. Esta ação não pode ser desfeita.`,
+                confirmLabel:'Excluir versão',
+                danger:true,
+            });
+            if (!confirmed) return;
+            status.textContent = `Excluindo versão ${version}...`;
+            try {
+                const response = await apiFetch(`/api/documents/${encodeURIComponent(currentDocumentId)}/versions/${version}?${searchContext()}`, { method:'DELETE' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                const remaining = availableVersions.filter(item => item.version !== version);
+                const next = remaining.find(item => item.is_current) || remaining[0];
+                if (next) {
+                    const versionResponse = await apiFetch(`/api/documents/${encodeURIComponent(currentDocumentId)}/versions/${next.version}?${searchContext()}`);
+                    const versionData = await versionResponse.json();
+                    if (!versionResponse.ok) throw new Error(versionData.error);
+                    displayResult({...versionData, preview: `/jobs/${encodeURIComponent(versionData.job_id)}/html/index.html`});
+                } else {
+                    document.querySelector('#result').classList.remove('show');
+                }
+                await loadHistory();
+                status.textContent = `Versão ${data.version} excluída.`;
+            } catch (error) {
+                status.textContent = 'Erro ao excluir versão: ' + error.message;
+            }
+        };
+
         const renderFieldList = () => {
             document.querySelector('#fields').innerHTML = currentFields.length ? currentFields.map((f, index) => `
                 <div class="field-row">
                     <a href="#${escapeHtml(f.name)}" class="field-link" onclick="scrollToElement('${escapeHtml(f.name)}'); return false;" ondblclick="event.preventDefault(); openFieldValue(${index})">
                         <strong>${escapeHtml(f.label)}</strong><br>
-                        <code>${escapeHtml(f.type)}</code> · pagina ${f.page} · ${escapeHtml(f.source)}${f.mask ? ' · máscara ' + escapeHtml(f.mask) : ''}${Object.prototype.hasOwnProperty.call(formValues, f.name) ? ' · preenchido' : ''}
+                        <code>${escapeHtml(f.type)}</code> · pagina ${f.page} · ${escapeHtml(f.source)} · ${escapeHtml(fieldTextAlign(f))}${f.mask ? ' · máscara ' + escapeHtml(f.mask) : ''}${fieldValidationSummary(f) ? ' · ' + escapeHtml(fieldValidationSummary(f)) : ''}${Object.prototype.hasOwnProperty.call(formValues, f.name) ? ' · preenchido' : ''}
                     </a>
                     <button type="button" class="edit-field" onclick="editField(${index})" aria-label="Editar ${escapeHtml(f.label)}" title="Editar campo">Editar</button>
                     <button type="button" class="delete-field" onclick="deleteField(${index})" aria-label="Excluir ${escapeHtml(f.label)}" title="Excluir campo">×</button>
@@ -1043,8 +1586,8 @@
         };
 
         const renderFormValues = () => {
-            const output = document.querySelector('#form-values-json');
-            if (output) output.textContent = JSON.stringify(formValues, null, 2);
+            syncInlineFieldValues();
+            syncVisibleFieldValues();
         };
 
         const maskValue = (value, mask) => {
@@ -1072,34 +1615,159 @@
             modal.setAttribute('aria-hidden', 'true');
         };
 
+        const valueInputType = field => field.mask || field.type === 'select' ? 'text' : field.type;
+
+        const readFieldControlValue = (field, control) => {
+            if (field.type === 'checkbox') return control.checked;
+            if (field.type === 'number' && !field.mask && control.value !== '') return Number(control.value);
+            return control.value;
+        };
+
+        const writeFieldControlValue = (field, control, value) => {
+            if (field.type === 'checkbox') control.checked = Boolean(value);
+            else control.value = value ?? '';
+        };
+
+        const applyFieldValidationAttributes = (field, control) => {
+            control.required = Boolean(field.required);
+            if (field.type === 'number' && !field.mask) {
+                const min = optionalNumber(field.min);
+                const max = optionalNumber(field.max);
+                if (Number.isFinite(min)) control.min = String(min);
+                else control.removeAttribute('min');
+                if (Number.isFinite(max)) control.max = String(max);
+                else control.removeAttribute('max');
+                control.step = 'any';
+            } else {
+                control.removeAttribute('min');
+                control.removeAttribute('max');
+                control.removeAttribute('step');
+            }
+        };
+
+        const validateFieldControl = (field, control) => {
+            control.setCustomValidity('');
+            if (field.required && field.type !== 'checkbox' && !String(control.value || '').trim()) {
+                control.setCustomValidity('Campo obrigatório.');
+            }
+            if (field.required && field.type === 'checkbox' && !control.checked) {
+                control.setCustomValidity('Campo obrigatório.');
+            }
+            if (field.type === 'number' && !field.mask && control.value !== '') {
+                const value = Number(control.value);
+                const min = optionalNumber(field.min);
+                const max = optionalNumber(field.max);
+                if (!Number.isFinite(value)) control.setCustomValidity('Informe um número válido.');
+                else if (Number.isFinite(min) && value < min) control.setCustomValidity(`Valor mínimo: ${min}.`);
+                else if (Number.isFinite(max) && value > max) control.setCustomValidity(`Valor máximo: ${max}.`);
+            }
+            return control.reportValidity();
+        };
+
+        const visibleFieldValue = field => {
+            if (!Object.prototype.hasOwnProperty.call(formValues, field.name)) return '';
+            const value = formValues[field.name];
+            if (field.type === 'checkbox') return value ? '✓' : '';
+            return value === null || value === undefined ? '' : String(value);
+        };
+
+        const syncVisibleFieldValues = () => {
+            const doc = preview.contentDocument;
+            if (!doc) return;
+            doc.querySelectorAll('.pdf-field-display').forEach(display => {
+                const field = currentFields.find(item => item.name === display.dataset.fieldName);
+                if (!field) return;
+                display.textContent = visibleFieldValue(field);
+            });
+        };
+
+        const syncInlineFieldValues = () => {
+            const doc = preview.contentDocument;
+            if (!doc) return;
+            doc.querySelectorAll('.pdf-field-value').forEach(control => {
+                if (doc.activeElement === control) return;
+                const field = currentFields.find(item => item.name === control.dataset.fieldName);
+                if (!field) return;
+                writeFieldControlValue(field, control, formValues[field.name]);
+            });
+        };
+
+        const closeInlineFieldValue = () => {
+            const doc = preview.contentDocument;
+            if (!doc) return;
+            doc.querySelectorAll('.pdf-field-value').forEach(control => control.remove());
+            activeInlineFieldName = null;
+        };
+
+        const saveInlineFieldValue = (field, control) => {
+            if (field.type !== 'checkbox' && field.mask) {
+                control.value = maskValue(control.value, field.mask);
+            }
+            if (!validateFieldControl(field, control)) {
+                status.textContent = control.validationMessage;
+                return false;
+            }
+            formValues[field.name] = readFieldControlValue(field, control);
+            renderFormValues();
+            renderFieldList();
+            status.textContent = 'Valor guardado no JSON em memória.';
+            return true;
+        };
+
         window.openFieldValue = index => {
             const field = currentFields[index];
             if (!field) return;
-            activeValueFieldIndex = index;
-            const modal = document.querySelector('#field-value-modal');
-            const control = document.querySelector('#field-value-control');
-            const existing = formValues[field.name];
-            document.querySelector('#field-value-title').textContent = field.label;
-            document.querySelector('#field-value-description').textContent = `Tipo: ${field.type} · página ${field.page}`;
-            control.replaceChildren();
-            const label = document.createElement('label');
-            label.textContent = 'Valor';
+            const doc = preview.contentDocument;
+            const fieldElement = Array.from(doc?.querySelectorAll('.pdf-field') || [])
+                .find(element => element.dataset.name === field.name);
+            if (!doc || !fieldElement) return;
+            closeInlineFieldValue();
+            activeInlineFieldName = field.name;
             let input;
             if (field.type === 'textarea') input = document.createElement('textarea');
             else {
                 input = document.createElement('input');
-                input.type = field.mask || field.type === 'select' ? 'text' : field.type;
+                input.type = valueInputType(field);
             }
-            input.id = 'field-value-input';
+            input.className = 'pdf-field-value';
             input.name = field.name;
-            if (field.type === 'checkbox') input.checked = Boolean(existing);
-            else input.value = existing ?? '';
-            label.appendChild(input); control.appendChild(label);
-            const applyMask = () => { if (field.type !== 'checkbox' && field.mask) input.value = maskValue(input.value, field.mask); };
-            input.oninput = applyMask;
-            applyMask();
-            modal.classList.add('show'); modal.setAttribute('aria-hidden', 'false');
-            input.focus();
+            input.dataset.fieldName = field.name;
+            input.setAttribute('aria-label', field.label);
+            input.title = field.label;
+            applyFieldValidationAttributes(field, input);
+            writeFieldControlValue(field, input, formValues[field.name]);
+            Object.assign(input.style, {
+                position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'95',
+                border:'0', borderRadius:'2px', background:'rgba(255,255,255,.88)',
+                color:'#111827', padding: field.type === 'checkbox' ? '0' : '2px 4px',
+                font:'12px/1.2 Arial, sans-serif', resize:'none', outline:'2px solid #e05260',
+                textAlign: fieldTextAlign(field),
+                textAlignLast: fieldTextAlign(field) === 'justify' ? 'justify' : 'auto',
+                boxShadow:'0 0 0 1px rgba(255,255,255,.75) inset', pointerEvents:'auto'
+            });
+            if (field.type === 'checkbox') {
+                Object.assign(input.style, { width:'18px', height:'18px', inset:'50% auto auto 50%', transform:'translate(-50%, -50%)' });
+            }
+            const store = () => saveInlineFieldValue(field, input);
+            input.addEventListener(field.type === 'checkbox' ? 'change' : 'input', () => {
+                input.setCustomValidity('');
+                if (!field.required || field.type === 'checkbox' || String(input.value || '').trim()) store();
+            });
+            input.addEventListener('blur', store);
+            input.addEventListener('keydown', event => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeInlineFieldValue();
+                }
+            });
+            ['click','dblclick','pointerdown'].forEach(type => {
+                input.addEventListener(type, event => event.stopPropagation());
+            });
+            fieldElement.appendChild(input);
+            requestAnimationFrame(() => {
+                input.focus();
+                if (field.type !== 'checkbox' && input.select) input.select();
+            });
         };
 
         document.querySelector('#field-value-cancel').onclick = closeFieldValue;
@@ -1111,6 +1779,7 @@
             const field = currentFields[activeValueFieldIndex];
             const input = document.querySelector('#field-value-input');
             if (!field || !input) return;
+            if (!validateFieldControl(field, input)) return;
             let value = field.type === 'checkbox' ? input.checked : input.value;
             if (field.type === 'number' && !field.mask && value !== '') value = Number(value);
             formValues[field.name] = value;
@@ -1127,33 +1796,57 @@
         const renderPreviewFields = () => {
             const doc = preview.contentDocument;
             if (!doc) return;
+            closeInlineFieldValue();
+            clearAlignmentGuides(doc);
             doc.querySelectorAll('.pdf-field').forEach(element => element.remove());
             currentFields.forEach(field => {
                 const page = doc.querySelector(`.pdf-page[data-page="${field.page}"]`);
                 if (!page) return;
-                const element = doc.createElement('a');
+                const element = doc.createElement('div');
                 element.id = field.name;
                 element.className = 'pdf-field';
                 element.dataset.name = field.name;
                 element.dataset.type = field.type;
                 element.dataset.manual = field.source === 'manual' ? 'true' : 'false';
                 element.title = field.label;
+                const fieldHeight = normalizedFieldHeight(field);
+                field.height = fieldHeight;
                 Object.assign(element.style, {
-                    left: `${field.x}px`, top: `${field.y}px`, width: `${field.width}px`, height: `${field.height}px`,
-                    cursor: field.source === 'manual' ? 'move' : 'pointer'
+                    left: `${field.x}px`, top: `${field.y}px`, width: `${field.width}px`, height: `${fieldHeight}px`,
+                    cursor: 'move'
                 });
+                const display = doc.createElement('span');
+                display.className = 'pdf-field-display';
+                display.dataset.fieldName = field.name;
+                display.textContent = visibleFieldValue(field);
+                Object.assign(display.style, {
+                    position:'absolute', inset:'0', zIndex:'90', display:'flex',
+                    alignItems: field.type === 'textarea' ? 'flex-start' : 'center',
+                    justifyContent: field.type === 'checkbox' ? 'center' : 'flex-start',
+                    padding: field.type === 'checkbox' ? '0' : '2px 4px',
+                    color:'#111827', font:'12px/1.2 Arial, sans-serif',
+                    textAlign: fieldTextAlign(field),
+                    whiteSpace: field.type === 'textarea' ? 'pre-wrap' : 'nowrap',
+                    overflow:'hidden', textOverflow:'ellipsis', pointerEvents:'none'
+                });
+                if (field.type !== 'checkbox' && field.align === 'center') display.style.justifyContent = 'center';
+                if (field.type !== 'checkbox' && field.align === 'right') display.style.justifyContent = 'flex-end';
+                if (field.type !== 'checkbox' && field.align === 'justify') {
+                    display.style.display = 'block';
+                    display.style.textAlignLast = 'justify';
+                }
+                element.appendChild(display);
                 const handles = [];
-                ['nw','ne','sw','se'].forEach(direction => {
+                ['w','e'].forEach(direction => {
                     const handle = doc.createElement('span');
                     handle.dataset.resize = direction;
-                    const vertical = direction[0] === 'n' ? '-5px' : 'auto';
-                    const bottom = direction[0] === 's' ? '-5px' : 'auto';
-                    const horizontal = direction[1] === 'w' ? '-5px' : 'auto';
-                    const right = direction[1] === 'e' ? '-5px' : 'auto';
+                    const horizontal = direction === 'w' ? '-5px' : 'auto';
+                    const right = direction === 'e' ? '-5px' : 'auto';
                     Object.assign(handle.style, {
                         position:'absolute', width:'9px', height:'9px', border:'1px solid white',
                         borderRadius:'2px', background:'#1677ff', zIndex:'100', opacity:'0',
-                        top:vertical, bottom, left:horizontal, right, cursor:`${direction}-resize`, pointerEvents:'auto'
+                        top:'50%', bottom:'auto', left:horizontal, right, transform:'translateY(-50%)',
+                        cursor:'ew-resize', pointerEvents:'auto'
                     });
                     handles.push(handle); element.appendChild(handle);
                 });
@@ -1184,6 +1877,11 @@
             document.querySelector('#field-label').value = field.label;
             document.querySelector('#field-type').value = field.type;
             document.querySelector('#field-mask').value = field.mask || '';
+            document.querySelector('#field-align').value = fieldTextAlign(field);
+            document.querySelector('#field-required').checked = Boolean(field.required);
+            document.querySelector('#field-min').value = field.type === 'number' && field.min !== undefined ? field.min : '';
+            document.querySelector('#field-max').value = field.type === 'number' && field.max !== undefined ? field.max : '';
+            updateNumberRulesVisibility();
             document.querySelector('#field-editor small').textContent = 'Altere o nome ou o tipo e aplique a edição.';
             document.querySelector('#apply-field').style.display = 'block';
             document.querySelector('#field-editor').classList.add('show');
@@ -1208,6 +1906,7 @@
             document.querySelector('#field-editor small').textContent = 'Arraste sobre a página para marcar a área do novo campo.';
             if (draft) draft.remove();
             draft = null;
+            clearAlignmentGuides();
         };
 
         document.querySelector('#add-field').onclick = () => {
@@ -1217,6 +1916,11 @@
             document.querySelector('#field-label').value = '';
             document.querySelector('#field-type').value = 'text';
             document.querySelector('#field-mask').value = '';
+            document.querySelector('#field-align').value = 'left';
+            document.querySelector('#field-required').checked = false;
+            document.querySelector('#field-min').value = '';
+            document.querySelector('#field-max').value = '';
+            updateNumberRulesVisibility();
             document.querySelector('#apply-field').style.display = 'none';
             document.querySelector('#field-editor small').textContent = 'Arraste sobre a página para marcar a área do novo campo.';
             document.querySelector('#field-editor').classList.add('show');
@@ -1224,22 +1928,61 @@
             status.textContent = 'Informe o nome e arraste sobre a página.';
         };
         document.querySelector('#cancel-field').onclick = stopAdding;
-        document.querySelector('#apply-field').onclick = () => {
+        document.querySelector('#field-type').onchange = () => {
+            updateNumberRulesVisibility();
+            if (document.querySelector('#field-type').value !== 'number') {
+                document.querySelector('#field-min').value = '';
+                document.querySelector('#field-max').value = '';
+            }
+        };
+        document.querySelector('#field-align').onchange = () => {
+            if (editingFieldIndex === null) return;
+            currentFields[editingFieldIndex].align = document.querySelector('#field-align').value;
+            renderFieldList();
+            renderPreviewFields();
+        };
+
+        const applyEditingField = () => {
             if (editingFieldIndex === null) return;
             const labelValue = document.querySelector('#field-label').value.trim();
-            if (!labelValue) { status.textContent = 'Informe o nome do campo.'; return; }
+            if (!labelValue) { status.textContent = 'Informe o nome do campo.'; return false; }
+            const fieldType = document.querySelector('#field-type').value;
+            const minValue = optionalNumber(document.querySelector('#field-min').value);
+            const maxValue = optionalNumber(document.querySelector('#field-max').value);
+            if (fieldType === 'number' && Number.isFinite(minValue) && Number.isFinite(maxValue) && minValue > maxValue) {
+                status.textContent = 'O valor mínimo deve ser menor ou igual ao valor máximo.';
+                document.querySelector('#field-min').focus();
+                return false;
+            }
             const field = currentFields[editingFieldIndex];
             const previousName = field.name;
             field.label = labelValue;
             field.name = uniqueName(labelValue, editingFieldIndex);
-            field.type = document.querySelector('#field-type').value;
+            field.type = fieldType;
             field.mask = document.querySelector('#field-mask').value.trim();
+            field.align = document.querySelector('#field-align').value;
+            field.required = document.querySelector('#field-required').checked;
+            if (fieldType === 'number') {
+                if (Number.isFinite(minValue)) field.min = minValue;
+                else delete field.min;
+                if (Number.isFinite(maxValue)) field.max = maxValue;
+                else delete field.max;
+            } else {
+                delete field.min;
+                delete field.max;
+            }
+            field.height = normalizedFieldHeight(field);
             if (previousName !== field.name) {
                 if (Object.prototype.hasOwnProperty.call(formValues, previousName)) {
                     formValues[field.name] = formValues[previousName]; delete formValues[previousName];
                 }
                 renderFormValues();
             }
+            return true;
+        };
+
+        document.querySelector('#apply-field').onclick = () => {
+            if (!applyEditingField()) return;
             stopAdding(); renderFieldList(); renderPreviewFields();
             status.textContent = 'Campo editado. Clique em Salvar alterações.';
         };
@@ -1252,32 +1995,34 @@
             let moving = null;
             let resizing = null;
             doc.addEventListener('pointerdown', event => {
-                const resizeHandle = event.target.closest('[data-resize]');
+                if (closestFromEvent(event, '.pdf-field-value')) return;
+                const resizeHandle = closestFromEvent(event, '[data-resize]');
                 if (!addingField && resizeHandle) {
                     const fieldElement = resizeHandle.closest('.pdf-field');
                     const fieldIndex = currentFields.findIndex(field => field.name === fieldElement?.dataset.name);
                     const page = fieldElement?.closest('.pdf-page');
                     if (fieldIndex < 0 || !page) return;
                     event.preventDefault(); event.stopPropagation();
+                    capturePointer(event);
                     const rect = page.getBoundingClientRect();
                     const pageWidth = Number(page.closest('.pdf-page-shell')?.dataset.pageWidth) || rect.width;
-                    const pageHeight = Number(page.closest('.pdf-page-shell')?.dataset.pageHeight) || rect.height;
                     const scale = pageWidth / rect.width;
                     resizing = {
                         fieldIndex, element:fieldElement, direction:resizeHandle.dataset.resize,
-                        rect, scale, pageWidth, pageHeight,
-                        pointerX:(event.clientX-rect.left)*scale, pointerY:(event.clientY-rect.top)*scale,
+                        page, rect, scale, pageWidth,
+                        pointerX:(event.clientX-rect.left)*scale,
                         original:{...currentFields[fieldIndex]},
                     };
                     fieldElement.style.outline = '2px solid #1677ff';
                     return;
                 }
-                const fieldElement = event.target.closest('.pdf-field[data-manual="true"]');
+                const fieldElement = closestFromEvent(event, '.pdf-field');
                 if (!addingField && fieldElement) {
                     const fieldIndex = currentFields.findIndex(field => field.name === fieldElement.dataset.name);
                     const page = fieldElement.closest('.pdf-page');
                     if (fieldIndex < 0 || !page) return;
                     event.preventDefault();
+                    capturePointer(event);
                     const rect = page.getBoundingClientRect();
                     const pageWidth = Number(page.closest('.pdf-page-shell')?.dataset.pageWidth) || rect.width;
                     const scale = pageWidth / rect.width;
@@ -1290,9 +2035,10 @@
                     return;
                 }
                 if (!addingField) return;
-                const page = event.target.closest('.pdf-page');
+                const page = closestFromEvent(event, '.pdf-page');
                 if (!page) return;
                 event.preventDefault();
+                capturePointer(event);
                 const rect = page.getBoundingClientRect();
                 const pageWidth = Number(page.closest('.pdf-page-shell')?.dataset.pageWidth) || rect.width;
                 const scale = pageWidth / rect.width;
@@ -1304,36 +2050,54 @@
             doc.addEventListener('pointermove', event => {
                 if (resizing) {
                     const pointerX = (event.clientX-resizing.rect.left)*resizing.scale;
-                    const pointerY = (event.clientY-resizing.rect.top)*resizing.scale;
-                    const dx = pointerX-resizing.pointerX, dy = pointerY-resizing.pointerY;
+                    const dx = pointerX-resizing.pointerX;
                     const original = resizing.original, direction = resizing.direction;
-                    let x=original.x, y=original.y, width=original.width, height=original.height;
+                    let x=original.x, width=original.width;
                     if (direction.includes('e')) width=Math.max(5,Math.min(original.width+dx,resizing.pageWidth-original.x));
-                    if (direction.includes('s')) height=Math.max(5,Math.min(original.height+dy,resizing.pageHeight-original.y));
                     if (direction.includes('w')) { x=Math.max(0,Math.min(original.x+dx,original.x+original.width-5)); width=original.width+(original.x-x); }
-                    if (direction.includes('n')) { y=Math.max(0,Math.min(original.y+dy,original.y+original.height-5)); height=original.height+(original.y-y); }
-                    Object.assign(resizing.element.style,{left:`${x}px`,top:`${y}px`,width:`${width}px`,height:`${height}px`});
+                    const snapped = snapHorizontalResize(
+                        { x, y:original.y, width, height:normalizedFieldHeight(original) },
+                        original.page,
+                        direction,
+                        resizing.fieldIndex
+                    );
+                    x = Math.max(0, Math.min(snapped.box.x, resizing.pageWidth - 5));
+                    width = Math.max(5, Math.min(snapped.box.width, resizing.pageWidth - x));
+                    Object.assign(resizing.element.style,{left:`${x}px`,width:`${width}px`,height:`${normalizedFieldHeight(original)}px`});
+                    showAlignmentGuides(resizing.page, snapped.guides);
                     return;
                 }
                 if (moving) {
                     const field = currentFields[moving.fieldIndex];
                     const pageHeight = Number(moving.page.closest('.pdf-page-shell')?.dataset.pageHeight) || moving.rect.height * moving.scale;
-                    const x = Math.max(0, Math.min((event.clientX-moving.rect.left)*moving.scale-moving.offsetX, moving.rect.width*moving.scale-field.width));
-                    const y = Math.max(0, Math.min((event.clientY-moving.rect.top)*moving.scale-moving.offsetY, pageHeight-field.height));
+                    const rawX = Math.max(0, Math.min((event.clientX-moving.rect.left)*moving.scale-moving.offsetX, moving.rect.width*moving.scale-field.width));
+                    const rawY = Math.max(0, Math.min((event.clientY-moving.rect.top)*moving.scale-moving.offsetY, pageHeight-field.height));
+                    const snapped = snapFieldBox(
+                        { x:rawX, y:rawY, width:field.width, height:normalizedFieldHeight(field) },
+                        field.page,
+                        moving.fieldIndex
+                    );
+                    const x = Math.max(0, Math.min(snapped.box.x, moving.rect.width*moving.scale-field.width));
+                    const y = Math.max(0, Math.min(snapped.box.y, pageHeight-field.height));
                     moving.element.style.left = `${x}px`; moving.element.style.top = `${y}px`;
+                    showAlignmentGuides(moving.page, snapped.guides);
                     return;
                 }
                 if (!start || !draft) return;
                 const x = (event.clientX - start.rect.left) * start.scale;
-                const y = (event.clientY - start.rect.top) * start.scale;
-                Object.assign(draft.style, { left:`${Math.min(start.x,x)}px`, top:`${Math.min(start.y,y)}px`, width:`${Math.abs(x-start.x)}px`, height:`${Math.abs(y-start.y)}px` });
+                const fieldType = document.querySelector('#field-type').value;
+                const rawBox = { x:Math.min(start.x,x), y:start.y, width:Math.abs(x-start.x), height:normalizedFieldHeight({ type:fieldType }) };
+                const snapped = snapFieldBox(rawBox, Number(start.page.dataset.page));
+                Object.assign(draft.style, { left:`${snapped.box.x}px`, top:`${snapped.box.y}px`, width:`${snapped.box.width}px`, height:`${snapped.box.height}px` });
+                showAlignmentGuides(start.page, snapped.guides);
             });
             doc.addEventListener('pointerup', event => {
                 if (resizing) {
                     const field = currentFields[resizing.fieldIndex];
                     field.x=parseFloat(resizing.element.style.left); field.y=parseFloat(resizing.element.style.top);
-                    field.width=parseFloat(resizing.element.style.width); field.height=parseFloat(resizing.element.style.height);
+                    field.width=parseFloat(resizing.element.style.width); field.height=normalizedFieldHeight(field);
                     resizing.element.style.outline=''; resizing=null; renderFieldList();
+                    clearAlignmentGuides(doc);
                     status.textContent='Campo redimensionado. Clique em Salvar alterações.';
                     return;
                 }
@@ -1343,17 +2107,32 @@
                     field.y = parseFloat(moving.element.style.top);
                     moving.element.style.outline = '';
                     moving = null; renderFieldList();
+                    clearAlignmentGuides(doc);
                     status.textContent = 'Campo movido. Clique em Salvar alterações.';
                     return;
                 }
                 if (!start || !draft) return;
                 const x = (event.clientX - start.rect.left) * start.scale;
-                const y = (event.clientY - start.rect.top) * start.scale;
-                const box = { x:Math.min(start.x,x), y:Math.min(start.y,y), width:Math.abs(x-start.x), height:Math.abs(y-start.y) };
+                const fieldType = document.querySelector('#field-type').value;
+                const rawBox = { x:Math.min(start.x,x), y:start.y, width:Math.abs(x-start.x), height:normalizedFieldHeight({ type:fieldType }) };
+                const box = snapFieldBox(rawBox, Number(start.page.dataset.page)).box;
                 const labelValue = document.querySelector('#field-label').value.trim();
-                if (box.width >= 3 && box.height >= 3 && labelValue) {
-                    currentFields.push({ name:uniqueName(labelValue), label:labelValue, type:document.querySelector('#field-type').value,
-                        mask:document.querySelector('#field-mask').value.trim(), page:Number(start.page.dataset.page), ...box, source:'manual', required:false });
+                if (box.width >= 3 && labelValue) {
+                    const minValue = optionalNumber(document.querySelector('#field-min').value);
+                    const maxValue = optionalNumber(document.querySelector('#field-max').value);
+                    if (fieldType === 'number' && Number.isFinite(minValue) && Number.isFinite(maxValue) && minValue > maxValue) {
+                        draft.remove(); draft = null; start = null;
+                        status.textContent = 'O valor mínimo deve ser menor ou igual ao valor máximo.';
+                        return;
+                    }
+                    const newField = { name:uniqueName(labelValue), label:labelValue, type:fieldType,
+                        mask:document.querySelector('#field-mask').value.trim(), align:document.querySelector('#field-align').value,
+                        page:Number(start.page.dataset.page), ...box, source:'manual', required:document.querySelector('#field-required').checked };
+                    if (fieldType === 'number') {
+                        if (Number.isFinite(minValue)) newField.min = minValue;
+                        if (Number.isFinite(maxValue)) newField.max = maxValue;
+                    }
+                    currentFields.push(newField);
                     stopAdding(); renderFieldList(); renderPreviewFields();
                     status.textContent = 'Campo adicionado. Clique em Salvar alterações.';
                 } else {
@@ -1361,18 +2140,38 @@
                     status.textContent = labelValue ? 'A área desenhada é muito pequena.' : 'Informe o nome antes de desenhar.';
                 }
                 start = null;
+                clearAlignmentGuides(doc);
             });
+            doc.addEventListener('pointercancel', () => {
+                start = null;
+                moving = null;
+                resizing = null;
+                if (draft) draft.remove();
+                draft = null;
+                clearAlignmentGuides(doc);
+            });
+        };
+
+        const preparePreviewRuntime = () => {
+            const doc = preview.contentDocument;
+            if (!doc) return;
+            doc.documentElement.removeAttribute('data-field-editor-ready');
+            renderPreviewFields();
+            installDrawingHandlers();
+            installTextEditing();
         };
 
         document.querySelector('#save-fields').onclick = async () => {
             if (!currentJobId) return;
             try {
+                if (editingFieldIndex !== null && !applyEditingField()) return;
+                currentFields = currentFields.map(field => normalizeFieldBox(field));
                 const response = await apiFetch(`/api/documents/${encodeURIComponent(currentJobId)}/fields?${searchContext()}`, {
                     method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields:currentFields})
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error);
-                currentFields = data.fields.map(field => ({ ...field }));
+                currentFields = data.fields.map(field => normalizeFieldBox(field));
                 savedFields = currentFields.map(field => ({ ...field }));
                 renderFieldList(); renderPreviewFields();
                 status.textContent = `${currentFields.length} campo(s) salvo(s)`;

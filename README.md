@@ -121,15 +121,53 @@ as chamadas à API recebem o header Bearer. O botão **Sair** encerra também a 
 no Keycloak. O conteúdo da aplicação nunca é exibido sem uma sessão válida.
 
 Com o Keycloak local em `http://localhost:8080` e o administrador `admin/admin`,
-configure o realm, o client e um administrador inicial da aplicação:
+configure o realm, o client público e um administrador inicial da aplicação:
 
 ```bash
 python scripts/configure_keycloak.py --app-password admin
 ```
 
+O script usa a porta `PORT` do `.env` para autorizar os callbacks da aplicação.
+Se você acessar a aplicação por outra origem, informe-a explicitamente:
+
+```bash
+python scripts/configure_keycloak.py --app-password admin \
+  --app-url http://localhost:8002 \
+  --app-url http://127.0.0.1:8002
+```
+
 O script cria o realm `pdf-neural`, o client público `pdf-neural-api`, a role
 `pdf-admin` e o usuário inicial `pdf-admin/admin`. Troque essa senha antes de usar
-fora do ambiente local. Obtenha um token de desenvolvimento:
+fora do ambiente local.
+
+Configure o arquivo `.env` da API com os valores básicos:
+
+```env
+AUTH_ENABLED=true
+KEYCLOAK_ISSUER=http://localhost:8080/realms/pdf-neural
+KEYCLOAK_AUDIENCE=pdf-neural-api
+KEYCLOAK_ADMIN_ROLE=pdf-admin
+KEYCLOAK_ADMIN_URL=http://localhost:8080/admin/realms/pdf-neural
+```
+
+Para a API consultar roles de Service Accounts no Keycloak, crie também um client
+confidencial administrativo:
+
+1. Acesse `http://localhost:8080/admin` com `admin/admin`.
+2. Entre no realm `pdf-neural`.
+3. Crie o client `pdf-neural-admin`.
+4. Habilite `Client authentication` e `Service accounts roles`.
+5. Desabilite fluxos de usuário como `Standard flow` e `Direct access grants`.
+6. Em `Service account roles`, atribua as roles do client `realm-management`:
+   `view-clients`, `view-users`, `query-clients` e `query-users`.
+7. Copie o secret em `Credentials` e complete o `.env`:
+
+```env
+KEYCLOAK_ADMIN_CLIENT_ID=pdf-neural-admin
+KEYCLOAK_ADMIN_CLIENT_SECRET=secret_do_client_pdf_neural_admin
+```
+
+Reinicie a API sempre que alterar o `.env`. Obtenha um token de desenvolvimento:
 
 ```bash
 TOKEN=$(curl -s -X POST \
@@ -141,7 +179,38 @@ TOKEN=$(curl -s -X POST \
 curl http://localhost:8000/api/me -H "Authorization: Bearer $TOKEN"
 ```
 
-Todas as rotas de API e as prévias em `/jobs/...` exigem o header Bearer. A raiz,
+### API Key com Keycloak
+
+Para integrações automatizadas, você pode usar uma API Key em vez de tokens JWT. As chaves são vinculadas a um `client_id` e podem ser restritas a um tenant ou grupo específico.
+Ao autenticar com uma API Key, a aplicação busca no Keycloak as roles de Realm atribuídas ao Service Account do client associado à chave.
+Mantenha o client `pdf-neural-api` como público para o login do navegador; use outro client confidencial para API Keys.
+
+Crie um client confidencial específico para integrações, por exemplo `pdf-neural-api-key`:
+
+1. No realm `pdf-neural`, crie o client `pdf-neural-api-key`.
+2. Habilite `Client authentication` e `Service accounts roles`.
+3. Desabilite `Standard flow` e `Direct access grants`, pois esse client não é usado pelo navegador.
+4. Em `Service account roles`, atribua a role de Realm `pdf-admin` se a chave deve ter acesso administrativo.
+5. Se preferir acesso sem `pdf-admin`, não atribua a role e crie registros em `user_access` para o subject `client:pdf-neural-api-key`.
+
+Gere a chave usando o mesmo `client_id` do client confidencial:
+
+```bash
+python3 -c "from database import Database; print(Database().create_api_key('pdf-neural-api-key', 'Chave de Integracao', 'TENANT_ID', 'GROUP_ID'))"
+```
+
+Exemplo de validação:
+
+```bash
+curl http://localhost:8000/api/me -H "X-API-Key: ak_sua_chave_aqui"
+
+curl 'http://localhost:8000/api/documents?tenant_id=TENANT_ID&group_id=GROUP_ID' \
+  -H "X-API-Key: ak_sua_chave_aqui"
+```
+
+As restrições de tenant e grupo gravadas na API Key limitam o escopo permitido, mas não substituem autorização. A requisição é liberada quando o Service Account tem `pdf-admin` ou quando existe acesso em `user_access` para `client:<client_id>`. Uma chave restrita a outro tenant ou grupo recebe `403`.
+
+Todas as rotas de API e as prévias em `/jobs/...` exigem autenticação. A raiz,
 o Swagger e o OpenAPI permanecem públicos. Para conceder acesso a um usuário,
 copie seu claim `sub` e, usando um token com a role `pdf-admin`, execute:
 
@@ -212,6 +281,10 @@ no histórico, mas não podem ser definidas como padrão.
 ```bash
 # Versão atual (tenant obrigatório; grupo opcional)
 curl 'http://localhost:8000/api/documents/{document_id}?tenant_id={tenant_id}&group_id={group_id}'
+
+# Exemplo com API Key
+curl 'http://localhost:8000/api/documents/{document_id}?tenant_id={tenant_id}' \
+  -H "X-API-Key: ak_sua_chave_aqui"
 
 # Histórico de versões
 curl 'http://localhost:8000/api/documents/{document_id}/versions?tenant_id={tenant_id}'

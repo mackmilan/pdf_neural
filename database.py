@@ -15,6 +15,30 @@ load_dotenv()
 
 LOGGER = logging.getLogger("pdf-neural.database")
 
+FIELD_TEXT_FONT_SIZE = 12
+FIELD_TEXT_LINE_HEIGHT = 1.2
+FIELD_TEXT_VERTICAL_PADDING = 4
+FIELD_TEXT_HEIGHT = math.ceil(FIELD_TEXT_FONT_SIZE * FIELD_TEXT_LINE_HEIGHT + FIELD_TEXT_VERTICAL_PADDING)
+FIELD_CHECKBOX_HEIGHT = 18
+FIELD_ALIGNS = {"left", "center", "justify", "right"}
+
+
+def normalized_field_height(field: dict) -> float:
+    return float(FIELD_CHECKBOX_HEIGHT if field.get("type") == "checkbox" else FIELD_TEXT_HEIGHT)
+
+
+def normalize_field_heights(fields: list[dict]) -> list[dict]:
+    """Mantem todos os campos com altura padrao baseada no tamanho do texto."""
+    normalized = []
+    for field in fields or []:
+        item = dict(field)
+        item["height"] = normalized_field_height(item)
+        if item.get("align") not in FIELD_ALIGNS:
+            item["align"] = "left"
+        normalized.append(item)
+    return normalized
+
+
 class Database:
     def __init__(self, uri: str = None):
         self.uri = uri or os.getenv("MONGO_URI")
@@ -27,6 +51,7 @@ class Database:
         self.groups = None
         self.categories = None
         self.user_access = None
+        self.api_keys = None
         
         if self.uri:
             LOGGER.info("Conectando ao MongoDB...")
@@ -46,6 +71,7 @@ class Database:
                 self.groups = self.db.get_collection("tenant_groups")
                 self.categories = self.db.get_collection("document_categories")
                 self.user_access = self.db.get_collection("user_access")
+                self.api_keys = self.db.get_collection("api_keys")
                 self.documents.create_index("document_id", unique=True, sparse=True)
                 self.versions.create_index([("document_id", 1), ("version", 1)], unique=True)
                 self.versions.create_index("job_id", unique=True)
@@ -65,6 +91,8 @@ class Database:
                     [("subject", 1), ("tenant_id", 1), ("group_id", 1)], unique=True
                 )
                 self.user_access.create_index([("subject", 1), ("tenant_id", 1)])
+                self.api_keys.create_index("key_hash", unique=True)
+                self.api_keys.create_index("client_id")
                 self.documents.create_index([("tenant_id", 1), ("group_id", 1), ("updated_at", -1)])
                 self.documents.create_index([("tenant_id", 1), ("category_id", 1), ("updated_at", -1)])
                 LOGGER.info("Conexão com MongoDB estabelecida com sucesso")
@@ -78,6 +106,58 @@ class Database:
     def is_available(self) -> bool:
         return self.jobs is not None
 
+    def get_api_key(self, key_hash: str) -> dict | None:
+        """Busca uma chave de API ativa pelo hash."""
+        if not self.is_available() or self.api_keys is None:
+            return None
+        return self.api_keys.find_one({"key_hash": key_hash, "active": True})
+
+    def create_api_key(self, client_id: str, name: str, tenant_id: str | None = None, group_id: str | None = None) -> str:
+        """Gera e salva uma nova API Key."""
+        if not self.is_available() or self.api_keys is None:
+            raise RuntimeError("Banco de dados indisponível")
+        
+        raw_key = f"ak_{uuid.uuid4().hex}"
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        
+        self.api_keys.insert_one({
+            "client_id": client_id,
+            "name": name,
+            "key_hash": key_hash,
+            "tenant_id": tenant_id,
+            "group_id": group_id,
+            "active": True,
+            "created_at": datetime.utcnow()
+        })
+        return raw_key
+
+    def list_api_keys(self, tenant_id: str, group_id: str | None = None) -> list[dict]:
+        """Lista as chaves de API de um tenant/grupo."""
+        if not self.is_available() or self.api_keys is None:
+            return []
+        query = {"tenant_id": tenant_id, "active": True}
+        if group_id:
+            query["group_id"] = group_id
+        
+        keys = list(self.api_keys.find(query).sort("created_at", -1))
+        # Remover o hash do retorno por segurança, embora seja um hash, não é necessário no front
+        for k in keys:
+            k.pop("key_hash", None)
+            if "_id" in k:
+                k["_id"] = str(k["_id"])
+        return keys
+
+    def revoke_api_key(self, client_id: str, tenant_id: str, group_id: str | None = None) -> bool:
+        """Desativa uma chave de API."""
+        if not self.is_available() or self.api_keys is None:
+            return False
+        query = {"client_id": client_id, "tenant_id": tenant_id}
+        if group_id:
+            query["group_id"] = group_id
+        
+        result = self.api_keys.update_many(query, {"$set": {"active": False, "revoked_at": datetime.utcnow()}})
+        return result.modified_count > 0
+
     def save_job(self, job_id: str, data: dict):
         """
         Salva ou atualiza o estado de um job.
@@ -86,6 +166,8 @@ class Database:
             return None
         
         LOGGER.debug("Salvando status do job %s no banco", job_id)
+        if isinstance(data.get("result"), dict) and isinstance(data["result"].get("fields"), list):
+            data = {**data, "result": {**data["result"], "fields": normalize_field_heights(data["result"]["fields"])}}
         data["updated_at"] = datetime.utcnow()
         if "created_at" not in data:
             data["created_at"] = data["updated_at"]
@@ -248,6 +330,7 @@ class Database:
         """Cria uma versão e atualiza o ponteiro do documento canônico."""
         if not self.is_available():
             return None
+        fields = normalize_field_heights(fields)
         metadata = metadata or {}
         raw_content_hash = content_hash or metadata.get("content_hash") or job_id
         document_id = (
@@ -356,6 +439,13 @@ class Database:
         if current:
             current.setdefault("deprecated", False)
             return current
+        latest = self.versions.find_one(
+            {"document_id": identifier, **scope},
+            sort=[("version", -1)],
+        )
+        if latest:
+            latest.setdefault("deprecated", False)
+            return latest
         return self.documents.find_one({"job_id": identifier, **scope})
 
     def get_document_summary(self, identifier: str, version: int | None = None, tenant_id: str | None = None, group_id: str | None = None):
@@ -366,6 +456,20 @@ class Database:
         if document:
             document.pop("html_content", None)
         return document
+
+    def get_current_document_version(self, document_id: str, tenant_id: str | None = None, group_id: str | None = None):
+        """Retorna somente a versao padrao de um documento."""
+        if not self.is_available():
+            return None
+        query = {"document_id": document_id, "is_current": True}
+        if tenant_id:
+            query["tenant_id"] = tenant_id
+        if group_id:
+            query["group_id"] = group_id
+        current = self.versions.find_one(query)
+        if current:
+            current.setdefault("deprecated", False)
+        return current
 
     def list_document_versions(self, document_id: str, tenant_id: str | None = None, group_id: str | None = None) -> list[dict]:
         if not self.is_available():
@@ -443,6 +547,35 @@ class Database:
             **update,
         }
 
+    def delete_document_version(
+        self, document_id: str, version: int,
+        tenant_id: str | None = None, group_id: str | None = None,
+    ):
+        """Remove uma versao nao atual do historico."""
+        if not self.is_available():
+            return None
+        scope = {}
+        if tenant_id:
+            scope["tenant_id"] = tenant_id
+        if group_id:
+            scope["group_id"] = group_id
+        query = {"document_id": document_id, "version": version, **scope}
+        selected = self.versions.find_one(query)
+        if not selected:
+            return None
+        if selected.get("is_current"):
+            raise ValueError("A versao padrao nao pode ser excluida")
+        result = self.versions.delete_one(query)
+        if selected.get("job_id"):
+            self.jobs.delete_one({"job_id": selected["job_id"], **scope})
+            self.db.get_collection("images").delete_many({"job_id": selected["job_id"]})
+        return {
+            "document_id": document_id,
+            "version": version,
+            "job_id": selected.get("job_id"),
+            "deleted": result.deleted_count > 0,
+        }
+
     def update_document_fields(
         self, job_id: str, fields: list[dict],
         tenant_id: str | None = None, group_id: str | None = None,
@@ -450,6 +583,7 @@ class Database:
         """Persiste a revisao manual dos campos de um documento."""
         if not self.is_available():
             return None
+        fields = normalize_field_heights(fields)
         now = datetime.utcnow()
         scope = {}
         if tenant_id:
@@ -463,6 +597,81 @@ class Database:
         if version.get("is_current"):
             self.documents.update_one({"document_id": version["document_id"], **scope}, {"$set": {"fields": fields, "fields_updated_at": now}})
         return result
+
+    def create_edited_html_version(
+        self, document_id: str, html_content: str, edited_by: str | None = None,
+        tenant_id: str | None = None, group_id: str | None = None,
+        source_version: int | None = None,
+    ):
+        """Cria uma nova versao do documento com o HTML revisado manualmente."""
+        if not self.is_available():
+            return None
+        scope = {}
+        if tenant_id:
+            scope["tenant_id"] = tenant_id
+        if group_id:
+            scope["group_id"] = group_id
+        source_query = {"document_id": document_id, **scope}
+        if source_version is None:
+            source_query["is_current"] = True
+        else:
+            source_query["version"] = source_version
+        current = self.versions.find_one(source_query)
+        if not current:
+            return None
+        now = datetime.utcnow()
+        canonical = self.documents.find_one_and_update(
+            {"document_id": document_id, **scope},
+            {"$inc": {"current_version": 1}, "$set": {"updated_at": now}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if not canonical:
+            return None
+        version_number = int(canonical["current_version"])
+        job_id = uuid.uuid4().hex
+        metadata = dict(current.get("metadata", {}))
+        metadata["edited_html"] = True
+        metadata["edited_at"] = now
+        if edited_by:
+            metadata["edited_by"] = edited_by
+        self.versions.update_many({"document_id": document_id, **scope, "is_current": True}, {"$set": {"is_current": False}})
+        version_doc = {
+            "document_id": document_id,
+            "job_id": job_id,
+            "version": version_number,
+            "is_current": True,
+            "deprecated": False,
+            "html_content": html_content,
+            "fields": normalize_field_heights(current.get("fields", [])),
+            "tables": current.get("tables", []),
+            "pages": current.get("pages", []),
+            "neural_tables": current.get("neural_tables", []),
+            "metadata": metadata,
+            "created_at": now,
+            "tenant_id": current.get("tenant_id"),
+            "group_id": current.get("group_id"),
+            "category_id": current.get("category_id"),
+            "edited_from_version": current.get("version"),
+        }
+        self.versions.insert_one(version_doc)
+        self.documents.update_one(
+            {"document_id": document_id, **scope},
+            {"$set": {
+                "job_id": job_id, "current_job_id": job_id, "current_version": version_number,
+                "fields": version_doc["fields"], "tables": version_doc["tables"],
+                "pages": version_doc["pages"], "neural_tables": version_doc["neural_tables"],
+                "metadata": metadata, "category_id": version_doc["category_id"],
+                "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
+                "is_current": True, "updated_at": now,
+            }},
+        )
+        return {
+            "document_id": document_id, "version": version_number, "job_id": job_id,
+            "is_current": True, "fields": version_doc["fields"], "tables": version_doc["tables"],
+            "neural_tables": version_doc["neural_tables"], "metadata": metadata,
+            "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
+            "category_id": version_doc["category_id"],
+        }
 
     def update_document_category(
         self, document_id: str, category_id: str | None,
