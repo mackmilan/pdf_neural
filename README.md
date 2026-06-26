@@ -26,6 +26,23 @@ pip install -r requirements.txt
 python app.py
 ```
 
+O frontend (Vue 3 + TypeScript, em `frontend/`) precisa ser instalado uma vez com
+`npm install --prefix frontend`. Em desenvolvimento, rode o backend Python e o
+Vite dev server juntos com:
+
+```bash
+./scripts/dev.sh
+```
+
+Isso inicia `python app.py` (porta 8000) e `npm run dev` (porta 5173, com proxy
+para `/api`, `/auth`, `/jobs`, `/docs` e `/openapi.json` apontando para o
+backend). Para gerar os estaticos de producao (servidos pelo proprio
+`app.py` a partir de `static/`):
+
+```bash
+npm --prefix frontend run build
+```
+
 ## Detector neural de tabelas
 
 O detector neural e opcional e complementa a deteccao geometrica existente. Ele
@@ -362,12 +379,18 @@ PUBLIC_BASE_URL=https://pdf.exemplo.com
 PDF_WORKERS=2
 ```
 
-Associe o dominio do recurso a porta interna `8000`. A porta nao e publicada no host;
-o proxy do Coolify acessa o servico diretamente pela rede Docker, evitando conflitos
-com outras aplicacoes. `PUBLIC_BASE_URL` deve ser a URL publica sem barra no final,
-para que callbacks e links de resultados usem o dominio correto.
+Associe o dominio do recurso a porta interna `8000`; o proxy do Coolify acessa o
+servico diretamente pela rede Docker, sem depender da porta publicada no host.
+`PUBLIC_BASE_URL` deve ser a URL publica sem barra no final, para que callbacks e
+links de resultados usem o dominio correto.
 
-Para executar localmente com a mesma configuracao:
+A imagem builda o frontend (Vue 3 + TypeScript em `frontend/`) em um estagio
+separado e copia o resultado para `static/`, que o backend serve diretamente —
+nao e necessario rodar `npm` fora do container.
+
+Para executar localmente com a mesma configuracao (a porta `8000` do host fica
+disponivel em `http://localhost:8000`; use `HOST_PORT=9000 docker compose up`
+para publicar em outra porta caso a 8000 esteja ocupada):
 
 ```bash
 docker compose up --build

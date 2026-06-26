@@ -118,6 +118,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(STATIC / "swagger.html")
         if path == "/openapi.json":
             return self.send_file(STATIC / "openapi.json")
+        if path == "/favicon.svg" or path == "/icons.svg" or path.startswith("/assets/"):
+            candidate = (STATIC / path.lstrip("/")).resolve()
+            if STATIC.resolve() in candidate.parents:
+                return self.send_file(candidate)
+            return self.send_error(404)
         if path == "/auth/config":
             return self.send_json(200, {
                 "issuer": authenticator.issuer,

@@ -1,0 +1,703 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PDF Neural API",
+    "version": "1.0.0",
+    "description": "Gera uma representacao HTML fiel do PDF, extrai campos e usa uma rede neural para localizar regioes de tabela. Oferece conversao sincrona e processamento assincrono com callback."
+  },
+  "servers": [{"url": "/", "description": "Servidor atual"}],
+  "security": [{"bearerAuth": []}, {"apiKeyAuth": []}],
+  "tags": [
+    {"name": "Usuarios", "description": "Identidade do Keycloak e autorizacoes armazenadas no MongoDB"},
+    {"name": "Tenants", "description": "Organizacoes e seus grupos genericos"},
+    {"name": "Categorias", "description": "Categorias de documentos por tenant"},
+    {"name": "Conversao", "description": "Conversao sincrona de documentos"},
+    {"name": "Jobs", "description": "Processamento assincrono e consulta de estado"},
+    {"name": "Historico", "description": "Recuperacao de documentos do MongoDB"}
+  ],
+  "paths": {
+    "/api/me": {
+      "get": {
+        "tags": ["Usuarios"], "summary": "Retorna a identidade autenticada e seus acessos", "operationId": "getCurrentUser",
+        "responses": {"200": {"description": "Identidade autenticada"}, "401": {"$ref": "#/components/responses/Unauthorized"}}
+      }
+    },
+    "/api/users/{subject}/access": {
+      "parameters": [{"name": "subject", "in": "path", "required": true, "schema": {"type": "string"}, "description": "Claim sub do usuario no Keycloak"}],
+      "get": {
+        "tags": ["Usuarios"], "summary": "Lista acessos do usuario (pdf-admin)", "operationId": "listUserAccess",
+        "responses": {"200": {"description": "Acessos"}, "403": {"$ref": "#/components/responses/Forbidden"}}
+      },
+      "put": {
+        "tags": ["Usuarios"], "summary": "Concede ou atualiza acesso (pdf-admin)", "operationId": "grantUserAccess",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserAccessRequest"}}}},
+        "responses": {"200": {"description": "Acesso concedido"}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}}
+      },
+      "delete": {
+        "tags": ["Usuarios"], "summary": "Revoga acesso (pdf-admin)", "operationId": "revokeUserAccess",
+        "parameters": [{"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {"200": {"description": "Acesso revogado"}, "404": {"$ref": "#/components/responses/NotFound"}, "403": {"$ref": "#/components/responses/Forbidden"}}
+      }
+    },
+    "/api/tenants": {
+      "get": {
+        "tags": ["Tenants"], "summary": "Lista tenants", "operationId": "listTenants",
+        "responses": {"200": {"description": "Tenants", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Tenant"}}}}}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
+      },
+      "post": {
+        "tags": ["Tenants"], "summary": "Cria um tenant", "operationId": "createTenant",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateNamedResource"}}}},
+        "responses": {"201": {"description": "Tenant criado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Tenant"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
+      }
+    },
+    "/api/tenants/{tenant_id}/groups": {
+      "get": {
+        "tags": ["Tenants"], "summary": "Lista grupos do tenant", "operationId": "listTenantGroups", "parameters": [{"$ref": "#/components/parameters/TenantId"}],
+        "responses": {"200": {"description": "Grupos", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/TenantGroup"}}}}}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
+      },
+      "post": {
+        "tags": ["Tenants"], "summary": "Cria um grupo no tenant", "operationId": "createTenantGroup", "parameters": [{"$ref": "#/components/parameters/TenantId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateNamedResource"}}}},
+        "responses": {"201": {"description": "Grupo criado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TenantGroup"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}, "503": {"$ref": "#/components/responses/ServiceUnavailable"}}
+      }
+    },
+    "/api/tenants/{tenant_id}/groups/{group_id}/categories": {
+      "get": {
+        "tags": ["Categorias"], "summary": "Lista categorias do grupo", "operationId": "listDocumentCategories", "parameters": [{"$ref": "#/components/parameters/TenantId"}, {"$ref": "#/components/parameters/GroupId"}],
+        "responses": {"200": {"description": "Categorias", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/DocumentCategory"}}}}}, "403": {"$ref": "#/components/responses/Forbidden"}}
+      },
+      "post": {
+        "tags": ["Categorias"], "summary": "Cria uma categoria no grupo (pdf-admin)", "operationId": "createDocumentCategory", "parameters": [{"$ref": "#/components/parameters/TenantId"}, {"$ref": "#/components/parameters/GroupId"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateNamedResource"}}}},
+        "responses": {"201": {"description": "Categoria criada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentCategory"}}}}, "400": {"$ref": "#/components/responses/BadRequest"}, "403": {"$ref": "#/components/responses/Forbidden"}}
+      }
+    },
+    "/api/documents": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Lista todos os documentos com paginação",
+        "description": "Retorna documentos salvos no MongoDB em páginas, com filtro opcional por nome. O conteúdo HTML é omitido para otimizar a listagem.",
+        "operationId": "listDocuments",
+        "parameters": [{"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}, {"$ref": "#/components/parameters/CategoryQuery"}, {"$ref": "#/components/parameters/PageQuery"}, {"$ref": "#/components/parameters/PageSizeQuery"}, {"$ref": "#/components/parameters/DocumentNameQuery"}],
+        "responses": {
+          "200": {
+            "description": "Lista de documentos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedDocuments"
+                }
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{document_id}": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Obtem um documento completo",
+        "description": "Retorna todos os dados de um documento salvo no MongoDB, incluindo o conteudo HTML.",
+        "operationId": "getDocument",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {
+            "description": "Documento completo",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StoredDocumentFull"}}}
+          },
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      },
+      "delete": {
+        "tags": ["Historico"],
+        "summary": "Exclui um documento gerado",
+        "description": "Remove o documento, o job e as imagens associadas.",
+        "operationId": "deleteDocument",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Documento excluido"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{document_id}/category": {
+      "put": {
+        "tags": ["Categorias"], "summary": "Define ou remove a categoria do documento", "operationId": "updateDocumentCategory",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"category_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"}}}}}},
+        "responses": {"200": {"description": "Categoria atualizada"}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}}
+      }
+    },
+    "/api/documents/{document_id}/name": {
+      "put": {
+        "tags": ["Historico"], "summary": "Renomeia um documento", "operationId": "renameDocument",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 255}}}}}},
+        "responses": {"200": {"description": "Documento renomeado"}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}}
+      }
+    },
+    "/api/documents/{document_id}/html": {
+      "put": {
+        "tags": ["Historico"],
+        "summary": "Salva HTML editado como nova versão",
+        "description": "Cria uma nova versão padrão do documento com o HTML revisado manualmente.",
+        "operationId": "updateDocumentHtml",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateHtmlRequest"}}}},
+        "responses": {
+          "200": {"description": "Nova versão criada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{job_id}/fields": {
+      "put": {
+        "tags": ["Historico"],
+        "summary": "Substitui os campos revisados",
+        "operationId": "updateDocumentFields",
+        "parameters": [{"$ref": "#/components/parameters/JobId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object", "required": ["fields"],
+            "properties": {"fields": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/components/schemas/Field"}}}
+          }}}
+        },
+        "responses": {
+          "200": {"description": "Campos salvos"},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/documents/{document_id}/versions": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Lista as versões de um documento",
+        "operationId": "listDocumentVersions",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versões em ordem decrescente", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/DocumentVersion"}}}}},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{document_id}/versions/current": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Busca a versão padrão do documento",
+        "description": "Retorna somente a versão marcada como padrão para o documento informado.",
+        "operationId": "getCurrentDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão padrão encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{document_id}/versions/{version}": {
+      "get": {
+        "tags": ["Historico"],
+        "summary": "Busca uma versão específica",
+        "operationId": "getDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/Version"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão encontrada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      },
+      "delete": {
+        "tags": ["Historico"],
+        "summary": "Exclui uma versão do documento",
+        "description": "Remove uma versão não padrão do histórico. A versão padrão atual não pode ser excluída.",
+        "operationId": "deleteDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/Version"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão excluída"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"description": "A versão é a versão padrão atual", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{document_id}/versions/{version}/current": {
+      "put": {
+        "tags": ["Historico"],
+        "summary": "Define a versão padrão do documento",
+        "operationId": "setCurrentDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/Version"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão definida como padrão", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/documents/{document_id}/versions/{version}/deprecated": {
+      "put": {
+        "tags": ["Historico"],
+        "summary": "Marca uma versão como deprecated",
+        "description": "Mantém a versão no histórico, mas impede que ela seja definida como padrão. A versão padrão atual não pode ser marcada.",
+        "operationId": "deprecateDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/Version"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão marcada como deprecated", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"description": "A versão é a versão padrão atual", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      },
+      "delete": {
+        "tags": ["Historico"],
+        "summary": "Restaura uma versão deprecated",
+        "operationId": "restoreDocumentVersion",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/Version"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {"description": "Versão restaurada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DocumentVersion"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/convert": {
+      "post": {
+        "tags": ["Conversao"],
+        "summary": "Converte um PDF imediatamente",
+        "description": "Recebe um arquivo PDF ou uma URL publica. A requisicao permanece aberta ate o fim da conversao. Limite de 30 MB.",
+        "operationId": "convertPdf",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pdf": {"type": "string", "format": "binary", "description": "Arquivo PDF. Use este campo ou url."},
+                  "url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS do PDF. Use este campo ou pdf."}
+                  ,"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                  "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+                  ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PDF convertido",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConvertResult"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "Lista jobs recentes",
+        "description": "Retorna os ultimos 10 jobs registrados no MongoDB.",
+        "operationId": "listJobs",
+        "parameters": [{"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}, {"$ref": "#/components/parameters/CategoryQuery"}],
+        "responses": {
+          "200": {
+            "description": "Lista de jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/JobStatus"}
+                }
+              }
+            }
+          },
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      },
+      "post": {
+        "tags": ["Jobs"],
+        "summary": "Cria uma extracao assincrona",
+        "description": "Enfileira o download e a extracao. Ao terminar, envia o resultado para callback_url com ate tres tentativas.",
+        "operationId": "createJob",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CreateJobRequest"},
+              "example": {
+                "pdf_url": "https://exemplo.com/formulario.pdf",
+                "callback_url": "https://sistema.exemplo.com/callbacks/pdf",
+                "tenant_id": "7f14dc30f9894a989b6f64290dcdb1fa",
+                "reference": "documento-123"
+              }
+            }
+          }
+        },
+        "security": [{"apiKeyAuth": []}, {"bearerAuth": []}],
+        "callbacks": {
+          "extractionFinished": {
+            "{$request.body#/callback_url}": {
+              "post": {
+                "summary": "Entrega o resultado da extracao",
+                "operationId": "receiveExtractionResult",
+                "requestBody": {
+                  "required": true,
+                  "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CallbackPayload"}}}
+                },
+                "responses": {
+                  "2XX": {"description": "Callback recebido. Outros status provocam uma nova tentativa."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job aceito para processamento",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobAccepted"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "500": {"$ref": "#/components/responses/InternalError"}
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "Consulta o estado de um job",
+        "operationId": "getJob",
+        "parameters": [{"$ref": "#/components/parameters/JobId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "responses": {
+          "200": {
+            "description": "Estado atual e, quando disponivel, resultado da extracao",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobStatus"}}}
+          },
+          "404": {
+            "description": "Job nao encontrado",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "Access token emitido pelo realm pdf-neural no Keycloak"},
+      "apiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-API-Key", "description": "Chave de API para integracao server-to-server"}
+    },
+    "parameters": {
+      "JobId": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "description": "Identificador hexadecimal retornado na criacao do job.",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$", "example": "9a46c0ef8db14a119a006f239683ef9f"}
+      },
+      "DocumentId": {
+        "name": "document_id", "in": "path", "required": true,
+        "description": "Identificador SHA-256 isolado pelo tenant e grupo do documento.",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "Version": {
+        "name": "version", "in": "path", "required": true,
+        "schema": {"type": "integer", "minimum": 1}
+      },
+      "TenantId": {
+        "name": "tenant_id", "in": "path", "required": true,
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "GroupId": {
+        "name": "group_id", "in": "path", "required": true,
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "TenantQuery": {
+        "name": "tenant_id", "in": "query", "required": false,
+        "description": "Tenant que delimita a consulta.",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "GroupQuery": {
+        "name": "group_id", "in": "query", "required": false,
+        "description": "Grupo opcional pertencente ao tenant informado.",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "CategoryQuery": {
+        "name": "category_id", "in": "query", "required": false,
+        "description": "Categoria opcional usada para filtrar documentos e jobs; requer o group_id ao qual pertence.",
+        "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      },
+      "PageQuery": {
+        "name": "page", "in": "query", "required": false,
+        "schema": {"type": "integer", "minimum": 1, "default": 1}
+      },
+      "PageSizeQuery": {
+        "name": "page_size", "in": "query", "required": false,
+        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10}
+      },
+      "DocumentNameQuery": {
+        "name": "name", "in": "query", "required": false,
+        "description": "Trecho do nome do documento, sem diferenciar maiúsculas de minúsculas.",
+        "schema": {"type": "string", "maxLength": 255}
+      }
+    },
+    "responses": {
+      "Unauthorized": {"description": "Token ausente, invalido ou expirado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Forbidden": {"description": "Usuario autenticado sem permissao", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "BadRequest": {
+        "description": "Dados invalidos",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      },
+      "InternalError": {
+        "description": "Erro interno",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      },
+      "ServiceUnavailable": {
+        "description": "Banco de dados indisponivel",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      },
+      "NotFound": {
+        "description": "Recurso nao encontrado",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+      }
+    },
+    "schemas": {
+      "PaginatedDocuments": {
+        "type": "object", "required": ["items", "page", "page_size", "total", "total_pages"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/StoredDocument"}},
+          "page": {"type": "integer", "minimum": 1},
+          "page_size": {"type": "integer", "minimum": 1},
+          "total": {"type": "integer", "minimum": 0},
+          "total_pages": {"type": "integer", "minimum": 0}
+        }
+      },
+      "UserAccessRequest": {
+        "type": "object", "required": ["tenant_id", "permission"], "additionalProperties": false,
+        "properties": {
+          "tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "permission": {"type": "string", "enum": ["reader", "editor"]},
+          "username": {"type": "string"}
+        }
+      },
+      "CreateNamedResource": {
+        "type": "object", "additionalProperties": false, "required": ["name"],
+        "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 120}, "metadata": {"type": "object"}}
+      },
+      "Tenant": {
+        "type": "object", "required": ["tenant_id", "name", "created_at"],
+        "properties": {"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "name": {"type": "string"}, "metadata": {"type": "object"}, "created_at": {"type": "string", "format": "date-time"}}
+      },
+      "TenantGroup": {
+        "type": "object", "required": ["tenant_id", "group_id", "name", "created_at"],
+        "properties": {"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "name": {"type": "string"}, "metadata": {"type": "object"}, "created_at": {"type": "string", "format": "date-time"}}
+      },
+      "DocumentCategory": {
+        "type": "object", "required": ["tenant_id", "group_id", "category_id", "name", "created_at"],
+        "properties": {"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "name": {"type": "string"}, "metadata": {"type": "object"}, "created_at": {"type": "string", "format": "date-time"}}
+      },
+      "StoredDocument": {
+        "type": "object",
+        "required": ["document_id", "current_version", "job_id", "fields", "tables", "metadata", "created_at"],
+        "properties": {
+          "_id": {"type": "string", "description": "ID interno do MongoDB"},
+          "document_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "tenant_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
+          "group_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
+          "category_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
+          "current_version": {"type": "integer", "minimum": 1},
+          "job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
+          "metadata": {"type": "object"},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DocumentVersion": {
+        "type": "object",
+        "required": ["document_id", "job_id", "version", "is_current", "deprecated", "fields", "tables", "created_at"],
+        "properties": {
+          "document_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "version": {"type": "integer", "minimum": 1},
+          "is_current": {"type": "boolean"},
+          "deprecated": {"type": "boolean", "default": false},
+          "deprecated_at": {"type": ["string", "null"], "format": "date-time"},
+          "tenant_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
+          "group_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
+          "category_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
+          "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
+          "metadata": {"type": "object"},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "StoredDocumentFull": {
+        "allOf": [
+          {"$ref": "#/components/schemas/StoredDocument"},
+          {
+            "type": "object",
+            "required": ["html_content"],
+            "properties": {
+              "html_content": {"type": "string", "description": "Conteudo HTML completo do documento"}
+            }
+          }
+        ]
+      },
+      "UpdateHtmlRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["html_content"],
+        "properties": {
+          "html_content": {"type": "string", "description": "Documento HTML completo revisado manualmente.", "maxLength": 8388608},
+          "base_version": {"type": "integer", "minimum": 1, "description": "Versão visualizada que serviu de base para a edição."}
+        }
+      },
+      "CreateJobRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pdf_url", "callback_url"],
+        "properties": {
+          "pdf_url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS do PDF."},
+          "callback_url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS que recebera um POST JSON."},
+          "reference": {"description": "Valor opcional devolvido no status e callback para correlacao.", "examples": ["documento-123"]}
+          ,"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+          ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+        }
+      },
+      "Field": {
+        "type": "object",
+        "required": ["name", "label", "type", "page", "x", "y", "width", "height", "source", "required"],
+        "properties": {
+          "name": {"type": "string", "example": "cpf"},
+          "label": {"type": "string", "example": "CPF"},
+          "type": {"type": "string", "enum": ["text", "date", "time", "email", "tel", "number", "password", "checkbox", "select", "textarea"]},
+          "page": {"type": "integer", "minimum": 1},
+          "x": {"type": "number"},
+          "y": {"type": "number"},
+          "width": {"type": "number"},
+          "height": {"type": "number"},
+          "align": {"type": "string", "enum": ["left", "center", "justify", "right"], "default": "left"},
+          "source": {"type": "string", "enum": ["inferred", "acroform", "table", "neural_field", "manual"]},
+          "required": {"type": "boolean"},
+          "min": {"type": "number", "description": "Valor minimo permitido para campos do tipo number."},
+          "max": {"type": "number", "description": "Valor maximo permitido para campos do tipo number."}
+        }
+      },
+      "Table": {
+        "type": "object",
+        "required": ["id", "page", "x", "y", "width", "height", "row_count", "column_count", "rows"],
+        "properties": {
+          "id": {"type": "string", "example": "page-1-table-1"},
+          "page": {"type": "integer", "minimum": 1},
+          "x": {"type": "number"}, "y": {"type": "number"},
+          "width": {"type": "number"}, "height": {"type": "number"},
+          "row_count": {"type": "integer"}, "column_count": {"type": "integer"},
+          "rows": {"type": "array", "items": {"type": "object", "description": "Linha com indice e celulas; mesclagens sao representadas por colspan e rowspan."}}
+        }
+      },
+      "NeuralTable": {
+        "type": "object",
+        "required": ["id", "page", "x", "y", "width", "height", "confidence", "source", "row_count", "column_count", "lines", "structure_source"],
+        "properties": {
+          "id": {"type": "string", "example": "page-1-neural-table-1"},
+          "page": {"type": "integer", "minimum": 1},
+          "x": {"type": "number"}, "y": {"type": "number"},
+          "width": {"type": "number"}, "height": {"type": "number"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "source": {"type": "string", "const": "neural"},
+          "row_count": {"type": "integer", "minimum": 0},
+          "column_count": {"type": "integer", "minimum": 0},
+          "structure_source": {"type": "string", "enum": ["vector", "raster"]},
+          "lines": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTableLine"}}
+        }
+      },
+      "NeuralTableLine": {
+        "type": "object",
+        "required": ["orientation", "x", "y", "width", "height", "line_width", "color"],
+        "properties": {
+          "orientation": {"type": "string", "enum": ["h", "v"]},
+          "x": {"type": "number"}, "y": {"type": "number"},
+          "width": {"type": "number"}, "height": {"type": "number"},
+          "line_width": {"type": "number", "minimum": 0},
+          "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}
+        }
+      },
+      "ExtractionResult": {
+        "type": "object",
+        "required": ["fields", "tables", "neural_tables", "preview_url"],
+        "properties": {
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
+          "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
+          "preview_url": {"type": "string", "format": "uri"}
+        }
+      },
+      "ConvertResult": {
+        "type": "object",
+        "required": ["preview", "fields", "tables", "neural_tables"],
+        "properties": {
+          "preview": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/html/index.html"},
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
+          "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
+          "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}}
+        }
+      },
+      "JobAccepted": {
+        "type": "object",
+        "required": ["job_id", "status", "status_url"],
+        "properties": {
+          "job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "reference": {},
+          "status": {"type": "string", "const": "queued"},
+          "status_url": {"type": "string", "format": "uri"}
+        }
+      },
+      "JobStatus": {
+        "type": "object",
+        "required": ["job_id", "status"],
+        "properties": {
+          "job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "reference": {},
+          "status": {"type": "string", "enum": ["queued", "processing", "completed", "failed"]},
+          "result": {"$ref": "#/components/schemas/ExtractionResult"},
+          "error": {"type": "string"},
+          "callback_status": {"type": "string", "enum": ["delivered", "failed"]},
+          "callback_error": {"type": "string"}
+        }
+      },
+      "CallbackPayload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["job_id", "status", "result"],
+            "properties": {
+              "job_id": {"type": "string"}, "reference": {}, "status": {"const": "completed"},
+              "result": {"$ref": "#/components/schemas/ExtractionResult"}
+            }
+          },
+          {
+            "type": "object",
+            "required": ["job_id", "status", "error"],
+            "properties": {
+              "job_id": {"type": "string"}, "reference": {}, "status": {"const": "failed"}, "error": {"type": "string"}
+            }
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {"error": {"type": "string"}}
+      }
+    }
+  }
+}

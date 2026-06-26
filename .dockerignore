@@ -10,3 +10,5 @@ htmlcov
 output
 tests
 data
+frontend/node_modules
+frontend/dist
