@@ -379,18 +379,23 @@ PUBLIC_BASE_URL=https://pdf.exemplo.com
 PDF_WORKERS=2
 ```
 
-Associe o dominio do recurso a porta interna `8000`; o proxy do Coolify acessa o
-servico diretamente pela rede Docker, sem depender da porta publicada no host.
-`PUBLIC_BASE_URL` deve ser a URL publica sem barra no final, para que callbacks e
-links de resultados usem o dominio correto.
+Associe o dominio do recurso a porta interna `8000`. O `docker-compose.yml` usa
+`expose` (sem publicar a porta no host) de propósito: o Coolify roda apenas esse
+arquivo e acessa o servico diretamente pela rede Docker, entao publicar a porta
+arriscaria colidir com outro servico já usando 8000 na mesma VPS. `PUBLIC_BASE_URL`
+deve ser a URL publica sem barra no final, para que callbacks e links de resultados
+usem o dominio correto.
 
 A imagem builda o frontend (Vue 3 + TypeScript em `frontend/`) em um estagio
 separado e copia o resultado para `static/`, que o backend serve diretamente —
 nao e necessario rodar `npm` fora do container.
 
-Para executar localmente com a mesma configuracao (a porta `8000` do host fica
-disponivel em `http://localhost:8000`; use `HOST_PORT=9000 docker compose up`
-para publicar em outra porta caso a 8000 esteja ocupada):
+Para executar localmente com acesso via navegador, use `docker-compose.override.yml`
+(ja incluido no repositorio e aplicado automaticamente pelo `docker compose up` quando
+nenhum `-f` extra e passado — e por isso ignorado pelo Coolify, que especifica o
+arquivo explicitamente). Ele publica a porta em `http://localhost:8000`; use
+`HOST_PORT=9000 docker compose up` para publicar em outra porta caso a 8000 esteja
+ocupada:
 
 ```bash
 docker compose up --build
