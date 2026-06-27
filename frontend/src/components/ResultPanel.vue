@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useContextStore } from '../stores/context'
 import { useDocumentStore } from '../stores/document'
 import { useModalsStore } from '../stores/modals'
+import type { FormatNorm } from '../types'
 import PdfPreview from './PdfPreview.vue'
 import FieldsSidebar from './FieldsSidebar.vue'
 
@@ -13,6 +14,7 @@ const preview = ref<InstanceType<typeof PdfPreview> | null>(null)
 const fullscreenLabel = ref('⛶ Tela cheia')
 const documentName = ref('')
 const categoryValue = ref('')
+const formatNormValue = ref<FormatNorm | ''>('')
 
 watch(
   () => docStore.currentDocumentName,
@@ -21,6 +23,10 @@ watch(
 watch(
   () => docStore.currentCategoryId,
   (id) => (categoryValue.value = id || ''),
+)
+watch(
+  () => docStore.currentFormatNorm,
+  (norm) => (formatNormValue.value = norm || ''),
 )
 
 watch(
@@ -75,6 +81,10 @@ async function saveDocumentName() {
 
 async function applyCategory() {
   await docStore.applyCategory(categoryValue.value || null)
+}
+
+async function applyFormatNorm() {
+  await docStore.applyFormatNorm(formatNormValue.value || null)
 }
 
 async function onVersionChange(version: number) {
@@ -153,6 +163,16 @@ function openValue(index: number) {
         </select>
       </label>
       <button type="button" :disabled="!docStore.isEditableDocument" @click="applyCategory">Alterar categoria</button>
+    </div>
+    <div class="format-controls">
+      <label>Norma de formatação
+        <select v-model="formatNormValue" aria-label="Norma de formatação do documento" :disabled="!docStore.isEditableDocument">
+          <option value="">Nenhuma</option>
+          <option value="abnt">ABNT (NBR 14724)</option>
+          <option value="apa">APA (7th edition)</option>
+        </select>
+      </label>
+      <button type="button" :disabled="!docStore.isEditableDocument" @click="applyFormatNorm">Aplicar formatação</button>
     </div>
     <div class="version-controls" :class="{ show: docStore.availableVersions.length > 0 }">
       <label>Versão

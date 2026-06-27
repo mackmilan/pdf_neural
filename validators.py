@@ -5,6 +5,7 @@ import re
 
 from auth import Identity
 from config import MAX_HTML_JSON_SIZE
+from formatting import NORMS
 
 def validate_context_id(value: object, label: str) -> str:
     identifier = str(value or "").strip()
@@ -39,6 +40,15 @@ def validate_search_context(query: dict[str, list[str]], identity: Identity | No
 def validate_category_query(query: dict[str, list[str]]) -> str | None:
     value = query.get("category_id", [""])[0]
     return validate_context_id(value, "category_id") if value else None
+
+
+def validate_format_norm(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    norm = str(value).strip().lower()
+    if norm not in NORMS:
+        raise ValueError(f"format_norm deve ser um de {sorted(NORMS)}")
+    return norm
 
 
 FIELD_TYPES = {"text", "date", "time", "email", "tel", "number", "password", "checkbox", "select", "textarea"}

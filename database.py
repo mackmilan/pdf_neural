@@ -11,9 +11,13 @@ from typing import Any
 from pymongo import MongoClient, ReturnDocument
 from dotenv import load_dotenv
 
+import formatting
+
 load_dotenv()
 
 LOGGER = logging.getLogger("pdf-neural.database")
+
+_UNCHANGED = object()
 
 FIELD_TEXT_FONT_SIZE = 12
 FIELD_TEXT_LINE_HEIGHT = 1.2
@@ -601,7 +605,7 @@ class Database:
     def create_edited_html_version(
         self, document_id: str, html_content: str, edited_by: str | None = None,
         tenant_id: str | None = None, group_id: str | None = None,
-        source_version: int | None = None,
+        source_version: int | None = None, format_norm: str | None = _UNCHANGED,
     ):
         """Cria uma nova versao do documento com o HTML revisado manualmente."""
         if not self.is_available():
@@ -634,6 +638,7 @@ class Database:
         metadata["edited_at"] = now
         if edited_by:
             metadata["edited_by"] = edited_by
+        resolved_format_norm = current.get("format_norm") if format_norm is _UNCHANGED else format_norm
         self.versions.update_many({"document_id": document_id, **scope, "is_current": True}, {"$set": {"is_current": False}})
         version_doc = {
             "document_id": document_id,
@@ -651,6 +656,7 @@ class Database:
             "tenant_id": current.get("tenant_id"),
             "group_id": current.get("group_id"),
             "category_id": current.get("category_id"),
+            "format_norm": resolved_format_norm,
             "edited_from_version": current.get("version"),
         }
         self.versions.insert_one(version_doc)
@@ -662,6 +668,7 @@ class Database:
                 "pages": version_doc["pages"], "neural_tables": version_doc["neural_tables"],
                 "metadata": metadata, "category_id": version_doc["category_id"],
                 "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
+                "format_norm": resolved_format_norm,
                 "is_current": True, "updated_at": now,
             }},
         )
@@ -670,8 +677,30 @@ class Database:
             "is_current": True, "fields": version_doc["fields"], "tables": version_doc["tables"],
             "neural_tables": version_doc["neural_tables"], "metadata": metadata,
             "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
-            "category_id": version_doc["category_id"],
+            "category_id": version_doc["category_id"], "format_norm": resolved_format_norm,
         }
+
+    def apply_format_norm(
+        self, document_id: str, format_norm: str | None,
+        tenant_id: str | None = None, group_id: str | None = None,
+        edited_by: str | None = None,
+    ):
+        """Aplica a norma de formatacao escolhida ao HTML da versao atual, criando uma nova versao."""
+        if not self.is_available():
+            return None
+        scope = {}
+        if tenant_id:
+            scope["tenant_id"] = tenant_id
+        if group_id:
+            scope["group_id"] = group_id
+        current = self.versions.find_one({"document_id": document_id, **scope, "is_current": True})
+        if not current:
+            return None
+        formatted_html = formatting.apply_format_norm(current["html_content"], format_norm)
+        return self.create_edited_html_version(
+            document_id, formatted_html, edited_by, tenant_id, group_id,
+            source_version=current["version"], format_norm=format_norm,
+        )
 
     def update_document_category(
         self, document_id: str, category_id: str | None,

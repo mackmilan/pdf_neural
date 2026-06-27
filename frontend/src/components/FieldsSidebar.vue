@@ -34,12 +34,6 @@ function cancelEdit() {
   fieldEditor.stop()
 }
 
-function applyField() {
-  if (!fieldEditor.applyEditingField()) return
-  fieldEditor.stop()
-  docStore.status = 'Campo editado. Clique em Salvar alterações.'
-}
-
 function onTypeChange() {
   if (fieldEditor.form.type !== 'number') {
     fieldEditor.form.min = ''
@@ -84,7 +78,7 @@ function fieldSummary(field: { type: FieldType; page: number; source?: string; a
       <button type="button" class="button-secondary" :disabled="!docStore.fieldsChanged" @click="discardFields">Descartar alterações</button>
     </div>
     <small style="display:block;color:#aab8d4;margin:-4px 0 12px">Dê duplo clique em um campo para preenchê-lo. Arraste campos para mover; as linhas-guia ajudam no alinhamento. Use as alças azuis para redimensionar.</small>
-    <div class="editor" :class="{ show: fieldEditor.addingField || fieldEditor.editingFieldIndex !== null }">
+    <div class="editor" :class="{ show: fieldEditor.addingField }">
       <input v-model="fieldEditor.form.label" maxlength="160" placeholder="Nome do campo" aria-label="Nome do campo">
       <select v-model="fieldEditor.form.type" aria-label="Tipo do campo" @change="onTypeChange">
         <option value="text">Texto</option><option value="date">Data</option>
@@ -108,7 +102,6 @@ function fieldSummary(field: { type: FieldType; page: number; source?: string; a
       </div>
       <span class="mask-hint">0 = número, A = letra, * = letra ou número. Os demais caracteres são fixos.</span>
       <small>{{ fieldEditor.hint }}</small>
-      <button v-if="fieldEditor.editingFieldIndex !== null" type="button" @click="applyField">Aplicar edição</button>
       <button type="button" @click="cancelEdit">Cancelar</button>
     </div>
     <div id="fields">

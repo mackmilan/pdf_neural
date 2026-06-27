@@ -69,11 +69,14 @@ export interface HistoryResponse {
   total: number
 }
 
+export type FormatNorm = 'abnt' | 'apa'
+
 export interface DocumentResult {
   job_id?: string
   document_id?: string
   version?: number
   category_id?: string | null
+  format_norm?: FormatNorm | null
   metadata?: { filename?: string }
   filename?: string
   fields: Field[]

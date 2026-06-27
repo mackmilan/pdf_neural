@@ -5,6 +5,7 @@ import LoginScreen from './components/LoginScreen.vue'
 import AppShell from './components/AppShell.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import TextInputModal from './components/TextInputModal.vue'
+import FieldEditModal from './components/FieldEditModal.vue'
 
 const auth = useAuthStore()
 
@@ -18,4 +19,5 @@ onMounted(() => {
   <AppShell v-else />
   <ConfirmModal />
   <TextInputModal />
+  <FieldEditModal />
 </template>

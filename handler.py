@@ -18,7 +18,7 @@ from services import convert_pdf_bytes
 from utils import download_pdf, json_safe, multipart_data, validate_public_url
 from validators import (
     validate_category_query, validate_context_id, validate_fields_payload,
-    validate_html_payload, validate_resource_name, validate_search_context,
+    validate_format_norm, validate_html_payload, validate_resource_name, validate_search_context,
 )
 
 class Handler(BaseHTTPRequestHandler):
@@ -419,6 +419,49 @@ class Handler(BaseHTTPRequestHandler):
                 if not db.update_document_category(parts[2], category_id, tenant_id, group_id):
                     return self.send_json(404, {"error": "Documento nao encontrado"})
                 return self.send_json(200, {"document_id": parts[2], "category_id": category_id})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+        if (
+            len(parts) == 4 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "format-norm"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query, identity)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                format_norm = validate_format_norm(request.get("format_norm") if isinstance(request, dict) else None)
+                updated = db.apply_format_norm(
+                    parts[2], format_norm, tenant_id, group_id,
+                    identity.username or identity.subject,
+                )
+                if not updated:
+                    return self.send_json(404, {"error": "Documento nao encontrado"})
+                db.save_job(updated["job_id"], {
+                    "job_id": updated["job_id"],
+                    "status": "completed",
+                    "result": {
+                        "fields": updated["fields"],
+                        "tables": updated["tables"],
+                        "neural_tables": updated["neural_tables"],
+                        "preview": f"/jobs/{updated['job_id']}/html/index.html",
+                        "document_id": updated["document_id"],
+                        "version": updated["version"],
+                    },
+                    "format_norm": updated["format_norm"],
+                    "tenant_id": updated["tenant_id"],
+                    "group_id": updated["group_id"],
+                    "category_id": updated["category_id"],
+                })
+                return self.send_json(200, json_safe({
+                    **updated,
+                    "preview": f"/jobs/{updated['job_id']}/html/index.html",
+                }))
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 return self.send_json(400, {"error": str(exc)})
         if (

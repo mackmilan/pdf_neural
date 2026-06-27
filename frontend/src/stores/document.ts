@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { useAuthStore } from './auth'
 import { useContextStore } from './context'
-import type { DocumentResult, DocumentVersion, Field, NeuralTable } from '../types'
+import type { DocumentResult, DocumentVersion, Field, FormatNorm, NeuralTable } from '../types'
 
 const FIELD_TEXT_FONT_SIZE = 12
 const FIELD_TEXT_LINE_HEIGHT = 1.2
@@ -55,6 +55,7 @@ export const useDocumentStore = defineStore('document', {
     currentDocumentId: null as string | null,
     currentDocumentName: '' as string,
     currentCategoryId: null as string | null,
+    currentFormatNorm: null as FormatNorm | null,
     currentVersion: null as number | null,
     currentFields: [] as Field[],
     savedFields: [] as Field[],
@@ -90,6 +91,12 @@ export const useDocumentStore = defineStore('document', {
           : data.category_id !== undefined
             ? ((data.category_id as string | null) || null)
             : this.currentCategoryId
+      this.currentFormatNorm =
+        result.format_norm !== undefined
+          ? (result.format_norm as FormatNorm | null) || null
+          : data.format_norm !== undefined
+            ? ((data.format_norm as FormatNorm | null) || null)
+            : this.currentFormatNorm
       this.currentFields = (result.fields || []).map(normalizeFieldBox)
       this.savedFields = this.currentFields.map((field) => ({ ...field }))
       this.formValues = {}
@@ -151,6 +158,7 @@ export const useDocumentStore = defineStore('document', {
       this.currentDocumentId = null
       this.currentDocumentName = ''
       this.currentCategoryId = null
+      this.currentFormatNorm = null
       this.currentFields = []
       this.savedFields = []
       this.previewUrl = ''
@@ -208,6 +216,32 @@ export const useDocumentStore = defineStore('document', {
         await context.loadHistory()
       } catch (error) {
         this.status = 'Erro ao atualizar categoria: ' + (error as Error).message
+      }
+    },
+    async applyFormatNorm(formatNorm: FormatNorm | null) {
+      const auth = useAuthStore()
+      const context = useContextStore()
+      if (!this.currentDocumentId) {
+        this.status = 'Carregue um documento antes de aplicar uma formatação.'
+        return
+      }
+      this.status = formatNorm ? `Aplicando formatação ${formatNorm.toUpperCase()}...` : 'Removendo formatação...'
+      try {
+        const response = await auth.apiFetch(
+          `/api/documents/${encodeURIComponent(this.currentDocumentId)}/format-norm?${context.searchParams}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ format_norm: formatNorm || null }),
+          },
+        )
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error)
+        this.displayResult(data)
+        await context.loadHistory()
+        this.status = formatNorm ? `Formatação ${formatNorm.toUpperCase()} aplicada na versão ${data.version}.` : 'Formatação removida.'
+      } catch (error) {
+        this.status = 'Erro ao aplicar formatação: ' + (error as Error).message
       }
     },
     async loadVersions(selectedVersion?: number) {
