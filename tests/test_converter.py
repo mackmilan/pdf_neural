@@ -80,7 +80,9 @@ class ConverterTest(unittest.TestCase):
             self.assertIn('data-page-width="400" data-page-height="300"', document)
             self.assertIn('data-page-width="300" data-page-height="500"', document)
             self.assertIn("shell.getBoundingClientRect().width", document)
-            self.assertIn("Math.min(1,renderedWidth/width)", document)
+            self.assertIn("page.style.setProperty('--page-scale',String(renderedWidth/width))", document)
+            self.assertNotIn("max-width:400px", document)
+            self.assertNotIn("Math.min(1,renderedWidth/width)", document)
 
     def test_detects_table_layout_and_blank_value_cells(self):
         with tempfile.TemporaryDirectory() as temp:

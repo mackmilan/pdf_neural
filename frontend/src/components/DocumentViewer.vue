@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useDocumentStore } from '../stores/document'
 import PdfPreview from './PdfPreview.vue'
@@ -12,12 +12,19 @@ const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
 const success = ref('')
+const preview = ref<{ scrollToField: (fieldName: string, optionValue?: string) => void } | null>(null)
 
 const documentName = computed(() => documentStore.currentDocumentName || 'Documento convertido')
 
 function inputType(field: Field): string {
   if (field.mask || field.type === 'select' || field.type === 'textarea') return 'text'
   return field.type
+}
+
+function scrollToField(field: Field, optionValue?: string) {
+  void nextTick(() => {
+    preview.value?.scrollToField(field.name, optionValue)
+  })
 }
 
 async function loadDocument() {
@@ -81,15 +88,20 @@ onMounted(loadDocument)
 
     <form v-else class="viewer-layout" @submit.prevent="submitResult">
       <section class="viewer-document card">
-        <PdfPreview />
+        <PdfPreview ref="preview" fit-content-width readonly-geometry />
       </section>
       <aside class="viewer-fields card">
         <h2>Preenchimento</h2>
         <p class="status">Preencha os campos e salve o resultado.</p>
         <div v-if="!documentStore.currentFields.length" class="viewer-message">Este documento não possui campos.</div>
-        <div v-for="field in documentStore.currentFields" :key="field.name" class="viewer-control">
+        <div v-for="field in documentStore.currentFields" :key="field.name" class="viewer-control" @focusin="scrollToField(field)">
           <label v-if="field.type === 'checkbox'" class="viewer-checkbox">
-            <input v-model="documentStore.formValues[field.name]" type="checkbox" :required="field.required" />
+            <input
+              v-model="documentStore.formValues[field.name]"
+              type="checkbox"
+              :required="field.required"
+              @change="scrollToField(field)"
+            />
             {{ field.label }}<span v-if="field.required"> *</span>
           </label>
           <div
@@ -108,6 +120,7 @@ onMounted(loadDocument)
                 :name="field.name"
                 :value="option"
                 :required="field.required"
+                @change="scrollToField(field, option)"
               />
               <span>{{ option }}</span>
             </label>
@@ -118,6 +131,7 @@ onMounted(loadDocument)
               v-if="field.type === 'textarea'"
               v-model="documentStore.formValues[field.name]"
               :required="field.required"
+              @input="scrollToField(field)"
             ></textarea>
             <input
               v-else
@@ -126,6 +140,7 @@ onMounted(loadDocument)
               :required="field.required"
               :min="field.min"
               :max="field.max"
+              @input="scrollToField(field)"
             />
           </label>
         </div>

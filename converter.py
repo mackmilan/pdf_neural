@@ -675,7 +675,7 @@ def convert(
                 f'<div class="pdf-page-shell" id="page-{page_no}" data-page="{page_no}" '
                 f'data-page-width="{n(page_width)}" data-page-height="{n(page_height)}" '
                 f'style="--page-width:{n(page_width)};--page-height:{n(page_height)};'
-                f'--page-width-px:{n(page_width)}px;--page-height-px:{n(page_height)}px;max-width:{n(page_width)}px">'
+                f'--page-width-px:{n(page_width)}px;--page-height-px:{n(page_height)}px">'
                 f'<section class="pdf-page" data-page="{page_no}" style="width:{n(page_width)}px;height:{n(page_height)}px">'
                 f'{"".join(elements)}</section></div>'
             )
@@ -764,7 +764,7 @@ const resizePages=()=>document.querySelectorAll('.pdf-page-shell').forEach(shell
   // which can make landscape pages slightly larger than their shell and clip
   // the right/bottom edges. DOMRect preserves the subpixel width.
   const renderedWidth=shell.getBoundingClientRect().width;
-  page.style.setProperty('--page-scale',String(Math.min(1,renderedWidth/width)));
+  page.style.setProperty('--page-scale',String(renderedWidth/width));
 }});
 new ResizeObserver(resizePages).observe(document.querySelector('.document'));
 resizePages();

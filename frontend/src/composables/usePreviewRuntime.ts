@@ -11,6 +11,10 @@ import {
 } from './fieldGeometry'
 import type { Field } from '../types'
 
+interface RenderPreviewFieldsOptions {
+  readonlyGeometry?: boolean
+}
+
 function optionalNumber(value: unknown): number | null {
   return value === '' || value === null || value === undefined ? null : Number(value)
 }
@@ -221,8 +225,9 @@ export function usePreviewRuntime() {
     })
   }
 
-  function renderPreviewFields(doc: Document | null) {
+  function renderPreviewFields(doc: Document | null, options: RenderPreviewFieldsOptions = {}) {
     if (!doc) return
+    const readonlyGeometry = Boolean(options.readonlyGeometry)
     closeInlineFieldValue(doc)
     clearAlignmentGuides(doc)
     doc.querySelectorAll('.pdf-field').forEach((element) => element.remove())
@@ -240,12 +245,19 @@ export function usePreviewRuntime() {
         element.dataset.name = field.name
         element.dataset.type = field.type
         element.dataset.manual = field.source === 'manual' ? 'true' : 'false'
-        if (field.type === 'radio') element.dataset.optionIndex = String(optionIndex)
+        if (field.type === 'radio') {
+          element.dataset.optionIndex = String(optionIndex)
+          if (box.value) element.dataset.optionValue = box.value
+        }
         element.title = field.type === 'radio' ? `${field.label}: ${box.value}` : field.label
         const fieldHeight = field.type === 'radio' ? 18 : normalizedFieldHeight(field)
         if (field.type !== 'radio') field.height = fieldHeight
         Object.assign(element.style, {
-          left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${fieldHeight}px`, cursor: 'move',
+          left: `${box.x}px`,
+          top: `${box.y}px`,
+          width: `${box.width}px`,
+          height: `${fieldHeight}px`,
+          cursor: readonlyGeometry ? 'text' : 'move',
         })
         const display = doc.createElement('span')
         display.className = 'pdf-field-display'
@@ -268,21 +280,23 @@ export function usePreviewRuntime() {
           display.style.textAlignLast = 'justify'
         }
         element.appendChild(display)
-        const handles: HTMLElement[] = []
-        ;(['w', 'e'] as const).forEach((direction) => {
-          const handle = doc.createElement('span')
-          handle.dataset.resize = direction
-          Object.assign(handle.style, {
-            position: 'absolute', width: '9px', height: '9px', border: '1px solid white', borderRadius: '2px',
-            background: '#1677ff', zIndex: '100', opacity: '0', top: '50%', bottom: 'auto',
-            left: direction === 'w' ? '-5px' : 'auto', right: direction === 'e' ? '-5px' : 'auto',
-            transform: 'translateY(-50%)', cursor: 'ew-resize', pointerEvents: 'auto',
-          } as Partial<CSSStyleDeclaration>)
-          handles.push(handle)
-          element.appendChild(handle)
-        })
-        element.addEventListener('mouseenter', () => handles.forEach((handle) => (handle.style.opacity = '1')))
-        element.addEventListener('mouseleave', () => handles.forEach((handle) => (handle.style.opacity = '0')))
+        if (!readonlyGeometry) {
+          const handles: HTMLElement[] = []
+          ;(['w', 'e'] as const).forEach((direction) => {
+            const handle = doc.createElement('span')
+            handle.dataset.resize = direction
+            Object.assign(handle.style, {
+              position: 'absolute', width: '9px', height: '9px', border: '1px solid white', borderRadius: '2px',
+              background: '#1677ff', zIndex: '100', opacity: '0', top: '50%', bottom: 'auto',
+              left: direction === 'w' ? '-5px' : 'auto', right: direction === 'e' ? '-5px' : 'auto',
+              transform: 'translateY(-50%)', cursor: 'ew-resize', pointerEvents: 'auto',
+            } as Partial<CSSStyleDeclaration>)
+            handles.push(handle)
+            element.appendChild(handle)
+          })
+          element.addEventListener('mouseenter', () => handles.forEach((handle) => (handle.style.opacity = '1')))
+          element.addEventListener('mouseleave', () => handles.forEach((handle) => (handle.style.opacity = '0')))
+        }
         element.addEventListener('dblclick', (event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -291,6 +305,7 @@ export function usePreviewRuntime() {
         page.appendChild(element)
       })
     })
+    if (readonlyGeometry) return
     ;(fieldEditor.pendingRadioBoxes || []).forEach((box) => {
       const page = doc.querySelector<HTMLElement>(`.pdf-page[data-page="${box.page}"]`)
       if (!page) return

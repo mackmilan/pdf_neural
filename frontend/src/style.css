@@ -130,16 +130,16 @@ button:disabled { opacity: .5 }
 .login-form label { display: grid; gap: 6px; color: #aab8d4 }
 .login-form input { width: 100%; border: 1px solid #4c668f; border-radius: 10px; background: #0c1425; color: #edf3ff; padding: 13px 15px; font: inherit }
 .login-form button { width: 100%; margin-top: 4px }
-.viewer-page { overflow: auto }
+.viewer-page { overflow: hidden }
 .viewer-header { display: flex; align-items: center; justify-content: space-between; gap: 24px }
 .viewer-header h1 { font-size: clamp(28px, 4vw, 46px); overflow-wrap: anywhere }
 .viewer-kicker { color: #86b3ff; font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase }
 .viewer-session { display: flex; align-items: center; gap: 12px; color: #aab8d4 }
-.viewer-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 24px; min-height: 0 }
+.viewer-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 24px; flex: 1; min-height: 0; overflow: hidden }
 .viewer-document, .viewer-fields { margin-top: 20px }
-.viewer-document { min-width: 0; padding: 16px }
-.viewer-document .preview { height: calc(100vh - 180px); min-height: 600px }
-.viewer-fields { align-self: start }
+.viewer-document { display: flex; min-width: 0; min-height: 0; padding: 16px }
+.viewer-document .preview { flex: 1; height: auto; min-height: 0 }
+.viewer-fields { min-height: 0; overflow-y: auto; align-self: stretch }
 .viewer-fields h2 { margin-top: 0 }
 .viewer-control { margin: 14px 0 }
 .viewer-control label { display: grid; gap: 6px; color: #aab8d4 }
@@ -181,8 +181,9 @@ button:disabled { opacity: .5 }
     .page-layout { grid-template-columns: 1fr; display: block; overflow-y: auto }
     .left-column, .result { height: auto; overflow: visible }
     .result { margin-top: 24px }
-    .viewer-layout { grid-template-columns: 1fr }
+    .viewer-layout { grid-template-columns: 1fr; overflow-y: auto }
     .viewer-document .preview { height: 70vh; min-height: 480px }
+    .viewer-fields { overflow: visible }
 }
 
 @media(max-width: 760px) {
