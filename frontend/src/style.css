@@ -120,6 +120,9 @@ button:disabled { opacity: .5 }
 .format-controls label { display: grid; gap: 5px; color: #aab8d4; font-size: 13px }
 .format-controls select { width: 100%; border: 1px solid #4c668f; border-radius: 8px; background: #0c1425; color: #edf3ff; padding: 9px 10px; font: inherit }
 .format-controls button { padding: 10px 13px }
+.submission-controls { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-bottom: 18px; padding: 12px; border: 1px solid #344768; border-radius: 12px; background: #101a2d }
+.submission-controls label { display: flex; align-items: center; gap: 8px; color: #c9d6ef; font-size: 13px }
+.submission-controls input { width: 16px; height: 16px; margin: 0 }
 .context-grid { display: grid; grid-template-columns: 1fr; gap: 14px }
 .context-field { display: grid; gap: 6px; color: #aab8d4; font-size: 14px }
 .context-field select, .context-create input { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 10px }

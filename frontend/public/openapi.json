@@ -183,6 +183,14 @@
         "responses": {"200": {"description": "Regra atualizada"}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}}
       }
     },
+    "/api/documents/{document_id}/document-page-submission": {
+      "put": {
+        "tags": ["Historico"], "summary": "Ativa ou desativa preenchimento pela pagina de documento", "operationId": "updateDocumentPageSubmission",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["allow_document_page_submission"], "properties": {"allow_document_page_submission": {"type": "boolean"}}}}}},
+        "responses": {"200": {"description": "Regra atualizada"}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}}
+      }
+    },
     "/api/documents/{document_id}/html": {
       "put": {
         "tags": ["Historico"],
@@ -328,7 +336,8 @@
                   ,"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
                   "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
                   ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
-                  "single_submission_per_user": {"type": "boolean", "default": false}
+                  "single_submission_per_user": {"type": "boolean", "default": false},
+                  "allow_document_page_submission": {"type": "boolean", "default": false}
                 }
               }
             }
@@ -596,6 +605,7 @@
           "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
           "metadata": {"type": "object"},
           "single_submission_per_user": {"type": "boolean", "default": false},
+          "allow_document_page_submission": {"type": "boolean", "default": false},
           "created_at": {"type": "string", "format": "date-time"}
         }
       },
@@ -617,6 +627,7 @@
           "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
           "metadata": {"type": "object"},
           "single_submission_per_user": {"type": "boolean", "default": false},
+          "allow_document_page_submission": {"type": "boolean", "default": false},
           "created_at": {"type": "string", "format": "date-time"}
         }
       },
@@ -652,7 +663,8 @@
           ,"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
           "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
           ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
-          "single_submission_per_user": {"type": "boolean", "default": false}
+          "single_submission_per_user": {"type": "boolean", "default": false},
+          "allow_document_page_submission": {"type": "boolean", "default": false}
         }
       },
       "Field": {
@@ -742,7 +754,8 @@
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
           "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
           "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
-          "single_submission_per_user": {"type": "boolean", "default": false}
+          "single_submission_per_user": {"type": "boolean", "default": false},
+          "allow_document_page_submission": {"type": "boolean", "default": false}
         }
       },
       "JobAccepted": {

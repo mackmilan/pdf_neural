@@ -54,12 +54,14 @@ def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResu
         return result
 
 
-def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str, str]:
+def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str, str, str]:
     marker = "boundary="
     if marker not in content_type:
         raise ValueError("Requisicao multipart invalida")
     boundary = content_type.split(marker, 1)[1].strip().strip('"').encode()
-    pdf_name, pdf_data, url, tenant_id, group_id, category_id, single_submission_per_user = "", b"", "", "", "", "", ""
+    pdf_name, pdf_data, url = "", b"", ""
+    tenant_id, group_id, category_id = "", "", ""
+    single_submission_per_user, allow_document_page_submission = "", ""
     for part in body.split(b"--" + boundary):
         head, sep, data = part.partition(b"\r\n\r\n")
         if not sep:
@@ -79,7 +81,12 @@ def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str
             category_id = data.decode("utf-8", "replace").strip()
         elif b'name="single_submission_per_user"' in head:
             single_submission_per_user = data.decode("utf-8", "replace").strip()
-    return pdf_name, pdf_data, url, tenant_id, group_id, category_id, single_submission_per_user
+        elif b'name="allow_document_page_submission"' in head:
+            allow_document_page_submission = data.decode("utf-8", "replace").strip()
+    return (
+        pdf_name, pdf_data, url, tenant_id, group_id, category_id,
+        single_submission_per_user, allow_document_page_submission,
+    )
 def _resolve_public_url(raw_url: str) -> tuple[str, str, int]:
     """Valida a URL, resolve o DNS uma unica vez e retorna (url, ip_seguro, porta).
 

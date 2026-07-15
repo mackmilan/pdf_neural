@@ -73,6 +73,7 @@ class AsyncApiTest(unittest.TestCase):
         self.assertTrue({("get", "/api/tenants/{tenant_id}/groups/{group_id}/categories"),
                          ("post", "/api/tenants/{tenant_id}/groups/{group_id}/categories"),
                          ("put", "/api/documents/{document_id}/category"),
+                         ("put", "/api/documents/{document_id}/document-page-submission"),
                          ("put", "/api/documents/{document_id}/name")} <= operations)
         self.assertIn("extractionFinished", spec["paths"]["/api/jobs"]["post"]["callbacks"])
         self.assertEqual(spec["security"], [{"bearerAuth": []}, {"apiKeyAuth": []}])
@@ -362,8 +363,8 @@ class AsyncApiTest(unittest.TestCase):
         class FakeDocuments:
             def find(self, *_args, **_kwargs):
                 return FakeCursor([
-                    {"document_id": "a" * 64, "single_submission_per_user": True},
-                    {"document_id": "b" * 64, "single_submission_per_user": False},
+                    {"document_id": "a" * 64, "single_submission_per_user": True, "allow_document_page_submission": True},
+                    {"document_id": "b" * 64, "single_submission_per_user": False, "allow_document_page_submission": True},
                 ])
 
         database = Database.__new__(Database)
@@ -376,6 +377,27 @@ class AsyncApiTest(unittest.TestCase):
         items = database.list_submittable_documents_for_user("user-1")
 
         self.assertEqual([item["document_id"] for item in items], ["b" * 64])
+
+    def test_lists_only_documents_allowed_for_document_page_submission(self):
+        class FakeCursor(list):
+            def sort(self, *_args):
+                return self
+
+            def limit(self, _limit):
+                return self
+
+        class FakeDocuments:
+            def find(self, query, *_args, **_kwargs):
+                self.query = query
+                return FakeCursor([])
+
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.documents = FakeDocuments()
+
+        database.list_submittable_documents_for_user()
+
+        self.assertEqual(database.documents.query["allow_document_page_submission"], True)
 
     @patch("urllib.request.urlopen")
     def test_api_key_inherits_context_and_roles_from_keycloak(self, mock_urlopen):
@@ -697,6 +719,23 @@ class AsyncApiTest(unittest.TestCase):
 
         self.assertTrue(updated)
         self.assertTrue(database.documents.update_one.call_args.args[1]["$set"]["single_submission_per_user"])
+        database.versions.update_many.assert_called_once()
+        database.jobs.update_many.assert_called_once()
+
+    def test_updates_document_page_submission_flag_across_document_versions_and_jobs(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.documents.find_one.return_value = {"document_id": "c" * 64}
+        database.versions.find.return_value = [{"job_id": "b" * 32}]
+
+        updated = database.update_document_page_submission_allowed(
+            "c" * 64, True, "d" * 32, "e" * 32,
+        )
+
+        self.assertTrue(updated)
+        self.assertTrue(database.documents.update_one.call_args.args[1]["$set"]["allow_document_page_submission"])
         database.versions.update_many.assert_called_once()
         database.jobs.update_many.assert_called_once()
 

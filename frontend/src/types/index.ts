@@ -66,6 +66,7 @@ export interface DocumentHistoryItem {
   group_id?: string | null
   category_id?: string | null
   single_submission_per_user?: boolean
+  allow_document_page_submission?: boolean
   current_version?: number
   version?: number
   created_at: string
@@ -90,6 +91,7 @@ export interface DocumentResult {
   category_id?: string | null
   format_norm?: FormatNorm | null
   single_submission_per_user?: boolean
+  allow_document_page_submission?: boolean
   metadata?: { filename?: string }
   filename?: string
   fields: Field[]

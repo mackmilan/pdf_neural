@@ -10,6 +10,7 @@ const fileName = ref('')
 const url = ref('')
 const submitting = ref(false)
 const singleSubmissionPerUser = ref(false)
+const allowDocumentPageSubmission = ref(false)
 
 function onFileChange() {
   fileName.value = fileInput.value?.files?.[0]?.name || ''
@@ -33,6 +34,7 @@ async function submit() {
     if (fileInput.value?.files?.[0]) formData.append('pdf', fileInput.value.files[0])
     if (url.value.trim()) formData.append('url', url.value.trim())
     formData.append('single_submission_per_user', singleSubmissionPerUser.value ? 'true' : 'false')
+    formData.append('allow_document_page_submission', allowDocumentPageSubmission.value ? 'true' : 'false')
     await doc.uploadDocument(formData)
   } catch (error) {
     doc.status = (error as Error).message
@@ -55,6 +57,10 @@ async function submit() {
       <label class="checkbox-row upload-option">
         <input v-model="singleSubmissionPerUser" type="checkbox">
         Preenchimento único por usuário
+      </label>
+      <label class="checkbox-row upload-option">
+        <input v-model="allowDocumentPageSubmission" type="checkbox">
+        Permitir preenchimento pela página do documento
       </label>
       <div class="actions">
         <button type="submit" :disabled="submitting">Converter documento</button>

@@ -90,6 +90,18 @@ async function applyFormatNorm() {
   await docStore.applyFormatNorm(formatNormValue.value || null)
 }
 
+async function toggleDocumentPageSubmission(event: Event) {
+  if (!docStore.currentDocumentId) return
+  const enabled = (event.target as HTMLInputElement).checked
+  await docStore.setDocumentPageSubmissionAllowed(docStore.currentDocumentId, enabled)
+}
+
+async function toggleSingleSubmission(event: Event) {
+  if (!docStore.currentDocumentId) return
+  const enabled = (event.target as HTMLInputElement).checked
+  await docStore.setSingleSubmissionPerUser(docStore.currentDocumentId, enabled)
+}
+
 async function onVersionChange(version: number) {
   await docStore.loadVersion(version)
 }
@@ -187,6 +199,26 @@ function openDocumentRender() {
         </select>
       </label>
       <button type="button" :disabled="!docStore.isEditableDocument" @click="applyFormatNorm">Aplicar formatação</button>
+    </div>
+    <div class="submission-controls">
+      <label>
+        <input
+          type="checkbox"
+          :checked="docStore.currentAllowDocumentPageSubmission"
+          :disabled="!docStore.isEditableDocument"
+          @change="toggleDocumentPageSubmission"
+        >
+        Permitir preenchimento pela página do documento
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          :checked="docStore.currentSingleSubmissionPerUser"
+          :disabled="!docStore.isEditableDocument"
+          @change="toggleSingleSubmission"
+        >
+        Preenchimento único por usuário
+      </label>
     </div>
     <div class="version-controls" :class="{ show: docStore.availableVersions.length > 0 }">
       <label>Versão

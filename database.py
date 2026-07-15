@@ -381,6 +381,7 @@ class Database:
         group_id: str | None = None,
         category_id: str | None = None,
         single_submission_per_user: bool = False,
+        allow_document_page_submission: bool = False,
     ):
         """Cria uma versão e atualiza o ponteiro do documento canônico."""
         if not self.is_available():
@@ -401,6 +402,7 @@ class Database:
                 "$set": {
                     "metadata": metadata, "tenant_id": tenant_id, "group_id": group_id,
                     "category_id": category_id, "single_submission_per_user": bool(single_submission_per_user),
+                    "allow_document_page_submission": bool(allow_document_page_submission),
                     "updated_at": now,
                 },
                 "$inc": {"current_version": 1},
@@ -427,6 +429,7 @@ class Database:
             "group_id": group_id,
             "category_id": category_id,
             "single_submission_per_user": bool(single_submission_per_user),
+            "allow_document_page_submission": bool(allow_document_page_submission),
         }
         try:
             self.versions.insert_one(version_doc)
@@ -439,12 +442,14 @@ class Database:
                     "tenant_id": tenant_id, "group_id": group_id,
                     "category_id": category_id,
                     "single_submission_per_user": bool(single_submission_per_user),
+                    "allow_document_page_submission": bool(allow_document_page_submission),
                 }},
             )
             return {
                 "document_id": document_id, "version": version_number, "job_id": job_id,
                 "is_current": True, "tenant_id": tenant_id, "group_id": group_id,
                 "category_id": category_id, "single_submission_per_user": bool(single_submission_per_user),
+                "allow_document_page_submission": bool(allow_document_page_submission),
             }
         except Exception:
             LOGGER.exception("Erro ao salvar versão do job %s no MongoDB", job_id)
@@ -589,7 +594,10 @@ class Database:
         """Lista documentos atuais com campos, respeitando os escopos do usuario."""
         if not self.is_available():
             return []
-        query: dict[str, Any] = {"fields.0": {"$exists": True}}
+        query: dict[str, Any] = {
+            "fields.0": {"$exists": True},
+            "allow_document_page_submission": True,
+        }
         if subject:
             scopes = []
             for item in self.list_user_access(subject):
@@ -710,6 +718,40 @@ class Database:
             self.jobs.update_many(
                 {"job_id": {"$in": job_ids}, "tenant_id": tenant_id},
                 {"$set": {"single_submission_per_user": value, "updated_at": now}},
+            )
+        return True
+
+    def update_document_page_submission_allowed(
+        self, document_id: str, enabled: bool,
+        tenant_id: str, group_id: str | None = None,
+    ) -> bool:
+        """Atualiza se o documento pode ser preenchido pela pagina de documento."""
+        if not self.is_available():
+            return False
+        scope: dict[str, Any] = {"tenant_id": tenant_id}
+        if group_id:
+            scope["group_id"] = group_id
+        canonical = self.documents.find_one({"document_id": document_id, **scope})
+        if not canonical:
+            return False
+        now = datetime.utcnow()
+        value = bool(enabled)
+        self.documents.update_one(
+            {"document_id": document_id, **scope},
+            {"$set": {"allow_document_page_submission": value, "updated_at": now}},
+        )
+        versions = list(self.versions.find(
+            {"document_id": document_id, **scope}, {"job_id": 1}
+        ))
+        self.versions.update_many(
+            {"document_id": document_id, **scope},
+            {"$set": {"allow_document_page_submission": value}},
+        )
+        job_ids = [item["job_id"] for item in versions if item.get("job_id")]
+        if job_ids:
+            self.jobs.update_many(
+                {"job_id": {"$in": job_ids}, "tenant_id": tenant_id},
+                {"$set": {"allow_document_page_submission": value, "updated_at": now}},
             )
         return True
 
@@ -846,6 +888,7 @@ class Database:
             "group_id": current.get("group_id"),
             "category_id": current.get("category_id"),
             "single_submission_per_user": bool(current.get("single_submission_per_user", False)),
+            "allow_document_page_submission": bool(current.get("allow_document_page_submission", False)),
             "format_norm": resolved_format_norm,
             "edited_from_version": current.get("version"),
         }
@@ -860,6 +903,7 @@ class Database:
                 "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
                 "format_norm": resolved_format_norm,
                 "single_submission_per_user": version_doc["single_submission_per_user"],
+                "allow_document_page_submission": version_doc["allow_document_page_submission"],
                 "is_current": True, "updated_at": now,
             }},
         )
@@ -870,6 +914,7 @@ class Database:
             "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
             "category_id": version_doc["category_id"], "format_norm": resolved_format_norm,
             "single_submission_per_user": version_doc["single_submission_per_user"],
+            "allow_document_page_submission": version_doc["allow_document_page_submission"],
         }
 
     def apply_format_norm(

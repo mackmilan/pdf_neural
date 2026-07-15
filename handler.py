@@ -303,6 +303,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(404, {"error": "Documento nao encontrado"})
             if not self.authorize_context(identity, document.get("tenant_id"), document.get("group_id")):
                 return
+            if not document.get("allow_document_page_submission"):
+                return self.send_json(403, {"error": "Este documento nao permite preenchimento pela pagina de documento."})
             if len(parts) == 5:
                 content = document.get("html_content")
                 if not content:
@@ -625,6 +627,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"error": str(exc)})
         if (
             len(parts) == 4 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "document-page-submission"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query, identity)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                enabled = validate_boolean(
+                    request.get("allow_document_page_submission") if isinstance(request, dict) else None,
+                    "allow_document_page_submission",
+                )
+                if not db.update_document_page_submission_allowed(parts[2], enabled, tenant_id, group_id):
+                    return self.send_json(404, {"error": "Documento nao encontrado"})
+                return self.send_json(200, {
+                    "document_id": parts[2],
+                    "allow_document_page_submission": enabled,
+                })
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+        if (
+            len(parts) == 4 and parts[:2] == ("api", "documents")
             and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "html"
         ):
             if not db or not db.is_available():
@@ -873,6 +901,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(404, {"error": "Documento nao encontrado"})
                 if not self.authorize_context(identity, document.get("tenant_id"), document.get("group_id")):
                     return
+                if not document.get("allow_document_page_submission"):
+                    return self.send_json(403, {"error": "Este documento nao permite preenchimento pela pagina de documento."})
                 if document.get("single_submission_per_user") and db.user_already_submitted_document(document, identity.subject):
                     return self.send_json(409, {"error": "Este documento permite apenas um preenchimento por usuario."})
                 length = int(self.headers.get("Content-Length", 0))
@@ -1000,6 +1030,10 @@ class Handler(BaseHTTPRequestHandler):
                     request.get("single_submission_per_user", False),
                     "single_submission_per_user",
                 )
+                allow_document_page_submission = validate_boolean(
+                    request.get("allow_document_page_submission", False),
+                    "allow_document_page_submission",
+                )
                 tenant_id = validate_context_id(request.get("tenant_id"), "tenant_id") if request.get("tenant_id") else None
                 group_id = validate_context_id(request.get("group_id"), "group_id") if request.get("group_id") else None
 
@@ -1022,11 +1056,13 @@ class Handler(BaseHTTPRequestHandler):
                     "job_id": job, "reference": reference, "status": "queued",
                     "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id,
                     "single_submission_per_user": single_submission_per_user,
+                    "allow_document_page_submission": allow_document_page_submission,
                 }
                 db.save_job(job, initial)
                 EXECUTOR.submit(
                     run_api_job, job, pdf_url, callback_url, reference, self.base_url(),
                     tenant_id, group_id, category_id, single_submission_per_user,
+                    allow_document_page_submission,
                 )
                 status_query = urllib.parse.urlencode({key: value for key, value in {"tenant_id": tenant_id, "group_id": group_id}.items() if value})
                 return self.send_json(202, {**initial, "status_url": f"{self.base_url()}/api/jobs/{job}?{status_query}"})
@@ -1046,10 +1082,14 @@ class Handler(BaseHTTPRequestHandler):
             if length > MAX_PDF_SIZE + 1024 * 1024:
                 raise ValueError("O limite e 30 MB")
             body = self.rfile.read(length)
-            name, data, url, tenant_id, group_id, category_id, raw_single_submission = multipart_data(self.headers.get("Content-Type", ""), body)
+            (
+                name, data, url, tenant_id, group_id, category_id,
+                raw_single_submission, raw_page_submission,
+            ) = multipart_data(self.headers.get("Content-Type", ""), body)
             tenant_id = validate_context_id(tenant_id, "tenant_id") if tenant_id else None
             group_id = validate_context_id(group_id, "group_id") if group_id else None
             single_submission_per_user = validate_boolean(raw_single_submission, "single_submission_per_user")
+            allow_document_page_submission = validate_boolean(raw_page_submission, "allow_document_page_submission")
 
             # Se não foi passado no form-data, tenta obter da identidade (API Key)
             if not tenant_id and identity:
@@ -1089,6 +1129,7 @@ class Handler(BaseHTTPRequestHandler):
                 group_id=group_id,
                 category_id=category_id,
                 single_submission_per_user=single_submission_per_user,
+                allow_document_page_submission=allow_document_page_submission,
             )
             identity = identity or {"document_id": content_hash, "version": 1, "job_id": job, "is_current": True}
             db.save_job(job, {
@@ -1107,6 +1148,7 @@ class Handler(BaseHTTPRequestHandler):
                 "group_id": group_id,
                 "category_id": category_id,
                 "single_submission_per_user": single_submission_per_user,
+                "allow_document_page_submission": allow_document_page_submission,
             })
             LOGGER.info("Documento e job salvos no MongoDB para job síncrono %s", job)
             
@@ -1122,6 +1164,7 @@ class Handler(BaseHTTPRequestHandler):
                 "group_id": group_id,
                 "category_id": category_id,
                 "single_submission_per_user": single_submission_per_user,
+                "allow_document_page_submission": allow_document_page_submission,
                 "metadata": {"filename": name},
             }, ensure_ascii=False).encode("utf-8")
             

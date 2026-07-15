@@ -17,12 +17,14 @@ def run_api_job(
     group_id: str | None = None,
     category_id: str | None = None,
     single_submission_per_user: bool = False,
+    allow_document_page_submission: bool = False,
 ) -> None:
     LOGGER.info("Iniciando background job: %s", job)
     common = {
         "job_id": job, "reference": reference, "tenant_id": tenant_id,
         "group_id": group_id, "category_id": category_id,
         "single_submission_per_user": bool(single_submission_per_user),
+        "allow_document_page_submission": bool(allow_document_page_submission),
     }
 
     def update_job_status(payload: dict):
@@ -57,6 +59,7 @@ def run_api_job(
             group_id=group_id,
             category_id=category_id,
             single_submission_per_user=single_submission_per_user,
+            allow_document_page_submission=allow_document_page_submission,
         )
         LOGGER.info("Documento salvo no MongoDB para job %s", job)
 

@@ -84,6 +84,7 @@ export const useDocumentStore = defineStore('document', {
     currentCategoryId: null as string | null,
     currentFormatNorm: null as FormatNorm | null,
     currentSingleSubmissionPerUser: false,
+    currentAllowDocumentPageSubmission: false,
     currentVersion: null as number | null,
     currentFields: [] as Field[],
     savedFields: [] as Field[],
@@ -131,6 +132,12 @@ export const useDocumentStore = defineStore('document', {
           : data.single_submission_per_user !== undefined
             ? Boolean(data.single_submission_per_user)
             : this.currentSingleSubmissionPerUser
+      this.currentAllowDocumentPageSubmission =
+        result.allow_document_page_submission !== undefined
+          ? Boolean(result.allow_document_page_submission)
+          : data.allow_document_page_submission !== undefined
+            ? Boolean(data.allow_document_page_submission)
+            : this.currentAllowDocumentPageSubmission
       this.currentFields = (result.fields || []).map(normalizeFieldBox)
       this.savedFields = this.currentFields.map(cloneField)
       this.formValues = {}
@@ -194,6 +201,7 @@ export const useDocumentStore = defineStore('document', {
       this.currentCategoryId = null
       this.currentFormatNorm = null
       this.currentSingleSubmissionPerUser = false
+      this.currentAllowDocumentPageSubmission = false
       this.currentFields = []
       this.savedFields = []
       this.previewUrl = ''
@@ -303,6 +311,32 @@ export const useDocumentStore = defineStore('document', {
           : 'Preenchimento único por usuário desativado.'
       } catch (error) {
         this.status = 'Erro ao atualizar regra: ' + (error as Error).message
+      }
+    },
+    async setDocumentPageSubmissionAllowed(documentId: string, enabled: boolean) {
+      const auth = useAuthStore()
+      const context = useContextStore()
+      this.status = 'Atualizando disponibilidade para preenchimento...'
+      try {
+        const response = await auth.apiFetch(
+          `/api/documents/${encodeURIComponent(documentId)}/document-page-submission?${context.searchParams}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ allow_document_page_submission: enabled }),
+          },
+        )
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error)
+        if (this.currentDocumentId === documentId) {
+          this.currentAllowDocumentPageSubmission = Boolean(data.allow_document_page_submission)
+        }
+        await context.loadHistory()
+        this.status = enabled
+          ? 'Preenchimento pela página do documento ativado.'
+          : 'Preenchimento pela página do documento desativado.'
+      } catch (error) {
+        this.status = 'Erro ao atualizar disponibilidade: ' + (error as Error).message
       }
     },
     async loadVersions(selectedVersion?: number) {

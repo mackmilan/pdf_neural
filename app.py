@@ -48,6 +48,7 @@ def run_api_job(
     group_id: str | None = None,
     category_id: str | None = None,
     single_submission_per_user: bool = False,
+    allow_document_page_submission: bool = False,
 ) -> None:
     _jobs.db = db
     _jobs.download_pdf = download_pdf
@@ -58,6 +59,7 @@ def run_api_job(
     _jobs.run_api_job(
         job, pdf_url, callback_url, reference, base_url,
         tenant_id, group_id, category_id, single_submission_per_user,
+        allow_document_page_submission,
     )
 
 

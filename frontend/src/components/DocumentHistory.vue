@@ -67,6 +67,12 @@ async function toggleSingleSubmission(item: DocumentHistoryItem, event: Event) {
   await doc.setSingleSubmissionPerUser(item.document_id, enabled)
 }
 
+async function toggleDocumentPageSubmission(item: DocumentHistoryItem, event: Event) {
+  if (!item.document_id) return
+  const enabled = (event.target as HTMLInputElement).checked
+  await doc.setDocumentPageSubmissionAllowed(item.document_id, enabled)
+}
+
 function title(item: DocumentHistoryItem): string {
   return item.metadata?.filename || item.metadata?.pdf_url || item.job_id
 }
@@ -92,6 +98,14 @@ function title(item: DocumentHistoryItem): string {
             <button type="button" class="history-action history-delete" @click.stop="remove(item)" :aria-label="`Excluir ${title(item)}`">Excluir</button>
             <button v-if="item.document_id" type="button" class="history-action history-rename" @click.stop="rename(item)" :aria-label="`Renomear ${title(item)}`">Renomear</button>
             <h4>{{ title(item) }}</h4>
+            <label v-if="item.document_id" class="history-toggle" @click.stop>
+              <input
+                type="checkbox"
+                :checked="Boolean(item.allow_document_page_submission)"
+                @change="toggleDocumentPageSubmission(item, $event)"
+              >
+              Permitir preenchimento pela página do documento
+            </label>
             <label v-if="item.document_id" class="history-toggle" @click.stop>
               <input
                 type="checkbox"
