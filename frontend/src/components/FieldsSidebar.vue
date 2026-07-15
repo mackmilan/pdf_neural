@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDocumentStore, fieldTextAlign, fieldValidationSummary } from '../stores/document'
 import { useFieldEditorStore } from '../stores/fieldEditor'
 import { useModalsStore } from '../stores/modals'
@@ -12,6 +12,17 @@ const modals = useModalsStore()
 const emit = defineEmits<{ scrollTo: [string]; openValue: [number] }>()
 
 const isNumber = computed(() => fieldEditor.form.type === 'number')
+const isRadio = computed(() => fieldEditor.form.type === 'radio')
+const draggedFieldName = ref<string | null>(null)
+const dragOverFieldName = ref<string | null>(null)
+const radioDrawingHint = computed(() => {
+  if (!isRadio.value) return fieldEditor.hint
+  const options = fieldEditor.form.options.split(/\r?\n/).map((option) => option.trim()).filter(Boolean)
+  const index = fieldEditor.pendingRadioBoxes?.length || 0
+  return options[index]
+    ? `Desenhe a área da opção “${options[index]}” (${index + 1}/${options.length}).`
+    : 'Informe as opções antes de desenhar as áreas.'
+})
 
 function addField() {
   if (!docStore.currentJobId) return
@@ -28,6 +39,57 @@ function deleteField(index: number) {
   if (field) delete docStore.formValues[field.name]
   docStore.currentFields.splice(index, 1)
   docStore.status = 'Campo excluído. Clique em Salvar alterações.'
+}
+
+function reorderField(fromIndex: number, toIndex: number) {
+  if (
+    fromIndex === toIndex
+    || fromIndex < 0
+    || toIndex < 0
+    || fromIndex >= docStore.currentFields.length
+    || toIndex >= docStore.currentFields.length
+  ) return
+
+  const editingIndex = fieldEditor.editingFieldIndex
+  const [field] = docStore.currentFields.splice(fromIndex, 1)
+  docStore.currentFields.splice(toIndex, 0, field)
+
+  if (editingIndex !== null) {
+    if (editingIndex === fromIndex) fieldEditor.editingFieldIndex = toIndex
+    else if (fromIndex < editingIndex && toIndex >= editingIndex) fieldEditor.editingFieldIndex = editingIndex - 1
+    else if (fromIndex > editingIndex && toIndex <= editingIndex) fieldEditor.editingFieldIndex = editingIndex + 1
+  }
+
+  docStore.status = 'Ordem dos campos alterada. Clique em Salvar alterações.'
+}
+
+function startFieldDrag(event: DragEvent, index: number) {
+  const field = docStore.currentFields[index]
+  if (!field) return
+  draggedFieldName.value = field.name
+  event.dataTransfer?.setData('text/plain', field.name)
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+
+function dragOverField(event: DragEvent, fieldName: string) {
+  if (!draggedFieldName.value || draggedFieldName.value === fieldName) return
+  event.preventDefault()
+  dragOverFieldName.value = fieldName
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+}
+
+function dropField(event: DragEvent, targetName: string) {
+  event.preventDefault()
+  const sourceName = draggedFieldName.value || event.dataTransfer?.getData('text/plain')
+  const fromIndex = docStore.currentFields.findIndex((field) => field.name === sourceName)
+  const toIndex = docStore.currentFields.findIndex((field) => field.name === targetName)
+  reorderField(fromIndex, toIndex)
+  endFieldDrag()
+}
+
+function endFieldDrag() {
+  draggedFieldName.value = null
+  dragOverFieldName.value = null
 }
 
 function cancelEdit() {
@@ -77,15 +139,16 @@ function fieldSummary(field: { type: FieldType; page: number; source?: string; a
       <button type="button" @click="saveFields">Salvar alterações</button>
       <button type="button" class="button-secondary" :disabled="!docStore.fieldsChanged" @click="discardFields">Descartar alterações</button>
     </div>
-    <small style="display:block;color:#aab8d4;margin:-4px 0 12px">Dê duplo clique em um campo para preenchê-lo. Arraste campos para mover; as linhas-guia ajudam no alinhamento. Use as alças azuis para redimensionar.</small>
+    <small style="display:block;color:#aab8d4;margin:-4px 0 12px">Dê duplo clique em um campo para preenchê-lo. Use o marcador ou as setas para reordenar a lista. Arraste campos na página para mover; as linhas-guia ajudam no alinhamento. Use as alças azuis para redimensionar.</small>
     <div class="editor" :class="{ show: fieldEditor.addingField }">
       <input v-model="fieldEditor.form.label" maxlength="160" placeholder="Nome do campo" aria-label="Nome do campo">
       <select v-model="fieldEditor.form.type" aria-label="Tipo do campo" @change="onTypeChange">
         <option value="text">Texto</option><option value="date">Data</option>
         <option value="time">Horário</option><option value="email">E-mail</option>
         <option value="tel">Telefone</option><option value="number">Número</option>
-        <option value="checkbox">Checkbox</option><option value="textarea">Área de texto</option>
+        <option value="checkbox">Checkbox</option><option value="radio">Grupo de opções (radio)</option><option value="textarea">Área de texto</option>
       </select>
+      <textarea v-show="isRadio" v-model="fieldEditor.form.options" rows="4" maxlength="16000" placeholder="Uma opção por linha" aria-label="Opções do campo radio" :disabled="!isRadio"></textarea>
       <input v-model="fieldEditor.form.mask" maxlength="80" placeholder="Máscara opcional, ex.: (00) 00000-0000" aria-label="Máscara do campo">
       <select v-model="fieldEditor.form.align" aria-label="Alinhamento do texto" @change="fieldEditor.onAlignChange">
         <option value="left">Alinhado à esquerda</option>
@@ -101,12 +164,32 @@ function fieldSummary(field: { type: FieldType; page: number; source?: string; a
         <input v-model="fieldEditor.form.max" type="number" step="any" placeholder="Valor máximo" aria-label="Valor máximo" :disabled="!isNumber">
       </div>
       <span class="mask-hint">0 = número, A = letra, * = letra ou número. Os demais caracteres são fixos.</span>
-      <small>{{ fieldEditor.hint }}</small>
+      <small>{{ radioDrawingHint }}</small>
       <button type="button" @click="cancelEdit">Cancelar</button>
     </div>
     <div id="fields">
       <template v-if="docStore.currentFields.length">
-        <div v-for="(field, index) in docStore.currentFields" :key="field.name" class="field-row">
+        <div
+          v-for="(field, index) in docStore.currentFields"
+          :key="field.name"
+          class="field-row"
+          :class="{ 'drag-over': dragOverFieldName === field.name, dragging: draggedFieldName === field.name }"
+          @dragover="dragOverField($event, field.name)"
+          @drop="dropField($event, field.name)"
+        >
+          <div class="field-order-controls" aria-label="Controles de ordenação">
+            <button
+              type="button"
+              class="move-field drag-handle"
+              draggable="true"
+              :aria-label="`Arrastar ${field.label} para reordenar`"
+              title="Arraste para reordenar"
+              @dragstart="startFieldDrag($event, index)"
+              @dragend="endFieldDrag"
+            >⠿</button>
+            <button type="button" class="move-field" :disabled="index === 0" :aria-label="`Mover ${field.label} para cima`" title="Mover para cima" @click="reorderField(index, index - 1)">↑</button>
+            <button type="button" class="move-field" :disabled="index === docStore.currentFields.length - 1" :aria-label="`Mover ${field.label} para baixo`" title="Mover para baixo" @click="reorderField(index, index + 1)">↓</button>
+          </div>
           <a href="#" class="field-link" @click.prevent="emit('scrollTo', field.name)" @dblclick.prevent="emit('openValue', index)">
             <strong>{{ field.label }}</strong><br>
             <code>{{ field.type }}</code> · {{ fieldSummary(field) }}

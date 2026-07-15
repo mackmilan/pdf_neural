@@ -28,7 +28,7 @@ FIELD_ALIGNS = {"left", "center", "justify", "right"}
 
 
 def normalized_field_height(field: dict) -> float:
-    return float(FIELD_CHECKBOX_HEIGHT if field.get("type") == "checkbox" else FIELD_TEXT_HEIGHT)
+    return float(FIELD_CHECKBOX_HEIGHT if field.get("type") in {"checkbox", "radio"} else FIELD_TEXT_HEIGHT)
 
 
 def normalize_field_heights(fields: list[dict]) -> list[dict]:

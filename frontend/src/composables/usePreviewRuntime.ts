@@ -90,10 +90,11 @@ export function usePreviewRuntime() {
     return control.reportValidity()
   }
 
-  function visibleFieldValue(field: Field): string {
+  function visibleFieldValue(field: Field, radioOption?: string): string {
     if (!Object.prototype.hasOwnProperty.call(docStore.formValues, field.name)) return ''
     const value = docStore.formValues[field.name]
     if (field.type === 'checkbox') return value ? '✓' : ''
+    if (field.type === 'radio') return value === radioOption ? '●' : ''
     return value === null || value === undefined ? '' : String(value)
   }
 
@@ -102,7 +103,7 @@ export function usePreviewRuntime() {
     doc.querySelectorAll<HTMLElement>('.pdf-field-display').forEach((display) => {
       const field = docStore.currentFields.find((item) => item.name === display.dataset.fieldName)
       if (!field) return
-      display.textContent = visibleFieldValue(field)
+      display.textContent = visibleFieldValue(field, display.dataset.fieldOption)
     })
   }
 
@@ -140,7 +141,7 @@ export function usePreviewRuntime() {
     return true
   }
 
-  function openFieldValue(doc: Document | null, index: number) {
+  function openFieldValue(doc: Document | null, index: number, radioOption?: string) {
     const field = docStore.currentFields[index]
     if (!field || !doc) return
     const fieldElement = Array.from(doc.querySelectorAll<HTMLElement>('.pdf-field')).find(
@@ -148,6 +149,16 @@ export function usePreviewRuntime() {
     )
     if (!fieldElement) return
     closeInlineFieldValue(doc)
+    if (field.type === 'radio') {
+      if (!radioOption || !field.options?.includes(radioOption)) {
+        docStore.status = 'Dê duplo clique na área desenhada da opção desejada.'
+        return
+      }
+      docStore.formValues[field.name] = radioOption
+      renderFormValues(doc)
+      docStore.status = 'Opção selecionada no JSON em memória.'
+      return
+    }
     let input: HTMLInputElement | HTMLTextAreaElement
     if (field.type === 'textarea') input = doc.createElement('textarea')
     else {
@@ -215,86 +226,81 @@ export function usePreviewRuntime() {
     closeInlineFieldValue(doc)
     clearAlignmentGuides(doc)
     doc.querySelectorAll('.pdf-field').forEach((element) => element.remove())
+    doc.querySelectorAll('.pdf-radio-pending').forEach((element) => element.remove())
     docStore.currentFields.forEach((field) => {
-      const page = doc.querySelector<HTMLElement>(`.pdf-page[data-page="${field.page}"]`)
-      if (!page) return
-      const element = doc.createElement('div')
-      element.id = field.name
-      element.className = 'pdf-field'
-      element.dataset.name = field.name
-      element.dataset.type = field.type
-      element.dataset.manual = field.source === 'manual' ? 'true' : 'false'
-      element.title = field.label
-      const fieldHeight = normalizedFieldHeight(field)
-      field.height = fieldHeight
-      Object.assign(element.style, {
-        left: `${field.x}px`,
-        top: `${field.y}px`,
-        width: `${field.width}px`,
-        height: `${fieldHeight}px`,
-        cursor: 'move',
-      })
-      const display = doc.createElement('span')
-      display.className = 'pdf-field-display'
-      display.dataset.fieldName = field.name
-      display.textContent = visibleFieldValue(field)
-      Object.assign(display.style, {
-        position: 'absolute',
-        inset: '0',
-        zIndex: '90',
-        display: 'flex',
-        alignItems: field.type === 'textarea' ? 'flex-start' : 'center',
-        justifyContent: field.type === 'checkbox' ? 'center' : 'flex-start',
-        padding: field.type === 'checkbox' ? '0' : '2px 4px',
-        color: '#111827',
-        font: '12px/1.2 Arial, sans-serif',
-        textAlign: fieldTextAlign(field),
-        whiteSpace: field.type === 'textarea' ? 'pre-wrap' : 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        pointerEvents: 'none',
-      } as Partial<CSSStyleDeclaration>)
-      if (field.type !== 'checkbox' && field.align === 'center') display.style.justifyContent = 'center'
-      if (field.type !== 'checkbox' && field.align === 'right') display.style.justifyContent = 'flex-end'
-      if (field.type !== 'checkbox' && field.align === 'justify') {
-        display.style.display = 'block'
-        display.style.textAlignLast = 'justify'
-      }
-      element.appendChild(display)
-      const handles: HTMLElement[] = []
-      ;(['w', 'e'] as const).forEach((direction) => {
-        const handle = doc.createElement('span')
-        handle.dataset.resize = direction
-        const left = direction === 'w' ? '-5px' : 'auto'
-        const right = direction === 'e' ? '-5px' : 'auto'
-        Object.assign(handle.style, {
-          position: 'absolute',
-          width: '9px',
-          height: '9px',
-          border: '1px solid white',
-          borderRadius: '2px',
-          background: '#1677ff',
-          zIndex: '100',
-          opacity: '0',
-          top: '50%',
-          bottom: 'auto',
-          left,
-          right,
-          transform: 'translateY(-50%)',
-          cursor: 'ew-resize',
-          pointerEvents: 'auto',
+      const renderBoxes = field.type === 'radio' && field.option_boxes?.length
+        ? field.option_boxes
+        : [{ value: undefined, page: field.page, x: field.x, y: field.y, width: field.width, height: normalizedFieldHeight(field) }]
+      renderBoxes.forEach((box, optionIndex) => {
+        const page = doc.querySelector<HTMLElement>(`.pdf-page[data-page="${box.page}"]`)
+        if (!page) return
+        const element = doc.createElement('div')
+        if (optionIndex === 0) element.id = field.name
+        element.className = 'pdf-field'
+        element.dataset.name = field.name
+        element.dataset.type = field.type
+        element.dataset.manual = field.source === 'manual' ? 'true' : 'false'
+        if (field.type === 'radio') element.dataset.optionIndex = String(optionIndex)
+        element.title = field.type === 'radio' ? `${field.label}: ${box.value}` : field.label
+        const fieldHeight = field.type === 'radio' ? 18 : normalizedFieldHeight(field)
+        if (field.type !== 'radio') field.height = fieldHeight
+        Object.assign(element.style, {
+          left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${fieldHeight}px`, cursor: 'move',
+        })
+        const display = doc.createElement('span')
+        display.className = 'pdf-field-display'
+        display.dataset.fieldName = field.name
+        if (field.type === 'radio' && box.value) display.dataset.fieldOption = box.value
+        display.textContent = visibleFieldValue(field, box.value)
+        const isMark = field.type === 'checkbox' || field.type === 'radio'
+        Object.assign(display.style, {
+          position: 'absolute', inset: '0', zIndex: '90', display: 'flex',
+          alignItems: field.type === 'textarea' ? 'flex-start' : 'center',
+          justifyContent: isMark ? 'center' : 'flex-start', padding: isMark ? '0' : '2px 4px',
+          color: '#111827', font: field.type === 'radio' ? '16px/1 Arial, sans-serif' : '12px/1.2 Arial, sans-serif',
+          textAlign: fieldTextAlign(field), whiteSpace: field.type === 'textarea' ? 'pre-wrap' : 'nowrap',
+          overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none',
         } as Partial<CSSStyleDeclaration>)
-        handles.push(handle)
-        element.appendChild(handle)
+        if (!isMark && field.align === 'center') display.style.justifyContent = 'center'
+        if (!isMark && field.align === 'right') display.style.justifyContent = 'flex-end'
+        if (!isMark && field.align === 'justify') {
+          display.style.display = 'block'
+          display.style.textAlignLast = 'justify'
+        }
+        element.appendChild(display)
+        const handles: HTMLElement[] = []
+        ;(['w', 'e'] as const).forEach((direction) => {
+          const handle = doc.createElement('span')
+          handle.dataset.resize = direction
+          Object.assign(handle.style, {
+            position: 'absolute', width: '9px', height: '9px', border: '1px solid white', borderRadius: '2px',
+            background: '#1677ff', zIndex: '100', opacity: '0', top: '50%', bottom: 'auto',
+            left: direction === 'w' ? '-5px' : 'auto', right: direction === 'e' ? '-5px' : 'auto',
+            transform: 'translateY(-50%)', cursor: 'ew-resize', pointerEvents: 'auto',
+          } as Partial<CSSStyleDeclaration>)
+          handles.push(handle)
+          element.appendChild(handle)
+        })
+        element.addEventListener('mouseenter', () => handles.forEach((handle) => (handle.style.opacity = '1')))
+        element.addEventListener('mouseleave', () => handles.forEach((handle) => (handle.style.opacity = '0')))
+        element.addEventListener('dblclick', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          openFieldValue(doc, docStore.currentFields.findIndex((item) => item.name === field.name), box.value)
+        })
+        page.appendChild(element)
       })
-      element.addEventListener('mouseenter', () => handles.forEach((handle) => (handle.style.opacity = '1')))
-      element.addEventListener('mouseleave', () => handles.forEach((handle) => (handle.style.opacity = '0')))
-      element.addEventListener('dblclick', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        openFieldValue(doc, docStore.currentFields.findIndex((item) => item.name === field.name))
+    })
+    ;(fieldEditor.pendingRadioBoxes || []).forEach((box) => {
+      const page = doc.querySelector<HTMLElement>(`.pdf-page[data-page="${box.page}"]`)
+      if (!page) return
+      const marker = doc.createElement('div')
+      marker.className = 'pdf-radio-pending'
+      Object.assign(marker.style, {
+        position: 'absolute', left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: '18px',
+        zIndex: '89', border: '2px dashed #1677ff', background: '#1677ff22', pointerEvents: 'none',
       })
-      page.appendChild(element)
+      page.appendChild(marker)
     })
   }
 
@@ -305,6 +311,7 @@ export function usePreviewRuntime() {
     let draft: HTMLElement | null = null
     let moving: {
       fieldIndex: number
+      optionIndex: number | null
       element: HTMLElement
       page: HTMLElement
       rect: DOMRect
@@ -314,6 +321,7 @@ export function usePreviewRuntime() {
     } | null = null
     let resizing: {
       fieldIndex: number
+      optionIndex: number | null
       element: HTMLElement
       direction: string
       page: HTMLElement
@@ -324,12 +332,38 @@ export function usePreviewRuntime() {
       original: Field
     } | null = null
 
+    const optionIndexFrom = (element: HTMLElement | null): number | null => {
+      const value = element?.dataset.optionIndex
+      return value === undefined ? null : Number(value)
+    }
+
+    const editableGeometry = (fieldIndex: number, optionIndex: number | null): Field => {
+      const field = docStore.currentFields[fieldIndex]
+      if (optionIndex === null || !field.option_boxes?.[optionIndex]) return { ...field }
+      return { ...field, ...field.option_boxes[optionIndex], height: 18 }
+    }
+
+    const saveGeometry = (fieldIndex: number, optionIndex: number | null, element: HTMLElement) => {
+      const field = docStore.currentFields[fieldIndex]
+      const geometry = {
+        x: parseFloat(element.style.left), y: parseFloat(element.style.top),
+        width: parseFloat(element.style.width), height: field.type === 'radio' ? 18 : normalizedFieldHeight(field),
+      }
+      if (optionIndex !== null && field.option_boxes?.[optionIndex]) Object.assign(field.option_boxes[optionIndex], geometry)
+      else Object.assign(field, geometry)
+      if (field.type === 'radio' && field.option_boxes?.length) {
+        const first = field.option_boxes[0]
+        Object.assign(field, { page: first.page, x: first.x, y: first.y, width: first.width, height: first.height })
+      }
+    }
+
     doc.addEventListener('pointerdown', (event) => {
       if (closestFromEvent(event, '.pdf-field-value')) return
       const resizeHandle = closestFromEvent(event, '[data-resize]') as HTMLElement | null
       if (!fieldEditor.addingField && resizeHandle) {
         const fieldElement = resizeHandle.closest('.pdf-field') as HTMLElement | null
         const fieldIndex = docStore.currentFields.findIndex((field) => field.name === fieldElement?.dataset.name)
+        const optionIndex = optionIndexFrom(fieldElement)
         const page = fieldElement?.closest('.pdf-page') as HTMLElement | null
         if (fieldIndex < 0 || !page) return
         event.preventDefault()
@@ -340,6 +374,7 @@ export function usePreviewRuntime() {
         const scale = pageWidth / rect.width
         resizing = {
           fieldIndex,
+          optionIndex,
           element: fieldElement as HTMLElement,
           direction: resizeHandle.dataset.resize!,
           page,
@@ -347,7 +382,7 @@ export function usePreviewRuntime() {
           scale,
           pageWidth,
           pointerX: ((event as PointerEvent).clientX - rect.left) * scale,
-          original: { ...docStore.currentFields[fieldIndex] },
+          original: editableGeometry(fieldIndex, optionIndex),
         }
         fieldElement!.style.outline = '2px solid #1677ff'
         return
@@ -355,6 +390,7 @@ export function usePreviewRuntime() {
       const fieldElement = closestFromEvent(event, '.pdf-field') as HTMLElement | null
       if (!fieldEditor.addingField && fieldElement) {
         const fieldIndex = docStore.currentFields.findIndex((field) => field.name === fieldElement.dataset.name)
+        const optionIndex = optionIndexFrom(fieldElement)
         const page = fieldElement.closest('.pdf-page') as HTMLElement | null
         if (fieldIndex < 0 || !page) return
         event.preventDefault()
@@ -364,12 +400,13 @@ export function usePreviewRuntime() {
         const scale = pageWidth / rect.width
         moving = {
           fieldIndex,
+          optionIndex,
           element: fieldElement,
           page,
           rect,
           scale,
-          offsetX: ((event as PointerEvent).clientX - rect.left) * scale - docStore.currentFields[fieldIndex].x,
-          offsetY: ((event as PointerEvent).clientY - rect.top) * scale - docStore.currentFields[fieldIndex].y,
+          offsetX: ((event as PointerEvent).clientX - rect.left) * scale - editableGeometry(fieldIndex, optionIndex).x,
+          offsetY: ((event as PointerEvent).clientY - rect.top) * scale - editableGeometry(fieldIndex, optionIndex).y,
         }
         fieldElement.style.outline = '2px solid #1677ff'
         return
@@ -422,7 +459,7 @@ export function usePreviewRuntime() {
         return
       }
       if (moving) {
-        const field = docStore.currentFields[moving.fieldIndex]
+        const field = editableGeometry(moving.fieldIndex, moving.optionIndex)
         const pageHeight =
           Number((moving.page.closest('.pdf-page-shell') as HTMLElement)?.dataset.pageHeight) || moving.rect.height * moving.scale
         const rawX = Math.max(
@@ -455,11 +492,7 @@ export function usePreviewRuntime() {
     doc.addEventListener('pointerup', (event) => {
       const pointerEvent = event as PointerEvent
       if (resizing) {
-        const field = docStore.currentFields[resizing.fieldIndex]
-        field.x = parseFloat(resizing.element.style.left)
-        field.y = parseFloat(resizing.element.style.top)
-        field.width = parseFloat(resizing.element.style.width)
-        field.height = normalizedFieldHeight(field)
+        saveGeometry(resizing.fieldIndex, resizing.optionIndex, resizing.element)
         resizing.element.style.outline = ''
         resizing = null
         clearAlignmentGuides(doc)
@@ -467,9 +500,7 @@ export function usePreviewRuntime() {
         return
       }
       if (moving) {
-        const field = docStore.currentFields[moving.fieldIndex]
-        field.x = parseFloat(moving.element.style.left)
-        field.y = parseFloat(moving.element.style.top)
+        saveGeometry(moving.fieldIndex, moving.optionIndex, moving.element)
         moving.element.style.outline = ''
         moving = null
         clearAlignmentGuides(doc)
@@ -488,7 +519,15 @@ export function usePreviewRuntime() {
           draft.remove()
           draft = null
           start = null
-          docStore.status = 'O valor mínimo deve ser menor ou igual ao valor máximo.'
+          if (fieldType === 'radio' && (fieldEditor.pendingRadioBoxes?.length || 0)) {
+            docStore.status = fieldEditor.hint
+            renderPreviewFields(doc)
+            clearAlignmentGuides(doc)
+            return
+          }
+          docStore.status = fieldType === 'radio'
+            ? 'Informe de 2 a 100 opções diferentes para o campo radio.'
+            : 'O valor mínimo deve ser menor ou igual ao valor máximo.'
           clearAlignmentGuides(doc)
           return
         }

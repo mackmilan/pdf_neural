@@ -127,6 +127,20 @@ class AsyncApiTest(unittest.TestCase):
         self.assertEqual(numeric_fields[0]["min"], 0)
         self.assertEqual(numeric_fields[0]["max"], 10)
 
+        radio_fields = app.validate_fields_payload([{
+            "name": "turno", "label": "Turno", "type": "radio",
+            "page": 1, "x": 10, "y": 20, "width": 80, "height": 20,
+            "source": "manual", "required": True,
+            "options": ["Manha", "Tarde", "Noite"],
+            "option_boxes": [
+                {"value": "Manha", "page": 1, "x": 10, "y": 20, "width": 18, "height": 18},
+                {"value": "Tarde", "page": 1, "x": 40, "y": 20, "width": 18, "height": 18},
+                {"value": "Noite", "page": 1, "x": 70, "y": 20, "width": 18, "height": 18},
+            ],
+        }])
+        self.assertEqual(radio_fields[0]["options"], ["Manha", "Tarde", "Noite"])
+        self.assertEqual([box["value"] for box in radio_fields[0]["option_boxes"]], ["Manha", "Tarde", "Noite"])
+
         with self.assertRaises(ValueError):
             app.validate_fields_payload([
                 {**fields[0], "name": "duplicado"},
@@ -141,6 +155,20 @@ class AsyncApiTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             app.validate_fields_payload([{**fields[0], "type": "text", "min": 1}])
+
+        with self.assertRaisesRegex(ValueError, "entre 2 e 100"):
+            app.validate_fields_payload([{**fields[0], "type": "radio", "options": ["Unica"], "option_boxes": []}])
+
+        with self.assertRaisesRegex(ValueError, "duplicadas"):
+            app.validate_fields_payload([{**fields[0], "type": "radio", "options": ["Sim", "Sim"], "option_boxes": []}])
+
+        with self.assertRaisesRegex(ValueError, "invalidas"):
+            app.validate_fields_payload([{**fields[0], "type": "radio", "options": ["Sim", {"label": "Nao"}], "option_boxes": []}])
+
+        with self.assertRaisesRegex(ValueError, "Cada opcao radio"):
+            app.validate_fields_payload([{
+                **fields[0], "type": "radio", "options": ["Sim", "Nao"], "option_boxes": [],
+            }])
 
     def test_validates_edited_html_payload(self):
         html_content = app.validate_html_payload(
@@ -162,18 +190,21 @@ class AsyncApiTest(unittest.TestCase):
             {"name": "nome", "type": "text", "required": True},
             {"name": "nota", "type": "number", "min": 0, "max": 10},
             {"name": "aceite", "type": "checkbox", "required": True},
+            {"name": "turno", "type": "radio", "required": True, "options": ["Manha", "Tarde"]},
         ]
         values = app.validate_submission_values(
-            {"nome": "  Ana  ", "nota": "8.5", "aceite": True}, fields,
+            {"nome": "  Ana  ", "nota": "8.5", "aceite": True, "turno": "Tarde"}, fields,
         )
-        self.assertEqual(values, {"nome": "Ana", "nota": 8.5, "aceite": True})
+        self.assertEqual(values, {"nome": "Ana", "nota": 8.5, "aceite": True, "turno": "Tarde"})
 
         with self.assertRaisesRegex(ValueError, "obrigatorio"):
-            app.validate_submission_values({"nome": "", "aceite": True}, fields)
+            app.validate_submission_values({"nome": "", "aceite": True, "turno": "Manha"}, fields)
         with self.assertRaisesRegex(ValueError, "menor ou igual"):
-            app.validate_submission_values({"nome": "Ana", "nota": 11, "aceite": True}, fields)
+            app.validate_submission_values({"nome": "Ana", "nota": 11, "aceite": True, "turno": "Manha"}, fields)
         with self.assertRaisesRegex(ValueError, "desconhecidos"):
-            app.validate_submission_values({"nome": "Ana", "aceite": True, "extra": "x"}, fields)
+            app.validate_submission_values({"nome": "Ana", "aceite": True, "turno": "Manha", "extra": "x"}, fields)
+        with self.assertRaisesRegex(ValueError, "opcao valida"):
+            app.validate_submission_values({"nome": "Ana", "aceite": True, "turno": "Madrugada"}, fields)
 
     def test_saves_viewer_result_in_own_collection(self):
         database = Database.__new__(Database)

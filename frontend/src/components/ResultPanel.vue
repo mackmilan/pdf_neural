@@ -15,6 +15,9 @@ const fullscreenLabel = ref('⛶ Tela cheia')
 const documentName = ref('')
 const categoryValue = ref('')
 const formatNormValue = ref<FormatNorm | ''>('')
+const documentRenderUrl = computed(() =>
+  docStore.currentDocumentId ? `/documento/${encodeURIComponent(docStore.currentDocumentId)}` : '',
+)
 
 watch(
   () => docStore.currentDocumentName,
@@ -138,6 +141,16 @@ function scrollTo(id: string) {
 function openValue(index: number) {
   preview.value?.openFieldValue(index)
 }
+
+function openDocumentRender() {
+  if (!documentRenderUrl.value) return
+  const renderWindow = window.open(documentRenderUrl.value, '_blank')
+  if (!renderWindow) {
+    docStore.status = 'O navegador bloqueou a nova aba. Permita pop-ups para abrir a renderização.'
+    return
+  }
+  renderWindow.opener = null
+}
 </script>
 
 <template>
@@ -149,6 +162,7 @@ function openValue(index: number) {
       </button>
       <button type="button" class="text-save-button" :disabled="!docStore.currentDocumentId || !docStore.textEditDirty" @click="saveText">Salvar textos</button>
       <button type="button" class="text-discard-button" :disabled="!docStore.textEditDirty" @click="discardText">Descartar textos</button>
+      <button type="button" class="render-page-button" :disabled="!documentRenderUrl" aria-label="Abrir renderização do documento em nova aba" @click="openDocumentRender">Abrir renderização</button>
       <button type="button" class="fullscreen-button" :disabled="!docStore.previewUrl" @click="toggleFullscreen">{{ fullscreenLabel }}</button>
     </div>
     <div class="document-controls">

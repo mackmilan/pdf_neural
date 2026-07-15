@@ -9,7 +9,7 @@ em `fields.json` para permitir o preenchimento posterior do PDF.
 
 - le campos AcroForm nativos;
 - infere campos visuais a partir de linhas, caixas e rotulos;
-- infere tipos (`text`, `date`, `email`, `tel`, `number`, `checkbox` e `textarea`);
+- infere e permite editar tipos (`text`, `date`, `email`, `tel`, `number`, `checkbox`, `radio` e `textarea`);
 - extrai imagens e logotipos para a pasta `assets/`;
 - detecta grades de tabelas, celulas mescladas e celulas vazias destinadas a valores;
 - gera `index.html` sem campos de formulario e `fields.json` com nome, tipo, pagina,

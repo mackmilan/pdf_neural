@@ -92,6 +92,19 @@ onMounted(loadDocument)
             <input v-model="documentStore.formValues[field.name]" type="checkbox" :required="field.required" />
             {{ field.label }}<span v-if="field.required"> *</span>
           </label>
+          <fieldset v-else-if="field.type === 'radio'" class="viewer-radio-group">
+            <legend>{{ field.label }}<span v-if="field.required"> *</span></legend>
+            <label v-for="option in field.options || []" :key="option" class="viewer-radio-option">
+              <input
+                v-model="documentStore.formValues[field.name]"
+                type="radio"
+                :name="field.name"
+                :value="option"
+                :required="field.required"
+              />
+              {{ option }}
+            </label>
+          </fieldset>
           <label v-else>
             {{ field.label }}<span v-if="field.required"> *</span>
             <textarea

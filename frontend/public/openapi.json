@@ -579,7 +579,7 @@
         "properties": {
           "name": {"type": "string", "example": "cpf"},
           "label": {"type": "string", "example": "CPF"},
-          "type": {"type": "string", "enum": ["text", "date", "time", "email", "tel", "number", "password", "checkbox", "select", "textarea"]},
+          "type": {"type": "string", "enum": ["text", "date", "time", "email", "tel", "number", "password", "checkbox", "radio", "select", "textarea"]},
           "page": {"type": "integer", "minimum": 1},
           "x": {"type": "number"},
           "y": {"type": "number"},
@@ -589,7 +589,18 @@
           "source": {"type": "string", "enum": ["inferred", "acroform", "table", "neural_field", "manual"]},
           "required": {"type": "boolean"},
           "min": {"type": "number", "description": "Valor minimo permitido para campos do tipo number."},
-          "max": {"type": "number", "description": "Valor maximo permitido para campos do tipo number."}
+          "max": {"type": "number", "description": "Valor maximo permitido para campos do tipo number."},
+          "options": {"type": "array", "minItems": 2, "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 160}, "description": "Opcoes disponiveis para campos do tipo radio."},
+          "option_boxes": {"type": "array", "description": "Area desenhada para cada opcao de um campo radio.", "items": {"$ref": "#/components/schemas/RadioOptionBox"}}
+        }
+      },
+      "RadioOptionBox": {
+        "type": "object",
+        "required": ["value", "page", "x", "y", "width", "height"],
+        "properties": {
+          "value": {"type": "string"}, "page": {"type": "integer", "minimum": 1},
+          "x": {"type": "number"}, "y": {"type": "number"},
+          "width": {"type": "number", "exclusiveMinimum": 0}, "height": {"type": "number", "exclusiveMinimum": 0}
         }
       },
       "Table": {

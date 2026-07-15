@@ -9,6 +9,7 @@ const labelRef = ref<HTMLInputElement | null>(null)
 
 const show = computed(() => fieldEditor.editingFieldIndex !== null)
 const isNumber = computed(() => fieldEditor.form.type === 'number')
+const isRadio = computed(() => fieldEditor.form.type === 'radio')
 
 watch(show, (visible) => {
   if (visible) nextTick(() => labelRef.value?.focus())
@@ -48,8 +49,12 @@ function apply() {
             <option value="text">Texto</option><option value="date">Data</option>
             <option value="time">Horário</option><option value="email">E-mail</option>
             <option value="tel">Telefone</option><option value="number">Número</option>
-            <option value="checkbox">Checkbox</option><option value="textarea">Área de texto</option>
+            <option value="checkbox">Checkbox</option><option value="radio">Grupo de opções (radio)</option><option value="textarea">Área de texto</option>
           </select>
+        </label>
+        <label v-show="isRadio">
+          <span>Opções (uma por linha)</span>
+          <textarea v-model="fieldEditor.form.options" rows="5" maxlength="16000" aria-label="Opções do campo radio" :disabled="!isRadio"></textarea>
         </label>
         <label>
           <span>Máscara (opcional)</span>

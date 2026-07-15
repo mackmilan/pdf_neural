@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { useAuthStore } from './auth'
 import { useContextStore } from './context'
-import type { DocumentResult, DocumentVersion, Field, FormatNorm, NeuralTable } from '../types'
+import type { DocumentResult, DocumentVersion, Field, FormatNorm, NeuralTable, RadioOptionBox } from '../types'
 
 const FIELD_TEXT_FONT_SIZE = 12
 const FIELD_TEXT_LINE_HEIGHT = 1.2
@@ -11,11 +11,19 @@ export const FIELD_TEXT_HEIGHT = Math.ceil(
 )
 
 export function normalizedFieldHeight(field: Pick<Field, 'type'>): number {
-  return field.type === 'checkbox' ? 18 : FIELD_TEXT_HEIGHT
+  return field.type === 'checkbox' || field.type === 'radio' ? 18 : FIELD_TEXT_HEIGHT
 }
 
 export function optionalNumber(value: unknown): number | null {
   return value === '' || value === null || value === undefined ? null : Number(value)
+}
+
+function cloneField(field: Field): Field {
+  return {
+    ...field,
+    options: field.options ? [...field.options] : undefined,
+    option_boxes: field.option_boxes?.map((box) => ({ ...box })),
+  }
 }
 
 export function normalizeFieldBox(field: Field): Field {
@@ -31,6 +39,24 @@ export function normalizeFieldBox(field: Field): Field {
   else delete normalized.min
   if (normalized.type === 'number' && Number.isFinite(max)) normalized.max = max as number
   else delete normalized.max
+  if (normalized.type === 'radio') {
+    normalized.options = Array.from(
+      new Set((Array.isArray(field.options) ? field.options : []).map((option) => String(option).trim()).filter(Boolean)),
+    )
+    const existing = Array.isArray(field.option_boxes) ? field.option_boxes : []
+    normalized.option_boxes = normalized.options.map((value, index): RadioOptionBox => {
+      const box = existing.find((item) => item?.value === value) || existing[index]
+      return {
+        value,
+        page: Number(box?.page) || normalized.page,
+        x: Number.isFinite(Number(box?.x)) ? Number(box!.x) : normalized.x + index * 22,
+        y: Number.isFinite(Number(box?.y)) ? Number(box!.y) : normalized.y,
+        width: Number.isFinite(Number(box?.width)) && Number(box!.width) > 0 ? Number(box!.width) : 18,
+        height: 18,
+      }
+    })
+  } else delete normalized.options
+  if (normalized.type !== 'radio') delete normalized.option_boxes
   return normalized
 }
 
@@ -43,6 +69,7 @@ export function fieldValidationSummary(field: Field): string {
     field.required ? 'obrigatório' : '',
     field.type === 'number' && Number.isFinite(optionalNumber(field.min)) ? `mín. ${field.min}` : '',
     field.type === 'number' && Number.isFinite(optionalNumber(field.max)) ? `máx. ${field.max}` : '',
+    field.type === 'radio' ? `${field.options?.length || 0} opções` : '',
   ]
     .filter(Boolean)
     .join(' · ')
@@ -98,7 +125,7 @@ export const useDocumentStore = defineStore('document', {
             ? ((data.format_norm as FormatNorm | null) || null)
             : this.currentFormatNorm
       this.currentFields = (result.fields || []).map(normalizeFieldBox)
-      this.savedFields = this.currentFields.map((field) => ({ ...field }))
+      this.savedFields = this.currentFields.map(cloneField)
       this.formValues = {}
       this.neuralTables = result.neural_tables || []
       this.previewUrl = previewUrl
@@ -381,14 +408,14 @@ export const useDocumentStore = defineStore('document', {
         const data = await response.json()
         if (!response.ok) throw new Error(data.error)
         this.currentFields = data.fields.map(normalizeFieldBox)
-        this.savedFields = this.currentFields.map((field) => ({ ...field }))
+        this.savedFields = this.currentFields.map(cloneField)
         this.status = `${this.currentFields.length} campo(s) salvo(s)`
       } catch (error) {
         this.status = 'Erro ao salvar: ' + (error as Error).message
       }
     },
     discardFields() {
-      this.currentFields = this.savedFields.map((field) => ({ ...field }))
+      this.currentFields = this.savedFields.map(cloneField)
       this.status = 'Alterações descartadas.'
     },
     async uploadDocument(formData: FormData) {

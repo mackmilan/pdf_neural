@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { useDocumentStore } from './document'
 import { normalizedFieldHeight, optionalNumber } from './document'
-import type { Field, FieldAlign, FieldType } from '../types'
+import type { Field, FieldAlign, FieldType, RadioOptionBox } from '../types'
 
 export interface FieldFormState {
   label: string
@@ -11,6 +11,7 @@ export interface FieldFormState {
   required: boolean
   min: string
   max: string
+  options: string
 }
 
 const DIACRITICS_PATTERN = new RegExp(
@@ -19,7 +20,15 @@ const DIACRITICS_PATTERN = new RegExp(
 )
 
 function emptyForm(): FieldFormState {
-  return { label: '', type: 'text', mask: '', align: 'left', required: false, min: '', max: '' }
+  return { label: '', type: 'text', mask: '', align: 'left', required: false, min: '', max: '', options: '' }
+}
+
+function parsedOptions(value: string): string[] {
+  return value.split(/\r?\n/).map((option) => option.trim()).filter(Boolean)
+}
+
+function validRadioOptions(options: string[]): boolean {
+  return options.length >= 2 && options.length <= 100 && options.every((option) => option.length <= 160) && new Set(options).size === options.length
 }
 
 function slug(value: string): string {
@@ -39,6 +48,7 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
     addingField: false,
     editingFieldIndex: null as number | null,
     form: emptyForm(),
+    pendingRadioBoxes: [] as RadioOptionBox[],
     hint: 'Arraste sobre a página para marcar a área do novo campo.',
   }),
   actions: {
@@ -55,6 +65,7 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       this.addingField = true
       this.editingFieldIndex = null
       this.form = emptyForm()
+      this.pendingRadioBoxes = []
       this.hint = 'Arraste sobre a página para marcar a área do novo campo.'
     },
     startEdit(index: number) {
@@ -63,6 +74,7 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       if (!field) return
       this.addingField = false
       this.editingFieldIndex = index
+      this.pendingRadioBoxes = []
       this.form = {
         label: field.label,
         type: field.type,
@@ -71,12 +83,14 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
         required: Boolean(field.required),
         min: field.type === 'number' && field.min !== undefined ? String(field.min) : '',
         max: field.type === 'number' && field.max !== undefined ? String(field.max) : '',
+        options: field.type === 'radio' ? (field.options || []).join('\n') : '',
       }
       this.hint = 'Altere o nome ou o tipo e aplique a edição.'
     },
     stop() {
       this.addingField = false
       this.editingFieldIndex = null
+      this.pendingRadioBoxes = []
       this.hint = 'Arraste sobre a página para marcar a área do novo campo.'
     },
     onAlignChange() {
@@ -94,8 +108,13 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       }
       const minValue = optionalNumber(this.form.min)
       const maxValue = optionalNumber(this.form.max)
+      const options = parsedOptions(this.form.options)
       if (this.form.type === 'number' && Number.isFinite(minValue) && Number.isFinite(maxValue) && (minValue as number) > (maxValue as number)) {
         docStore.status = 'O valor mínimo deve ser menor ou igual ao valor máximo.'
+        return false
+      }
+      if (this.form.type === 'radio' && !validRadioOptions(options)) {
+        docStore.status = 'Informe de 2 a 100 opções diferentes (até 160 caracteres cada) para o campo radio.'
         return false
       }
       const field = docStore.currentFields[this.editingFieldIndex]
@@ -115,19 +134,37 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
         delete field.min
         delete field.max
       }
+      if (this.form.type === 'radio') {
+        const previousBoxes = Array.isArray(field.option_boxes) ? field.option_boxes : []
+        field.options = options
+        field.option_boxes = options.map((value, index) => ({
+          ...(previousBoxes.find((box) => box.value === value) || previousBoxes[index] || {
+            page: field.page, x: field.x + index * 22, y: field.y, width: 18, height: 18,
+          }),
+          value,
+        }))
+      } else {
+        delete field.options
+        delete field.option_boxes
+      }
       field.height = normalizedFieldHeight(field)
       if (previousName !== field.name && Object.prototype.hasOwnProperty.call(docStore.formValues, previousName)) {
         docStore.formValues[field.name] = docStore.formValues[previousName]
         delete docStore.formValues[previousName]
+      }
+      if (field.type === 'radio' && !field.options?.includes(docStore.formValues[field.name])) {
+        delete docStore.formValues[field.name]
       }
       return true
     },
     buildDraftField(label: string, page: number, box: { x: number; y: number; width: number; height: number }): Field | null {
       const minValue = optionalNumber(this.form.min)
       const maxValue = optionalNumber(this.form.max)
+      const options = parsedOptions(this.form.options)
       if (this.form.type === 'number' && Number.isFinite(minValue) && Number.isFinite(maxValue) && (minValue as number) > (maxValue as number)) {
         return null
       }
+      if (this.form.type === 'radio' && !validRadioOptions(options)) return null
       const field: Field = {
         name: this.uniqueName(label),
         label,
@@ -142,6 +179,18 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       if (this.form.type === 'number') {
         if (Number.isFinite(minValue)) field.min = minValue as number
         if (Number.isFinite(maxValue)) field.max = maxValue as number
+      }
+      if (this.form.type === 'radio') {
+        const optionIndex = this.pendingRadioBoxes.length
+        this.pendingRadioBoxes.push({ value: options[optionIndex], page, ...box, height: 18 })
+        if (this.pendingRadioBoxes.length < options.length) {
+          this.hint = `Desenhe a área da opção “${options[this.pendingRadioBoxes.length]}” (${this.pendingRadioBoxes.length + 1}/${options.length}).`
+          return null
+        }
+        field.options = options
+        field.option_boxes = this.pendingRadioBoxes.map((item) => ({ ...item }))
+        const first = field.option_boxes[0]
+        Object.assign(field, { page: first.page, x: first.x, y: first.y, width: first.width, height: first.height })
       }
       return field
     },

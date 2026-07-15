@@ -51,7 +51,7 @@ def validate_format_norm(value: object) -> str | None:
     return norm
 
 
-FIELD_TYPES = {"text", "date", "time", "email", "tel", "number", "password", "checkbox", "select", "textarea"}
+FIELD_TYPES = {"text", "date", "time", "email", "tel", "number", "password", "checkbox", "radio", "select", "textarea"}
 FIELD_ALIGNS = {"left", "center", "justify", "right"}
 
 
@@ -83,12 +83,23 @@ def validate_fields_payload(value: object) -> list[dict]:
         align = str(raw.get("align", "left"))
         min_value = optional_number(raw.get("min"), "Valor minimo", index)
         max_value = optional_number(raw.get("max"), "Valor maximo", index)
+        raw_options = raw.get("options", [])
         if not name or not re.fullmatch(r"[a-zA-Z0-9_\-]+", name) or name in used_names:
             raise ValueError(f"Nome invalido ou duplicado no campo {index}")
         if not label or kind not in FIELD_TYPES or align not in FIELD_ALIGNS:
             raise ValueError(f"Rotulo ou tipo invalido no campo {index}")
         if kind != "number" and (min_value is not None or max_value is not None):
             raise ValueError(f"Valor minimo ou maximo permitido apenas para campo numerico no campo {index}")
+        if kind == "radio":
+            if not isinstance(raw_options, list) or not 2 <= len(raw_options) <= 100:
+                raise ValueError(f"Campo radio deve possuir entre 2 e 100 opcoes no campo {index}")
+            if any(not isinstance(option, str) for option in raw_options):
+                raise ValueError(f"Opcoes invalidas ou duplicadas no campo {index}")
+            options = [option.strip() for option in raw_options]
+            if any(not option or len(option) > 160 for option in options) or len(set(options)) != len(options):
+                raise ValueError(f"Opcoes invalidas ou duplicadas no campo {index}")
+        elif raw_options not in (None, []):
+            raise ValueError(f"Opcoes permitidas apenas para campo radio no campo {index}")
         if min_value is not None and max_value is not None and min_value > max_value:
             raise ValueError(f"Valor minimo deve ser menor ou igual ao maximo no campo {index}")
         try:
@@ -101,6 +112,34 @@ def validate_fields_payload(value: object) -> list[dict]:
             raise ValueError(f"Coordenadas invalidas no campo {index}")
         if x < 0 or y < 0 or width <= 0 or height <= 0 or width > 10000 or height > 10000:
             raise ValueError(f"Dimensoes invalidas no campo {index}")
+        option_boxes = []
+        if kind == "radio":
+            raw_boxes = raw.get("option_boxes")
+            if not isinstance(raw_boxes, list) or len(raw_boxes) != len(options):
+                raise ValueError(f"Cada opcao radio deve possuir uma area no campo {index}")
+            seen_box_values = set()
+            for raw_box in raw_boxes:
+                if not isinstance(raw_box, dict):
+                    raise ValueError(f"Area de opcao radio invalida no campo {index}")
+                value = raw_box.get("value")
+                if not isinstance(value, str) or value not in options or value in seen_box_values:
+                    raise ValueError(f"Area de opcao radio invalida no campo {index}")
+                try:
+                    box_page = int(raw_box.get("page"))
+                    box_x, box_y = float(raw_box.get("x")), float(raw_box.get("y"))
+                    box_width, box_height = float(raw_box.get("width")), float(raw_box.get("height"))
+                except (TypeError, ValueError):
+                    raise ValueError(f"Area de opcao radio invalida no campo {index}") from None
+                dimensions = (box_x, box_y, box_width, box_height)
+                if (box_page < 1 or not all(math.isfinite(item) for item in dimensions)
+                        or box_x < 0 or box_y < 0 or box_width <= 0 or box_height <= 0
+                        or box_width > 10000 or box_height > 10000):
+                    raise ValueError(f"Area de opcao radio invalida no campo {index}")
+                seen_box_values.add(value)
+                option_boxes.append({
+                    "value": value, "page": box_page, "x": box_x, "y": box_y,
+                    "width": box_width, "height": box_height,
+                })
         used_names.add(name)
         fields.append({
             "name": name, "label": label, "type": kind, "page": page,
@@ -116,6 +155,9 @@ def validate_fields_payload(value: object) -> list[dict]:
                 fields[-1]["min"] = min_value
             if max_value is not None:
                 fields[-1]["max"] = max_value
+        elif kind == "radio":
+            fields[-1]["options"] = options
+            fields[-1]["option_boxes"] = option_boxes
     return fields
 
 
@@ -156,6 +198,13 @@ def validate_submission_values(value: object, fields: list[dict]) -> dict:
             if raw is not None and not isinstance(raw, bool):
                 raise ValueError(f"O campo {name} deve ser booleano")
             result = bool(raw)
+            if field.get("required") and not result:
+                raise ValueError(f"O campo {name} e obrigatorio")
+        elif kind == "radio":
+            result = "" if raw is None else str(raw).strip()
+            options = field.get("options", [])
+            if result and result not in options:
+                raise ValueError(f"O campo {name} deve conter uma opcao valida")
             if field.get("required") and not result:
                 raise ValueError(f"O campo {name} e obrigatorio")
         elif kind == "number":

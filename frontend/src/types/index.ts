@@ -1,7 +1,16 @@
 export type FieldType =
-  | 'text' | 'date' | 'time' | 'email' | 'tel' | 'number' | 'checkbox' | 'textarea' | 'select'
+  | 'text' | 'date' | 'time' | 'email' | 'tel' | 'number' | 'checkbox' | 'radio' | 'textarea' | 'select'
 
 export type FieldAlign = 'left' | 'center' | 'justify' | 'right'
+
+export interface RadioOptionBox {
+  value: string
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 export interface Field {
   name: string
@@ -17,6 +26,8 @@ export interface Field {
   required?: boolean
   min?: number
   max?: number
+  options?: string[]
+  option_boxes?: RadioOptionBox[]
   source?: string
   [key: string]: unknown
 }

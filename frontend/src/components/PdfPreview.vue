@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { useDocumentStore } from '../stores/document'
+import { useFieldEditorStore } from '../stores/fieldEditor'
 import { usePreviewRuntime } from '../composables/usePreviewRuntime'
 import { useTextEditing } from '../composables/useTextEditing'
 
 const docStore = useDocumentStore()
+const fieldEditor = useFieldEditorStore()
 const runtime = usePreviewRuntime()
 const textEditing = useTextEditing()
 const iframe = ref<HTMLIFrameElement | null>(null)
@@ -55,6 +57,11 @@ watch(
     runtime.renderFormValues(contentDocument())
   },
   { deep: true },
+)
+
+watch(
+  () => [fieldEditor.addingField, fieldEditor.pendingRadioBoxes?.length || 0],
+  () => runtime.renderPreviewFields(contentDocument()),
 )
 
 function toggleTextEdit() {
