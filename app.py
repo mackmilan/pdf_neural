@@ -20,7 +20,7 @@ from utils import (
 from validators import (
     FIELD_ALIGNS, FIELD_TYPES, optional_number, validate_category_query,
     validate_context_id, validate_fields_payload, validate_html_payload,
-    validate_resource_name, validate_search_context,
+    validate_resource_name, validate_search_context, validate_submission_values,
 )
 
 __all__ = [
@@ -34,7 +34,7 @@ __all__ = [
     "render_neural_tables", "run_api_job", "run_neural_detection",
     "validate_category_query", "validate_context_id", "validate_fields_payload",
     "validate_html_payload", "validate_public_url", "validate_resource_name",
-    "validate_search_context", "write_json",
+    "validate_search_context", "validate_submission_values", "write_json",
 ]
 
 

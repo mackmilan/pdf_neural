@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { useDocumentStore } from '../stores/document'
 import { usePreviewRuntime } from '../composables/usePreviewRuntime'
 import { useTextEditing } from '../composables/useTextEditing'
@@ -8,6 +8,10 @@ const docStore = useDocumentStore()
 const runtime = usePreviewRuntime()
 const textEditing = useTextEditing()
 const iframe = ref<HTMLIFrameElement | null>(null)
+
+onMounted(() => {
+  if (iframe.value) iframe.value.srcdoc = docStore.previewHtml
+})
 
 function contentDocument(): Document | null {
   return iframe.value?.contentDocument || null

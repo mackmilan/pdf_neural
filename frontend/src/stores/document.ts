@@ -59,7 +59,7 @@ export const useDocumentStore = defineStore('document', {
     currentVersion: null as number | null,
     currentFields: [] as Field[],
     savedFields: [] as Field[],
-    formValues: {} as Record<string, unknown>,
+    formValues: {} as Record<string, any>,
     neuralTables: [] as NeuralTable[],
     previewUrl: '' as string,
     previewHtml: '' as string,

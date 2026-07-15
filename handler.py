@@ -19,6 +19,7 @@ from utils import download_pdf, json_safe, multipart_data, validate_public_url
 from validators import (
     validate_category_query, validate_context_id, validate_fields_payload,
     validate_format_norm, validate_html_payload, validate_resource_name, validate_search_context,
+    validate_submission_values,
 )
 
 class Handler(BaseHTTPRequestHandler):
@@ -113,6 +114,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.unquote(parsed_request.path)
         query = urllib.parse.parse_qs(parsed_request.query)
         if path == "/":
+            return self.send_file(STATIC / "index.html")
+        if re.fullmatch(r"/documento/(?:[0-9a-f]{32}|[0-9a-f]{64})/?", path):
             return self.send_file(STATIC / "index.html")
         if path in ("/docs", "/docs/"):
             return self.send_file(STATIC / "swagger.html")
@@ -244,6 +247,34 @@ class Handler(BaseHTTPRequestHandler):
                 return
             return self.send_json(200, json_safe(db.list_categories(parts[2], parts[4])))
         document_id_pattern = r"(?:[0-9a-f]{32}|[0-9a-f]{64})"
+        if (
+            len(parts) in (4, 5) and parts[:3] == ("api", "viewer", "documents")
+            and re.fullmatch(document_id_pattern, parts[3])
+            and (len(parts) == 4 or parts[4] == "html")
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            document = db.get_document(parts[3])
+            if not document:
+                return self.send_json(404, {"error": "Documento nao encontrado"})
+            if not self.authorize_context(identity, document.get("tenant_id"), document.get("group_id")):
+                return
+            if len(parts) == 5:
+                content = document.get("html_content")
+                if not content:
+                    return self.send_json(404, {"error": "Conteudo convertido nao encontrado"})
+                payload = content.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+            summary = dict(document)
+            summary.pop("_id", None)
+            summary.pop("html_content", None)
+            summary["preview"] = f"/api/viewer/documents/{parts[3]}/html"
+            return self.send_json(200, json_safe(summary))
         if len(parts) == 4 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions":
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
@@ -654,6 +685,40 @@ class Handler(BaseHTTPRequestHandler):
         if identity is None:
             return
         path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        viewer_match = re.fullmatch(
+            r"/api/viewer/documents/((?:[0-9a-f]{32}|[0-9a-f]{64}))/submissions", path
+        )
+        if viewer_match:
+            try:
+                if not db or not db.is_available():
+                    return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+                document = db.get_document(viewer_match.group(1))
+                if not document:
+                    return self.send_json(404, {"error": "Documento nao encontrado"})
+                if not self.authorize_context(identity, document.get("tenant_id"), document.get("group_id")):
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                if not isinstance(request, dict):
+                    raise ValueError("O corpo JSON deve ser um objeto")
+                values = validate_submission_values(request.get("values"), document.get("fields", []))
+                saved = db.save_document_submission(
+                    document,
+                    identity.subject,
+                    identity.claims.get("email") or identity.username,
+                    values,
+                )
+                return self.send_json(201, json_safe({
+                    "submission_id": saved["submission_id"],
+                    "created_at": saved["created_at"],
+                }))
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+            except Exception:
+                LOGGER.exception("Erro ao salvar preenchimento do documento")
+                return self.send_json(500, {"error": "Erro interno ao salvar o resultado"})
         if (
             path == "/api/tenants"
             or re.fullmatch(r"/api/tenants/[0-9a-f]{32}/groups", path)

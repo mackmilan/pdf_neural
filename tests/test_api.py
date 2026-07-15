@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -84,19 +85,15 @@ class AsyncApiTest(unittest.TestCase):
         with self.assertRaisesRegex(AuthenticationError, "Token Bearer ausente"):
             authenticator.authenticate(None)
 
-    def test_login_page_uses_oidc_pkce_and_hides_application(self):
+    def test_login_page_requires_email_and_password(self):
         page = (app.STATIC / "index.html").read_text(encoding="utf-8")
-        self.assertIn('id="login-screen"', page)
-        self.assertIn('id="app-shell" hidden', page)
-        self.assertIn('id="result-document-name"', page)
-        self.assertIn('id="result-category-select"', page)
-        self.assertIn('id="save-document-name"', page)
-        self.assertIn('id="toggle-text-edit"', page)
-        self.assertIn('id="save-html-text"', page)
-        self.assertIn("code_challenge_method:'S256'", page)
-        self.assertIn("grant_type:'authorization_code'", page)
-        self.assertIn("grant_type:'refresh_token'", page)
-        self.assertIn("Web Origins/Redirect URIs", page)
+        asset_match = re.search(r'<script type="module" crossorigin src="([^"]+\.js)"', page)
+        self.assertIsNotNone(asset_match)
+        javascript = (app.STATIC / asset_match.group(1).lstrip("/")).read_text(encoding="utf-8")
+        self.assertIn("login-screen", javascript)
+        self.assertIn('grant_type:`password`', javascript)
+        self.assertIn("username", javascript)
+        self.assertIn("current-password", javascript)
         self.assertNotIn('id="access-token"', page)
 
     def test_user_access_accepts_tenant_wide_or_exact_group(self):
@@ -159,6 +156,44 @@ class AsyncApiTest(unittest.TestCase):
             app.validate_html_payload("<p>solto</p>")
         with self.assertRaisesRegex(ValueError, "scripts nao permitidos"):
             app.validate_html_payload("<html><body><script>alert(1)</script></body></html>")
+
+    def test_validates_document_viewer_submission(self):
+        fields = [
+            {"name": "nome", "type": "text", "required": True},
+            {"name": "nota", "type": "number", "min": 0, "max": 10},
+            {"name": "aceite", "type": "checkbox", "required": True},
+        ]
+        values = app.validate_submission_values(
+            {"nome": "  Ana  ", "nota": "8.5", "aceite": True}, fields,
+        )
+        self.assertEqual(values, {"nome": "Ana", "nota": 8.5, "aceite": True})
+
+        with self.assertRaisesRegex(ValueError, "obrigatorio"):
+            app.validate_submission_values({"nome": "", "aceite": True}, fields)
+        with self.assertRaisesRegex(ValueError, "menor ou igual"):
+            app.validate_submission_values({"nome": "Ana", "nota": 11, "aceite": True}, fields)
+        with self.assertRaisesRegex(ValueError, "desconhecidos"):
+            app.validate_submission_values({"nome": "Ana", "aceite": True, "extra": "x"}, fields)
+
+    def test_saves_viewer_result_in_own_collection(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.document_submissions = MagicMock()
+        saved = database.save_document_submission(
+            {
+                "document_id": "c" * 64,
+                "job_id": "b" * 32,
+                "version": 2,
+                "tenant_id": "a" * 32,
+                "group_id": None,
+            },
+            "user-1",
+            "ana@example.com",
+            {"nome": "Ana"},
+        )
+        self.assertRegex(saved["submission_id"], r"^[0-9a-f]{32}$")
+        self.assertEqual(saved["values"], {"nome": "Ana"})
+        database.document_submissions.insert_one.assert_called_once_with(saved)
 
     @patch("urllib.request.urlopen")
     def test_api_key_inherits_context_and_roles_from_keycloak(self, mock_urlopen):

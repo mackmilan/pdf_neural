@@ -138,3 +138,50 @@ def validate_html_payload(value: object) -> str:
         if attributes.strip() or "const resizePages=()" not in normalized_script or "ResizeObserver(resizePages)" not in normalized_script:
             raise ValueError("html_content contem scripts nao permitidos")
     return html_content
+
+
+def validate_submission_values(value: object, fields: list[dict]) -> dict:
+    """Valida os valores enviados pela pagina de preenchimento do documento."""
+    if not isinstance(value, dict):
+        raise ValueError("values deve ser um objeto")
+    definitions = {field.get("name"): field for field in fields if field.get("name")}
+    unknown = set(value) - set(definitions)
+    if unknown:
+        raise ValueError(f"Campos desconhecidos: {', '.join(sorted(unknown))}")
+    normalized = {}
+    for name, field in definitions.items():
+        raw = value.get(name)
+        kind = field.get("type", "text")
+        if kind == "checkbox":
+            if raw is not None and not isinstance(raw, bool):
+                raise ValueError(f"O campo {name} deve ser booleano")
+            result = bool(raw)
+            if field.get("required") and not result:
+                raise ValueError(f"O campo {name} e obrigatorio")
+        elif kind == "number":
+            if raw in (None, ""):
+                result = None
+            else:
+                try:
+                    result = float(raw)
+                except (TypeError, ValueError):
+                    raise ValueError(f"O campo {name} deve ser numerico") from None
+                if not math.isfinite(result):
+                    raise ValueError(f"O campo {name} deve ser numerico")
+                minimum = field.get("min")
+                maximum = field.get("max")
+                if minimum is not None and result < float(minimum):
+                    raise ValueError(f"O campo {name} deve ser maior ou igual a {minimum}")
+                if maximum is not None and result > float(maximum):
+                    raise ValueError(f"O campo {name} deve ser menor ou igual a {maximum}")
+            if field.get("required") and result is None:
+                raise ValueError(f"O campo {name} e obrigatorio")
+        else:
+            result = "" if raw is None else str(raw).strip()
+            if len(result) > 10000:
+                raise ValueError(f"O campo {name} excede o limite permitido")
+            if field.get("required") and not result:
+                raise ValueError(f"O campo {name} e obrigatorio")
+        if name in value or field.get("required"):
+            normalized[name] = result
+    return normalized

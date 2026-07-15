@@ -316,6 +316,17 @@ curl -X PUT 'http://localhost:8000/api/documents/{document_id}/versions/2/deprec
 O retorno da conversão inclui `document_id`, `job_id` e `version`. Links antigos
 baseados em `job_id` continuam aceitos.
 
+### Página de preenchimento
+
+Um documento convertido pode ser aberto diretamente em
+`/documento/{document_id}` (o `job_id` também é aceito). A página exige autenticação
+por e-mail e senha no Keycloak, carrega o documento usando apenas o identificador
+presente na URL e aplica as mesmas permissões de tenant/grupo da API.
+
+Ao clicar em **Salvar resultado**, os valores preenchidos, a versão do documento e
+a identidade do usuário são gravados na collection MongoDB
+`document_submissions`. Cada envio recebe um `submission_id` próprio.
+
 ## Tenants, grupos e categorias
 
 Tenants representam qualquer organização, conta ou domínio de dados. Cada tenant

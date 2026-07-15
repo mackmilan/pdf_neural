@@ -117,6 +117,31 @@ button:disabled { opacity: .5 }
 .login-card { width: min(480px, 100%); text-align: center }
 .login-card h1 { font-size: clamp(36px, 8vw, 64px) }
 .login-card button { margin-top: 18px }
+.login-form { display: grid; gap: 14px; margin-top: 24px; text-align: left }
+.login-form label { display: grid; gap: 6px; color: #aab8d4 }
+.login-form input { width: 100%; border: 1px solid #4c668f; border-radius: 10px; background: #0c1425; color: #edf3ff; padding: 13px 15px; font: inherit }
+.login-form button { width: 100%; margin-top: 4px }
+.viewer-page { overflow: auto }
+.viewer-header { display: flex; align-items: center; justify-content: space-between; gap: 24px }
+.viewer-header h1 { font-size: clamp(28px, 4vw, 46px); overflow-wrap: anywhere }
+.viewer-kicker { color: #86b3ff; font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase }
+.viewer-session { display: flex; align-items: center; gap: 12px; color: #aab8d4 }
+.viewer-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 24px; min-height: 0 }
+.viewer-document, .viewer-fields { margin-top: 20px }
+.viewer-document { min-width: 0; padding: 16px }
+.viewer-document .preview { height: calc(100vh - 180px); min-height: 600px }
+.viewer-fields { align-self: start }
+.viewer-fields h2 { margin-top: 0 }
+.viewer-control { margin: 14px 0 }
+.viewer-control label { display: grid; gap: 6px; color: #aab8d4 }
+.viewer-control input:not([type="checkbox"]), .viewer-control textarea { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 11px; font: inherit }
+.viewer-control textarea { min-height: 100px; resize: vertical }
+.viewer-checkbox { display: flex !important; grid-template-columns: auto 1fr; align-items: center }
+.viewer-checkbox input { width: 20px; height: 20px }
+.viewer-fields > button { width: 100%; margin-top: 8px }
+.viewer-message { margin: 32px 0; color: #aab8d4 }
+.viewer-error { color: #ff8790 }
+.viewer-success { color: #78d9a0; overflow-wrap: anywhere }
 .session-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; margin-bottom: 6px; color: #aab8d4 }
 .session-bar #session-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .session-title { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.035em; text-align: center; white-space: nowrap }
@@ -142,6 +167,8 @@ button:disabled { opacity: .5 }
     .page-layout { grid-template-columns: 1fr; display: block; overflow-y: auto }
     .left-column, .result { height: auto; overflow: visible }
     .result { margin-top: 24px }
+    .viewer-layout { grid-template-columns: 1fr }
+    .viewer-document .preview { height: 70vh; min-height: 480px }
 }
 
 @media(max-width: 760px) {

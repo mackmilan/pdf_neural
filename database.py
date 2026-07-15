@@ -56,6 +56,7 @@ class Database:
         self.categories = None
         self.user_access = None
         self.api_keys = None
+        self.document_submissions = None
         
         if self.uri:
             LOGGER.info("Conectando ao MongoDB...")
@@ -76,6 +77,7 @@ class Database:
                 self.categories = self.db.get_collection("document_categories")
                 self.user_access = self.db.get_collection("user_access")
                 self.api_keys = self.db.get_collection("api_keys")
+                self.document_submissions = self.db.get_collection("document_submissions")
                 self.documents.create_index("document_id", unique=True, sparse=True)
                 self.versions.create_index([("document_id", 1), ("version", 1)], unique=True)
                 self.versions.create_index("job_id", unique=True)
@@ -97,13 +99,16 @@ class Database:
                 self.user_access.create_index([("subject", 1), ("tenant_id", 1)])
                 self.api_keys.create_index("key_hash", unique=True)
                 self.api_keys.create_index("client_id")
+                self.document_submissions.create_index("submission_id", unique=True)
+                self.document_submissions.create_index([("document_id", 1), ("created_at", -1)])
+                self.document_submissions.create_index([("subject", 1), ("created_at", -1)])
                 self.documents.create_index([("tenant_id", 1), ("group_id", 1), ("updated_at", -1)])
                 self.documents.create_index([("tenant_id", 1), ("category_id", 1), ("updated_at", -1)])
                 LOGGER.info("Conexão com MongoDB estabelecida com sucesso")
             except Exception as exc:
                 LOGGER.error("Falha ao conectar no MongoDB: %s", str(exc))
                 self.client = None
-                self.db = self.documents = self.versions = self.jobs = self.tenants = self.groups = self.categories = self.user_access = None
+                self.db = self.documents = self.versions = self.jobs = self.tenants = self.groups = self.categories = self.user_access = self.api_keys = self.document_submissions = None
         else:
             LOGGER.warning("MONGO_URI não configurada. Operações de banco de dados serão ignoradas.")
 
@@ -460,6 +465,27 @@ class Database:
         if document:
             document.pop("html_content", None)
         return document
+
+    def save_document_submission(
+        self, document: dict, subject: str, email: str | None, values: dict,
+    ) -> dict:
+        """Salva o preenchimento do visualizador em uma collection isolada."""
+        if not self.is_available() or self.document_submissions is None:
+            raise RuntimeError("Banco de dados indisponivel")
+        submission = {
+            "submission_id": uuid.uuid4().hex,
+            "document_id": document.get("document_id") or document.get("job_id"),
+            "job_id": document.get("job_id"),
+            "version": document.get("version"),
+            "tenant_id": document.get("tenant_id"),
+            "group_id": document.get("group_id"),
+            "subject": subject,
+            "email": email,
+            "values": values,
+            "created_at": datetime.utcnow(),
+        }
+        self.document_submissions.insert_one(submission)
+        return submission
 
     def get_current_document_version(self, document_id: str, tenant_id: str | None = None, group_id: str | None = None):
         """Retorna somente a versao padrao de um documento."""

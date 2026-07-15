@@ -91,6 +91,16 @@ export const useAuthStore = defineStore('auth', {
       if (!this.tokens?.refresh_token) throw new Error('Sessão expirada')
       await this.exchangeToken({ grant_type: 'refresh_token', refresh_token: this.tokens.refresh_token })
     },
+    async loginWithPassword(email: string, password: string) {
+      this.loginError = ''
+      if (!email.trim() || !password) throw new Error('Informe o e-mail e a senha.')
+      await this.exchangeToken({
+        grant_type: 'password',
+        username: email.trim(),
+        password,
+        scope: 'openid profile email',
+      })
+    },
     async beginLogin() {
       if (!this.config) throw new Error('Configuração de autenticação não carregada')
       const verifier = randomValue()
