@@ -143,14 +143,15 @@ button:disabled { opacity: .5 }
 .viewer-fields h2 { margin-top: 0 }
 .viewer-control { margin: 14px 0 }
 .viewer-control label { display: grid; gap: 6px; color: #aab8d4 }
-.viewer-control input:not([type="checkbox"]), .viewer-control textarea { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 11px; font: inherit }
+.viewer-control input:not([type="checkbox"]):not([type="radio"]), .viewer-control textarea { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 11px; font: inherit }
 .viewer-control textarea { min-height: 100px; resize: vertical }
 .viewer-checkbox { display: flex !important; grid-template-columns: auto 1fr; align-items: center }
 .viewer-checkbox input { width: 20px; height: 20px }
-.viewer-radio-group { border: 1px solid #344768; border-radius: 9px; margin: 14px 0; padding: 10px 12px 12px }
-.viewer-radio-group legend { color: #aab8d4; padding: 0 5px }
-.viewer-radio-option { display: flex !important; grid-template-columns: none !important; align-items: center; gap: 8px; margin-top: 7px }
+.viewer-radio-group { border: 1px solid #344768; border-radius: 9px; width: 100%; margin: 14px 0; padding: 12px }
+.viewer-radio-title { color: #aab8d4; overflow-wrap: anywhere; margin: 0 0 9px; font-weight: 600 }
+.viewer-radio-option { display: flex !important; grid-template-columns: none !important; align-items: flex-start; gap: 8px; width: 100%; margin-top: 7px }
 .viewer-radio-option input { width: 18px; height: 18px; flex: none; padding: 0 }
+.viewer-radio-option span { min-width: 0; overflow-wrap: anywhere; line-height: 1.25 }
 .viewer-fields > button { width: 100%; margin-top: 8px }
 .viewer-message { margin: 32px 0; color: #aab8d4 }
 .viewer-error { color: #ff8790 }
