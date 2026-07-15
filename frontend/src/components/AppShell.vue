@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { defineAsyncComponent, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import ContextSelector from './ContextSelector.vue'
 import UploadForm from './UploadForm.vue'
 import DocumentHistory from './DocumentHistory.vue'
 import ResultPanel from './ResultPanel.vue'
 import ApiKeyManager from './ApiKeyManager.vue'
-import UserAccessManager from './UserAccessManager.vue'
+
+const UserAccessManager = defineAsyncComponent(() => import('./UserAccessManager.vue'))
 
 const auth = useAuthStore()
 const apiKeyManager = ref<InstanceType<typeof ApiKeyManager> | null>(null)

@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue'
 import { useAuthStore } from './stores/auth'
-import LoginScreen from './components/LoginScreen.vue'
-import AppShell from './components/AppShell.vue'
-import DocumentViewer from './components/DocumentViewer.vue'
-import SubmissionViewer from './components/SubmissionViewer.vue'
-import AvailableDocuments from './components/AvailableDocuments.vue'
-import SubmittedDocuments from './components/SubmittedDocuments.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import TextInputModal from './components/TextInputModal.vue'
 import FieldEditModal from './components/FieldEditModal.vue'
+
+const LoginScreen = defineAsyncComponent(() => import('./components/LoginScreen.vue'))
+const AppShell = defineAsyncComponent(() => import('./components/AppShell.vue'))
+const DocumentViewer = defineAsyncComponent(() => import('./components/DocumentViewer.vue'))
+const SubmissionViewer = defineAsyncComponent(() => import('./components/SubmissionViewer.vue'))
+const AvailableDocuments = defineAsyncComponent(() => import('./components/AvailableDocuments.vue'))
+const SubmittedDocuments = defineAsyncComponent(() => import('./components/SubmittedDocuments.vue'))
 
 const auth = useAuthStore()
 const routePath = ref(location.pathname)
