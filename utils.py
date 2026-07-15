@@ -53,12 +53,12 @@ def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResu
         return result
 
 
-def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str]:
+def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str, str]:
     marker = "boundary="
     if marker not in content_type:
         raise ValueError("Requisicao multipart invalida")
     boundary = content_type.split(marker, 1)[1].strip().strip('"').encode()
-    pdf_name, pdf_data, url, tenant_id, group_id, category_id = "", b"", "", "", "", ""
+    pdf_name, pdf_data, url, tenant_id, group_id, category_id, single_submission_per_user = "", b"", "", "", "", "", ""
     for part in body.split(b"--" + boundary):
         head, sep, data = part.partition(b"\r\n\r\n")
         if not sep:
@@ -76,7 +76,9 @@ def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str
             group_id = data.decode("utf-8", "replace").strip()
         elif b'name="category_id"' in head:
             category_id = data.decode("utf-8", "replace").strip()
-    return pdf_name, pdf_data, url, tenant_id, group_id, category_id
+        elif b'name="single_submission_per_user"' in head:
+            single_submission_per_user = data.decode("utf-8", "replace").strip()
+    return pdf_name, pdf_data, url, tenant_id, group_id, category_id, single_submission_per_user
 def validate_public_url(raw_url: str) -> str:
     parsed = urllib.parse.urlsplit(raw_url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:

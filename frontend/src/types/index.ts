@@ -65,6 +65,7 @@ export interface DocumentHistoryItem {
   job_id: string
   group_id?: string | null
   category_id?: string | null
+  single_submission_per_user?: boolean
   current_version?: number
   version?: number
   created_at: string
@@ -88,6 +89,7 @@ export interface DocumentResult {
   version?: number
   category_id?: string | null
   format_norm?: FormatNorm | null
+  single_submission_per_user?: boolean
   metadata?: { filename?: string }
   filename?: string
   fields: Field[]
@@ -114,4 +116,24 @@ export interface ApiKeyInfo {
   client_id: string
   name: string
   created_at: string
+}
+
+export type UserPermission = 'reader' | 'editor'
+
+export interface UserAccessEntry {
+  subject: string
+  username?: string | null
+  tenant_id: string
+  tenant_name?: string | null
+  group_id?: string | null
+  group_name?: string | null
+  permission: UserPermission
+  created_at?: string
+  updated_at?: string
+}
+
+export interface UserAccessSummary {
+  subject: string
+  username?: string | null
+  access: UserAccessEntry[]
 }

@@ -20,7 +20,7 @@ from utils import (
 from validators import (
     FIELD_ALIGNS, FIELD_TYPES, optional_number, validate_category_query,
     validate_context_id, validate_fields_payload, validate_html_payload,
-    validate_resource_name, validate_search_context, validate_submission_values,
+    validate_resource_name, validate_search_context, validate_submission_values, validate_boolean,
 )
 
 __all__ = [
@@ -34,7 +34,7 @@ __all__ = [
     "render_neural_tables", "run_api_job", "run_neural_detection",
     "validate_category_query", "validate_context_id", "validate_fields_payload",
     "validate_html_payload", "validate_public_url", "validate_resource_name",
-    "validate_search_context", "validate_submission_values", "write_json",
+    "validate_search_context", "validate_submission_values", "validate_boolean", "write_json",
 ]
 
 
@@ -47,6 +47,7 @@ def run_api_job(
     tenant_id: str | None = None,
     group_id: str | None = None,
     category_id: str | None = None,
+    single_submission_per_user: bool = False,
 ) -> None:
     _jobs.db = db
     _jobs.download_pdf = download_pdf
@@ -54,7 +55,10 @@ def run_api_job(
     _jobs.deliver_callback = deliver_callback
     _jobs.get_detectors = get_detectors
     _jobs.NEURAL_REQUIRED = NEURAL_REQUIRED
-    _jobs.run_api_job(job, pdf_url, callback_url, reference, base_url, tenant_id, group_id, category_id)
+    _jobs.run_api_job(
+        job, pdf_url, callback_url, reference, base_url,
+        tenant_id, group_id, category_id, single_submission_per_user,
+    )
 
 
 def main() -> None:

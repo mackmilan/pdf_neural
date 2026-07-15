@@ -13,6 +13,7 @@ import type { Field } from '../types'
 
 interface RenderPreviewFieldsOptions {
   readonlyGeometry?: boolean
+  readonlyValues?: boolean
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -98,7 +99,7 @@ export function usePreviewRuntime() {
     if (!Object.prototype.hasOwnProperty.call(docStore.formValues, field.name)) return ''
     const value = docStore.formValues[field.name]
     if (field.type === 'checkbox') return value ? '✓' : ''
-    if (field.type === 'radio') return value === radioOption ? '●' : ''
+    if (field.type === 'radio') return value === radioOption ? 'X' : ''
     return value === null || value === undefined ? '' : String(value)
   }
 
@@ -228,6 +229,7 @@ export function usePreviewRuntime() {
   function renderPreviewFields(doc: Document | null, options: RenderPreviewFieldsOptions = {}) {
     if (!doc) return
     const readonlyGeometry = Boolean(options.readonlyGeometry)
+    const readonlyValues = Boolean(options.readonlyValues)
     closeInlineFieldValue(doc)
     clearAlignmentGuides(doc)
     doc.querySelectorAll('.pdf-field').forEach((element) => element.remove())
@@ -259,6 +261,17 @@ export function usePreviewRuntime() {
           height: `${fieldHeight}px`,
           cursor: readonlyGeometry ? 'text' : 'move',
         })
+        if (readonlyValues) {
+          Object.assign(element.style, {
+            border: '0',
+            background: 'transparent',
+            boxShadow: 'none',
+            outline: '0',
+            cursor: 'default',
+            pointerEvents: 'none',
+          } as Partial<CSSStyleDeclaration>)
+          element.removeAttribute('title')
+        }
         const display = doc.createElement('span')
         display.className = 'pdf-field-display'
         display.dataset.fieldName = field.name
@@ -297,11 +310,13 @@ export function usePreviewRuntime() {
           element.addEventListener('mouseenter', () => handles.forEach((handle) => (handle.style.opacity = '1')))
           element.addEventListener('mouseleave', () => handles.forEach((handle) => (handle.style.opacity = '0')))
         }
-        element.addEventListener('dblclick', (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          openFieldValue(doc, docStore.currentFields.findIndex((item) => item.name === field.name), box.value)
-        })
+        if (!readonlyValues) {
+          element.addEventListener('dblclick', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            openFieldValue(doc, docStore.currentFields.findIndex((item) => item.name === field.name), box.value)
+          })
+        }
         page.appendChild(element)
       })
     })

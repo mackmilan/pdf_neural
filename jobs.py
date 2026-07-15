@@ -7,9 +7,23 @@ from database import db
 from services import convert_pdf_bytes, get_detectors
 from utils import deliver_callback, download_pdf, job_urls
 
-def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, base_url: str, tenant_id: str | None = None, group_id: str | None = None, category_id: str | None = None) -> None:
+def run_api_job(
+    job: str,
+    pdf_url: str,
+    callback_url: str,
+    reference: object,
+    base_url: str,
+    tenant_id: str | None = None,
+    group_id: str | None = None,
+    category_id: str | None = None,
+    single_submission_per_user: bool = False,
+) -> None:
     LOGGER.info("Iniciando background job: %s", job)
-    common = {"job_id": job, "reference": reference, "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id}
+    common = {
+        "job_id": job, "reference": reference, "tenant_id": tenant_id,
+        "group_id": group_id, "category_id": category_id,
+        "single_submission_per_user": bool(single_submission_per_user),
+    }
 
     def update_job_status(payload: dict):
         if not db or not db.is_available():
@@ -42,6 +56,7 @@ def run_api_job(job: str, pdf_url: str, callback_url: str, reference: object, ba
             tenant_id=tenant_id,
             group_id=group_id,
             category_id=category_id,
+            single_submission_per_user=single_submission_per_user,
         )
         LOGGER.info("Documento salvo no MongoDB para job %s", job)
 

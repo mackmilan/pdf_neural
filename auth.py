@@ -7,6 +7,7 @@ import json
 import time
 import urllib.request
 import urllib.parse
+import urllib.error
 from dataclasses import dataclass
 from threading import Lock
 
@@ -182,6 +183,66 @@ class KeycloakAuthenticator:
         with urllib.request.urlopen(req, timeout=5) as response:
             roles_data = json.load(response)
             return {role["name"] for role in roles_data}
+
+    def create_user(
+        self, username: str, email: str | None = None, password: str | None = None,
+        temporary_password: bool = True,
+    ) -> dict:
+        """Cria ou localiza um usuario no Keycloak e opcionalmente define senha."""
+        try:
+            username = username.strip()
+            email = (email or "").strip() or None
+            if not username:
+                raise AuthenticationError("username obrigatorio")
+            if not self.enabled:
+                return {"id": username, "username": username, "email": email}
+
+            token = self._get_admin_token()
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            search_url = f"{self.admin_url}/users?username={urllib.parse.quote(username)}&exact=true"
+            req = urllib.request.Request(search_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as response:
+                users = json.load(response)
+            if users:
+                user_id = users[0]["id"]
+            else:
+                payload = {"username": username, "enabled": True, "emailVerified": bool(email)}
+                if email:
+                    payload["email"] = email
+                create_headers = {**headers, "Content-Type": "application/json"}
+                req = urllib.request.Request(
+                    f"{self.admin_url}/users", data=json.dumps(payload).encode("utf-8"),
+                    headers=create_headers, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    location = response.headers.get("Location", "")
+                if location.rstrip("/").split("/")[-1]:
+                    user_id = location.rstrip("/").split("/")[-1]
+                else:
+                    req = urllib.request.Request(search_url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        users = json.load(response)
+                    if not users:
+                        raise AuthenticationError("Usuario criado, mas ID nao encontrado no Keycloak")
+                    user_id = users[0]["id"]
+
+            if password:
+                credential = {"type": "password", "value": password, "temporary": temporary_password}
+                req = urllib.request.Request(
+                    f"{self.admin_url}/users/{urllib.parse.quote(user_id)}/reset-password",
+                    data=json.dumps(credential).encode("utf-8"),
+                    headers={**headers, "Content-Type": "application/json"}, method="PUT",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+            return {"id": user_id, "username": username, "email": email}
+        except AuthenticationError:
+            raise
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")
+            raise AuthenticationError(f"Keycloak respondeu HTTP {exc.code}: {body or exc.reason}") from exc
+        except urllib.error.URLError as exc:
+            raise AuthenticationError(f"Nao foi possivel acessar o Keycloak Admin: {exc.reason}") from exc
 
     def validate_client(self, client_id: str) -> bool:
         """Valida se o client_id existe no Keycloak e tem Service Account ativo."""

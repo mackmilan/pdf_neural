@@ -153,9 +153,9 @@ python scripts/configure_keycloak.py --app-password admin \
   --app-url http://127.0.0.1:8002
 ```
 
-O script cria o realm `pdf-neural`, o client público `pdf-neural-api`, a role
-`pdf-admin` e o usuário inicial `pdf-admin/admin`. Troque essa senha antes de usar
-fora do ambiente local.
+O script cria o realm `pdf-neural`, o client público `pdf-neural-api`, o client
+confidencial administrativo `pdf-neural-admin`, a role `pdf-admin` e o usuário
+inicial `pdf-admin/admin`. Troque essa senha antes de usar fora do ambiente local.
 
 Configure o arquivo `.env` da API com os valores básicos:
 
@@ -167,8 +167,19 @@ KEYCLOAK_ADMIN_ROLE=pdf-admin
 KEYCLOAK_ADMIN_URL=http://localhost:8080/admin/realms/pdf-neural
 ```
 
-Para a API consultar roles de Service Accounts no Keycloak, crie também um client
-confidencial administrativo:
+O script imprime o secret do client administrativo. Complete também:
+
+```env
+KEYCLOAK_ADMIN_CLIENT_ID=pdf-neural-admin
+KEYCLOAK_ADMIN_CLIENT_SECRET=secret_impresso_pelo_script
+```
+
+Esse client administrativo é usado pela API para validar clients de API Key e
+criar usuários no Keycloak pela tela de usuários. O script habilita `Service
+accounts roles` e atribui as roles do client `realm-management`: `view-clients`,
+`query-clients`, `view-users`, `query-users` e `manage-users`.
+
+Se preferir configurar manualmente:
 
 1. Acesse `http://localhost:8080/admin` com `admin/admin`.
 2. Entre no realm `pdf-neural`.
@@ -176,7 +187,7 @@ confidencial administrativo:
 4. Habilite `Client authentication` e `Service accounts roles`.
 5. Desabilite fluxos de usuário como `Standard flow` e `Direct access grants`.
 6. Em `Service account roles`, atribua as roles do client `realm-management`:
-   `view-clients`, `view-users`, `query-clients` e `query-users`.
+   `view-clients`, `view-users`, `query-clients`, `query-users` e `manage-users`.
 7. Copie o secret em `Credentials` e complete o `.env`:
 
 ```env

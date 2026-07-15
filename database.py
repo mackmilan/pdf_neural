@@ -102,6 +102,7 @@ class Database:
                 self.document_submissions.create_index("submission_id", unique=True)
                 self.document_submissions.create_index([("document_id", 1), ("created_at", -1)])
                 self.document_submissions.create_index([("subject", 1), ("created_at", -1)])
+                self.document_submissions.create_index([("document_id", 1), ("subject", 1), ("created_at", -1)])
                 self.documents.create_index([("tenant_id", 1), ("group_id", 1), ("updated_at", -1)])
                 self.documents.create_index([("tenant_id", 1), ("category_id", 1), ("updated_at", -1)])
                 LOGGER.info("Conexão com MongoDB estabelecida com sucesso")
@@ -288,12 +289,56 @@ class Database:
             return []
         return list(self.user_access.find({"subject": subject}).sort([("tenant_id", 1), ("group_id", 1)]))
 
+    def list_all_user_access(self) -> list[dict]:
+        if not self.is_available():
+            return []
+        tenants = {
+            tenant["tenant_id"]: tenant
+            for tenant in self.tenants.find({}, {"_id": 0, "tenant_id": 1, "name": 1})
+        }
+        groups = {
+            (group["tenant_id"], group["group_id"]): group
+            for group in self.groups.find({}, {"_id": 0, "tenant_id": 1, "group_id": 1, "name": 1})
+        }
+        users: dict[str, dict] = {}
+        cursor = self.user_access.find().sort([("username", 1), ("subject", 1), ("tenant_id", 1), ("group_id", 1)])
+        for access in cursor:
+            subject = access["subject"]
+            user = users.setdefault(subject, {
+                "subject": subject,
+                "username": access.get("username"),
+                "access": [],
+            })
+            if access.get("username") and not user.get("username"):
+                user["username"] = access["username"]
+            tenant_id = access.get("tenant_id")
+            group_id = access.get("group_id")
+            tenant = tenants.get(tenant_id, {})
+            group = groups.get((tenant_id, group_id), {}) if group_id else {}
+            user["access"].append({
+                "subject": subject,
+                "username": access.get("username"),
+                "tenant_id": tenant_id,
+                "tenant_name": tenant.get("name"),
+                "group_id": group_id,
+                "group_name": group.get("name"),
+                "permission": access.get("permission"),
+                "created_at": access.get("created_at"),
+                "updated_at": access.get("updated_at"),
+            })
+        return list(users.values())
+
     def revoke_user_access(self, subject: str, tenant_id: str, group_id: str | None = None) -> bool:
         if not self.is_available():
             return False
         return self.user_access.delete_one(
             {"subject": subject, "tenant_id": tenant_id, "group_id": group_id}
         ).deleted_count > 0
+
+    def delete_user_access(self, subject: str) -> int:
+        if not self.is_available():
+            return 0
+        return self.user_access.delete_many({"subject": subject}).deleted_count
 
     def user_has_access(
         self, subject: str, tenant_id: str, group_id: str | None = None,
@@ -335,6 +380,7 @@ class Database:
         tenant_id: str | None = None,
         group_id: str | None = None,
         category_id: str | None = None,
+        single_submission_per_user: bool = False,
     ):
         """Cria uma versão e atualiza o ponteiro do documento canônico."""
         if not self.is_available():
@@ -352,7 +398,11 @@ class Database:
             {"document_id": document_id},
             {
                 "$setOnInsert": {"document_id": document_id, "content_hash": raw_content_hash, "created_at": now},
-                "$set": {"metadata": metadata, "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id, "updated_at": now},
+                "$set": {
+                    "metadata": metadata, "tenant_id": tenant_id, "group_id": group_id,
+                    "category_id": category_id, "single_submission_per_user": bool(single_submission_per_user),
+                    "updated_at": now,
+                },
                 "$inc": {"current_version": 1},
             },
             upsert=True,
@@ -376,6 +426,7 @@ class Database:
             "tenant_id": tenant_id,
             "group_id": group_id,
             "category_id": category_id,
+            "single_submission_per_user": bool(single_submission_per_user),
         }
         try:
             self.versions.insert_one(version_doc)
@@ -387,9 +438,14 @@ class Database:
                     "neural_tables": neural_tables or [], "is_current": True,
                     "tenant_id": tenant_id, "group_id": group_id,
                     "category_id": category_id,
+                    "single_submission_per_user": bool(single_submission_per_user),
                 }},
             )
-            return {"document_id": document_id, "version": version_number, "job_id": job_id, "is_current": True, "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id}
+            return {
+                "document_id": document_id, "version": version_number, "job_id": job_id,
+                "is_current": True, "tenant_id": tenant_id, "group_id": group_id,
+                "category_id": category_id, "single_submission_per_user": bool(single_submission_per_user),
+            }
         except Exception:
             LOGGER.exception("Erro ao salvar versão do job %s no MongoDB", job_id)
             return None
@@ -487,6 +543,79 @@ class Database:
         self.document_submissions.insert_one(submission)
         return submission
 
+    def user_already_submitted_document(self, document: dict, subject: str) -> bool:
+        """Verifica se o usuario ja salvou um preenchimento para o documento canonico."""
+        if not self.is_available() or self.document_submissions is None:
+            return False
+        document_id = document.get("document_id") or document.get("job_id")
+        if not document_id or not subject:
+            return False
+        return self.document_submissions.find_one({"document_id": document_id, "subject": subject}) is not None
+
+    def get_document_submission(self, submission_id: str):
+        """Busca um preenchimento salvo pelo protocolo da submissao."""
+        if not self.is_available() or self.document_submissions is None:
+            return None
+        return self.document_submissions.find_one({"submission_id": submission_id})
+
+    def list_document_submissions_for_user(self, subject: str, limit: int = 50) -> list[dict]:
+        """Lista preenchimentos salvos por usuario, com metadados basicos do documento."""
+        if not self.is_available() or self.document_submissions is None:
+            return []
+        items = []
+        cursor = self.document_submissions.find({"subject": subject}).sort("created_at", -1).limit(limit)
+        for submission in cursor:
+            document = self.get_document(
+                submission.get("document_id") or submission.get("job_id"),
+                submission.get("version"),
+                submission.get("tenant_id"),
+                submission.get("group_id"),
+            )
+            metadata = (document or {}).get("metadata") or {}
+            items.append({
+                "submission_id": submission.get("submission_id"),
+                "document_id": submission.get("document_id"),
+                "job_id": submission.get("job_id"),
+                "version": submission.get("version"),
+                "tenant_id": submission.get("tenant_id"),
+                "group_id": submission.get("group_id"),
+                "created_at": submission.get("created_at"),
+                "email": submission.get("email"),
+                "document_name": (document or {}).get("name") or metadata.get("filename") or "Documento submetido",
+            })
+        return items
+
+    def list_submittable_documents_for_user(self, subject: str | None = None, limit: int = 100) -> list[dict]:
+        """Lista documentos atuais com campos, respeitando os escopos do usuario."""
+        if not self.is_available():
+            return []
+        query: dict[str, Any] = {"fields.0": {"$exists": True}}
+        if subject:
+            scopes = []
+            for item in self.list_user_access(subject):
+                tenant_id = item.get("tenant_id")
+                if not tenant_id:
+                    continue
+                group_id = item.get("group_id")
+                scopes.append({"tenant_id": tenant_id, "group_id": group_id} if group_id else {"tenant_id": tenant_id})
+            if not scopes:
+                return []
+            query["$or"] = scopes
+        documents = list(
+            self.documents.find(query, {"html_content": 0})
+            .sort("updated_at", -1)
+            .limit(limit)
+        )
+        if subject:
+            documents = [
+                document for document in documents
+                if not (
+                    document.get("single_submission_per_user")
+                    and self.user_already_submitted_document(document, subject)
+                )
+            ]
+        return documents
+
     def get_current_document_version(self, document_id: str, tenant_id: str | None = None, group_id: str | None = None):
         """Retorna somente a versao padrao de um documento."""
         if not self.is_available():
@@ -549,6 +678,40 @@ class Database:
             }},
         )
         return {"document_id": document_id, "version": version, "job_id": selected["job_id"], "is_current": True}
+
+    def update_document_single_submission_per_user(
+        self, document_id: str, enabled: bool,
+        tenant_id: str, group_id: str | None = None,
+    ) -> bool:
+        """Atualiza a regra de preenchimento unico no documento e registros relacionados."""
+        if not self.is_available():
+            return False
+        scope: dict[str, Any] = {"tenant_id": tenant_id}
+        if group_id:
+            scope["group_id"] = group_id
+        canonical = self.documents.find_one({"document_id": document_id, **scope})
+        if not canonical:
+            return False
+        now = datetime.utcnow()
+        value = bool(enabled)
+        self.documents.update_one(
+            {"document_id": document_id, **scope},
+            {"$set": {"single_submission_per_user": value, "updated_at": now}},
+        )
+        versions = list(self.versions.find(
+            {"document_id": document_id, **scope}, {"job_id": 1}
+        ))
+        self.versions.update_many(
+            {"document_id": document_id, **scope},
+            {"$set": {"single_submission_per_user": value}},
+        )
+        job_ids = [item["job_id"] for item in versions if item.get("job_id")]
+        if job_ids:
+            self.jobs.update_many(
+                {"job_id": {"$in": job_ids}, "tenant_id": tenant_id},
+                {"$set": {"single_submission_per_user": value, "updated_at": now}},
+            )
+        return True
 
     def set_version_deprecated(
         self, document_id: str, version: int, deprecated: bool = True,
@@ -682,6 +845,7 @@ class Database:
             "tenant_id": current.get("tenant_id"),
             "group_id": current.get("group_id"),
             "category_id": current.get("category_id"),
+            "single_submission_per_user": bool(current.get("single_submission_per_user", False)),
             "format_norm": resolved_format_norm,
             "edited_from_version": current.get("version"),
         }
@@ -695,6 +859,7 @@ class Database:
                 "metadata": metadata, "category_id": version_doc["category_id"],
                 "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
                 "format_norm": resolved_format_norm,
+                "single_submission_per_user": version_doc["single_submission_per_user"],
                 "is_current": True, "updated_at": now,
             }},
         )
@@ -704,6 +869,7 @@ class Database:
             "neural_tables": version_doc["neural_tables"], "metadata": metadata,
             "tenant_id": version_doc["tenant_id"], "group_id": version_doc["group_id"],
             "category_id": version_doc["category_id"], "format_norm": resolved_format_norm,
+            "single_submission_per_user": version_doc["single_submission_per_user"],
         }
 
     def apply_format_norm(

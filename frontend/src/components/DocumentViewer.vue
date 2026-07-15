@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useDocumentStore } from '../stores/document'
 import PdfPreview from './PdfPreview.vue'
+import ViewerTopMenu from './ViewerTopMenu.vue'
 import type { Field } from '../types'
 
 const props = defineProps<{ documentId: string }>()
@@ -25,6 +26,11 @@ function scrollToField(field: Field, optionValue?: string) {
   void nextTick(() => {
     preview.value?.scrollToField(field.name, optionValue)
   })
+}
+
+function openSubmission(submissionId: string) {
+  history.pushState({}, '', `/submissao/${submissionId}`)
+  window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
 async function loadDocument() {
@@ -59,7 +65,7 @@ async function submitResult() {
     )
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Não foi possível salvar o resultado.')
-    success.value = `Resultado salvo com sucesso. Protocolo: ${data.submission_id}`
+    openSubmission(data.submission_id)
   } catch (cause) {
     error.value = (cause as Error).message
   } finally {
@@ -72,6 +78,8 @@ onMounted(loadDocument)
 
 <template>
   <main class="viewer-page">
+    <ViewerTopMenu v-if="!auth.isAdmin" active-route="available" />
+
     <header class="viewer-header">
       <div>
         <span class="viewer-kicker">Documento</span>
@@ -93,6 +101,9 @@ onMounted(loadDocument)
       <aside class="viewer-fields card">
         <h2>Preenchimento</h2>
         <p class="status">Preencha os campos e salve o resultado.</p>
+        <p v-if="documentStore.currentSingleSubmissionPerUser" class="status">
+          Este documento permite apenas um preenchimento por usuário.
+        </p>
         <div v-if="!documentStore.currentFields.length" class="viewer-message">Este documento não possui campos.</div>
         <div v-for="field in documentStore.currentFields" :key="field.name" class="viewer-control" @focusin="scrollToField(field)">
           <label v-if="field.type === 'checkbox'" class="viewer-checkbox">

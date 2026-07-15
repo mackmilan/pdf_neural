@@ -19,7 +19,7 @@ from utils import download_pdf, json_safe, multipart_data, validate_public_url
 from validators import (
     validate_category_query, validate_context_id, validate_fields_payload,
     validate_format_norm, validate_html_payload, validate_resource_name, validate_search_context,
-    validate_submission_values,
+    validate_submission_values, validate_boolean,
 )
 
 class Handler(BaseHTTPRequestHandler):
@@ -115,7 +115,16 @@ class Handler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed_request.query)
         if path == "/":
             return self.send_file(STATIC / "index.html")
+        if path in (
+            "/documentos", "/documentos/",
+            "/documentos-disponiveis", "/documentos-disponiveis/",
+            "/usuarios", "/usuarios/",
+            "/submissoes", "/submissoes/",
+        ):
+            return self.send_file(STATIC / "index.html")
         if re.fullmatch(r"/documento/(?:[0-9a-f]{32}|[0-9a-f]{64})/?", path):
+            return self.send_file(STATIC / "index.html")
+        if re.fullmatch(r"/submissao/[0-9a-f]{32}/?", path):
             return self.send_file(STATIC / "index.html")
         if path in ("/docs", "/docs/"):
             return self.send_file(STATIC / "swagger.html")
@@ -140,6 +149,12 @@ class Handler(BaseHTTPRequestHandler):
                 "sub": identity.subject, "username": identity.username,
                 "roles": sorted(identity.roles), "access": access,
             }))
+        if path == "/api/users/access":
+            if not self.require_admin(identity):
+                return
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            return self.send_json(200, json_safe(db.list_all_user_access()))
         user_match = re.fullmatch(r"/api/users/([^/]+)/access", path)
         if user_match:
             if not self.require_admin(identity):
@@ -248,6 +263,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, json_safe(db.list_categories(parts[2], parts[4])))
         document_id_pattern = r"(?:[0-9a-f]{32}|[0-9a-f]{64})"
         if (
+            len(parts) == 3 and parts[:3] == ("api", "viewer", "documents")
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            subject = None if identity.has_role(authenticator.admin_role) else identity.subject
+            return self.send_json(200, json_safe(db.list_submittable_documents_for_user(subject)))
+        if (
             len(parts) in (4, 5) and parts[:3] == ("api", "viewer", "documents")
             and re.fullmatch(document_id_pattern, parts[3])
             and (len(parts) == 4 or parts[4] == "html")
@@ -274,6 +296,61 @@ class Handler(BaseHTTPRequestHandler):
             summary.pop("_id", None)
             summary.pop("html_content", None)
             summary["preview"] = f"/api/viewer/documents/{parts[3]}/html"
+            return self.send_json(200, json_safe(summary))
+        if (
+            len(parts) == 3 and parts[:3] == ("api", "viewer", "submissions")
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            return self.send_json(200, json_safe(db.list_document_submissions_for_user(identity.subject)))
+        if (
+            len(parts) in (4, 5) and parts[:3] == ("api", "viewer", "submissions")
+            and re.fullmatch(r"[0-9a-f]{32}", parts[3])
+            and (len(parts) == 4 or parts[4] == "html")
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            submission = db.get_document_submission(parts[3])
+            if not submission:
+                return self.send_json(404, {"error": "Submissao nao encontrada"})
+            if not self.authorize_context(identity, submission.get("tenant_id"), submission.get("group_id")):
+                return
+            document = db.get_document(
+                submission.get("document_id") or submission.get("job_id"),
+                submission.get("version"),
+                submission.get("tenant_id"),
+                submission.get("group_id"),
+            )
+            if not document and submission.get("job_id"):
+                document = db.get_document(
+                    submission.get("job_id"),
+                    tenant_id=submission.get("tenant_id"),
+                    group_id=submission.get("group_id"),
+                )
+            if not document:
+                return self.send_json(404, {"error": "Documento da submissao nao encontrado"})
+            if len(parts) == 5:
+                content = document.get("html_content")
+                if not content:
+                    return self.send_json(404, {"error": "Conteudo convertido nao encontrado"})
+                payload = content.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+            summary = dict(document)
+            summary.pop("_id", None)
+            summary.pop("html_content", None)
+            summary["preview"] = f"/api/viewer/submissions/{parts[3]}/html"
+            summary["submission"] = {
+                "submission_id": submission.get("submission_id"),
+                "values": submission.get("values") or {},
+                "created_at": submission.get("created_at"),
+                "subject": submission.get("subject"),
+                "email": submission.get("email"),
+            }
             return self.send_json(200, json_safe(summary))
         if len(parts) == 4 and parts[:2] == ("api", "documents") and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "versions":
             if not db or not db.is_available():
@@ -497,6 +574,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"error": str(exc)})
         if (
             len(parts) == 4 and parts[:2] == ("api", "documents")
+            and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "single-submission"
+        ):
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query, identity)
+                if not self.authorize_context(identity, tenant_id, group_id, "editor"):
+                    return
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                enabled = validate_boolean(
+                    request.get("single_submission_per_user") if isinstance(request, dict) else None,
+                    "single_submission_per_user",
+                )
+                if not db.update_document_single_submission_per_user(parts[2], enabled, tenant_id, group_id):
+                    return self.send_json(404, {"error": "Documento nao encontrado"})
+                return self.send_json(200, {
+                    "document_id": parts[2],
+                    "single_submission_per_user": enabled,
+                })
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+        if (
+            len(parts) == 4 and parts[:2] == ("api", "documents")
             and re.fullmatch(r"[0-9a-f]{64}", parts[2]) and parts[3] == "html"
         ):
             if not db or not db.is_available():
@@ -615,6 +718,15 @@ class Handler(BaseHTTPRequestHandler):
         parsed_request = urllib.parse.urlsplit(self.path)
         path = urllib.parse.unquote(parsed_request.path)
         query = urllib.parse.parse_qs(parsed_request.query)
+        delete_user_match = re.fullmatch(r"/api/users/([^/]+)", path)
+        if delete_user_match:
+            if not self.require_admin(identity):
+                return
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            subject = urllib.parse.unquote(delete_user_match.group(1))
+            deleted = db.delete_user_access(subject)
+            return self.send_json(200, {"deleted": deleted}) if deleted else self.send_json(404, {"error": "Usuario nao encontrado"})
         user_match = re.fullmatch(r"/api/users/([^/]+)/access", path)
         if user_match:
             if not self.require_admin(identity):
@@ -685,6 +797,45 @@ class Handler(BaseHTTPRequestHandler):
         if identity is None:
             return
         path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        if path == "/api/users":
+            if not self.require_admin(identity):
+                return
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Envie um corpo JSON valido de ate 64 KB")
+                request = json.loads(self.rfile.read(length))
+                username = str(request.get("username") or "").strip()
+                email = str(request.get("email") or "").strip() or None
+                password = str(request.get("password") or "")
+                if not 1 <= len(username) <= 120:
+                    raise ValueError("username deve possuir entre 1 e 120 caracteres")
+                if email and (len(email) > 254 or "@" not in email):
+                    raise ValueError("email invalido")
+                if not 8 <= len(password) <= 256:
+                    raise ValueError("password deve possuir entre 8 e 256 caracteres")
+                tenant_id = validate_context_id(request.get("tenant_id"), "tenant_id")
+                group_id = validate_context_id(request.get("group_id"), "group_id") if request.get("group_id") else None
+                permission = str(request.get("permission", "reader"))
+                keycloak_user = authenticator.create_user(
+                    username, email, password, bool(request.get("temporary_password", True)),
+                )
+                access = db.grant_user_access(
+                    keycloak_user["id"], tenant_id, group_id, permission,
+                    request.get("display_name") or username,
+                )
+                if not access:
+                    raise ValueError("Tenant/grupo inexistente ou permissao invalida")
+                return self.send_json(201, json_safe({"user": keycloak_user, "access": access}))
+            except AuthenticationError as exc:
+                return self.send_json(502, {"error": str(exc)})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+            except Exception as exc:
+                LOGGER.exception("Erro ao criar usuario no Keycloak")
+                return self.send_json(502, {"error": f"Falha ao criar usuario no Keycloak: {exc}"})
         viewer_match = re.fullmatch(
             r"/api/viewer/documents/((?:[0-9a-f]{32}|[0-9a-f]{64}))/submissions", path
         )
@@ -697,6 +848,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(404, {"error": "Documento nao encontrado"})
                 if not self.authorize_context(identity, document.get("tenant_id"), document.get("group_id")):
                     return
+                if document.get("single_submission_per_user") and db.user_already_submitted_document(document, identity.subject):
+                    return self.send_json(409, {"error": "Este documento permite apenas um preenchimento por usuario."})
                 length = int(self.headers.get("Content-Length", 0))
                 if length <= 0 or length > MAX_JSON_SIZE or self.headers.get_content_type() != "application/json":
                     raise ValueError("Envie um corpo JSON valido de ate 64 KB")
@@ -768,8 +921,6 @@ class Handler(BaseHTTPRequestHandler):
                 if tenant_id and not db.group_belongs_to_tenant(tenant_id, group_id):
                     raise ValueError("O grupo informado nao pertence ao tenant")
                 
-                # Valida o client_id no Keycloak
-                from auth import authenticator
                 if not authenticator.validate_client(client_id):
                     raise ValueError(f"O client_id '{client_id}' nao existe no Keycloak ou nao possui Service Account habilitado")
 
@@ -820,6 +971,10 @@ class Handler(BaseHTTPRequestHandler):
                 pdf_url = validate_public_url(str(request.get("pdf_url", "")))
                 callback_url = validate_public_url(str(request.get("callback_url", "")))
                 reference = request.get("reference")
+                single_submission_per_user = validate_boolean(
+                    request.get("single_submission_per_user", False),
+                    "single_submission_per_user",
+                )
                 tenant_id = validate_context_id(request.get("tenant_id"), "tenant_id") if request.get("tenant_id") else None
                 group_id = validate_context_id(request.get("group_id"), "group_id") if request.get("group_id") else None
 
@@ -838,9 +993,16 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 job = uuid.uuid4().hex
                 LOGGER.info("Criando background job %s para URL: %s", job, pdf_url)
-                initial = {"job_id": job, "reference": reference, "status": "queued", "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id}
+                initial = {
+                    "job_id": job, "reference": reference, "status": "queued",
+                    "tenant_id": tenant_id, "group_id": group_id, "category_id": category_id,
+                    "single_submission_per_user": single_submission_per_user,
+                }
                 db.save_job(job, initial)
-                EXECUTOR.submit(run_api_job, job, pdf_url, callback_url, reference, self.base_url(), tenant_id, group_id, category_id)
+                EXECUTOR.submit(
+                    run_api_job, job, pdf_url, callback_url, reference, self.base_url(),
+                    tenant_id, group_id, category_id, single_submission_per_user,
+                )
                 status_query = urllib.parse.urlencode({key: value for key, value in {"tenant_id": tenant_id, "group_id": group_id}.items() if value})
                 return self.send_json(202, {**initial, "status_url": f"{self.base_url()}/api/jobs/{job}?{status_query}"})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -859,9 +1021,10 @@ class Handler(BaseHTTPRequestHandler):
             if length > MAX_PDF_SIZE + 1024 * 1024:
                 raise ValueError("O limite e 30 MB")
             body = self.rfile.read(length)
-            name, data, url, tenant_id, group_id, category_id = multipart_data(self.headers.get("Content-Type", ""), body)
+            name, data, url, tenant_id, group_id, category_id, raw_single_submission = multipart_data(self.headers.get("Content-Type", ""), body)
             tenant_id = validate_context_id(tenant_id, "tenant_id") if tenant_id else None
             group_id = validate_context_id(group_id, "group_id") if group_id else None
+            single_submission_per_user = validate_boolean(raw_single_submission, "single_submission_per_user")
 
             # Se não foi passado no form-data, tenta obter da identidade (API Key)
             if not tenant_id and identity:
@@ -900,6 +1063,7 @@ class Handler(BaseHTTPRequestHandler):
                 tenant_id=tenant_id,
                 group_id=group_id,
                 category_id=category_id,
+                single_submission_per_user=single_submission_per_user,
             )
             identity = identity or {"document_id": content_hash, "version": 1, "job_id": job, "is_current": True}
             db.save_job(job, {
@@ -917,6 +1081,7 @@ class Handler(BaseHTTPRequestHandler):
                 "tenant_id": tenant_id,
                 "group_id": group_id,
                 "category_id": category_id,
+                "single_submission_per_user": single_submission_per_user,
             })
             LOGGER.info("Documento e job salvos no MongoDB para job síncrono %s", job)
             
@@ -931,6 +1096,7 @@ class Handler(BaseHTTPRequestHandler):
                 "tenant_id": tenant_id,
                 "group_id": group_id,
                 "category_id": category_id,
+                "single_submission_per_user": single_submission_per_user,
                 "metadata": {"filename": name},
             }, ensure_ascii=False).encode("utf-8")
             

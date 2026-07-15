@@ -45,12 +45,56 @@ def request(url: str, method: str = "GET", token: str | None = None, payload: ob
         raise RuntimeError(f"Keycloak respondeu HTTP {exc.code}: {body}") from exc
 
 
+def get_client(realm_admin: str, token: str, client_id: str) -> dict | None:
+    _, clients = request(f"{realm_admin}/clients?clientId={urllib.parse.quote(client_id)}", token=token)
+    return clients[0] if clients else None
+
+
+def get_or_create_client(realm_admin: str, token: str, client_id: str, payload: dict) -> tuple[str, dict]:
+    client = get_client(realm_admin, token, client_id)
+    if not client:
+        request(f"{realm_admin}/clients", "POST", token, payload)
+        client = get_client(realm_admin, token, client_id)
+    if not client:
+        raise RuntimeError(f"Client {client_id} nao encontrado apos criacao")
+    return client["id"], client
+
+
+def client_secret(realm_admin: str, token: str, client_uuid: str) -> str:
+    _, credentials = request(f"{realm_admin}/clients/{client_uuid}/client-secret", token=token)
+    return credentials["value"]
+
+
+def assign_service_account_realm_management_roles(
+    realm_admin: str, token: str, admin_client_uuid: str, role_names: list[str],
+) -> None:
+    _, service_account = request(f"{realm_admin}/clients/{admin_client_uuid}/service-account-user", token=token)
+    service_account_id = service_account["id"]
+    realm_management = get_client(realm_admin, token, "realm-management")
+    if not realm_management:
+        raise RuntimeError("Client realm-management nao encontrado")
+    management_uuid = realm_management["id"]
+    roles = []
+    for role_name in role_names:
+        _, role = request(
+            f"{realm_admin}/clients/{management_uuid}/roles/{urllib.parse.quote(role_name)}",
+            token=token,
+        )
+        roles.append(role)
+    request(
+        f"{realm_admin}/users/{service_account_id}/role-mappings/clients/{management_uuid}",
+        "POST", token, roles,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Configura realm, client e administrador do PDF Neural")
     parser.add_argument("--url", default="http://localhost:8080")
     parser.add_argument("--admin-user", default="admin")
     parser.add_argument("--admin-password", default="admin")
     parser.add_argument("--realm", default="pdf-neural")
+    parser.add_argument("--api-client-id", default="pdf-neural-api")
+    parser.add_argument("--admin-client-id", default="pdf-neural-admin")
     parser.add_argument("--app-user", default="pdf-admin")
     parser.add_argument("--app-password", help="Senha inicial; se omitida, uma senha forte e gerada")
     parser.add_argument("--reset-app-password", action="store_true")
@@ -79,12 +123,8 @@ def main() -> None:
     request(admin, "POST", token, {"realm": args.realm, "enabled": True})
     realm_admin = f"{admin}/{urllib.parse.quote(args.realm)}"
 
-    _, clients = request(f"{realm_admin}/clients?clientId=pdf-neural-api", token=token)
-    if clients:
-        client_uuid = clients[0]["id"]
-    else:
-        request(f"{realm_admin}/clients", "POST", token, {
-            "clientId": "pdf-neural-api", "name": "PDF Neural API",
+    client_uuid, client = get_or_create_client(realm_admin, token, args.api_client_id, {
+            "clientId": args.api_client_id, "name": "PDF Neural API",
             "enabled": True, "publicClient": True,
             "standardFlowEnabled": True, "directAccessGrantsEnabled": True,
             "redirectUris": [f"{url}/*" for url in app_urls],
@@ -93,12 +133,9 @@ def main() -> None:
             "protocolMappers": [{
                 "name": "pdf-neural-audience", "protocol": "openid-connect",
                 "protocolMapper": "oidc-audience-mapper",
-                "config": {"included.client.audience": "pdf-neural-api", "access.token.claim": "true"},
+                "config": {"included.client.audience": args.api_client_id, "access.token.claim": "true"},
             }],
         })
-        _, clients = request(f"{realm_admin}/clients?clientId=pdf-neural-api", token=token)
-        client_uuid = clients[0]["id"]
-    _, client = request(f"{realm_admin}/clients/{client_uuid}", token=token)
     client.update({
         "enabled": True, "publicClient": True,
         "standardFlowEnabled": True, "directAccessGrantsEnabled": True,
@@ -111,6 +148,30 @@ def main() -> None:
         "pkce.code.challenge.method": "S256",
     }
     request(f"{realm_admin}/clients/{client_uuid}", "PUT", token, client)
+
+    admin_client_uuid, admin_client = get_or_create_client(realm_admin, token, args.admin_client_id, {
+        "clientId": args.admin_client_id,
+        "name": "PDF Neural Admin API",
+        "enabled": True,
+        "publicClient": False,
+        "serviceAccountsEnabled": True,
+        "standardFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "protocol": "openid-connect",
+    })
+    admin_client.update({
+        "enabled": True,
+        "publicClient": False,
+        "serviceAccountsEnabled": True,
+        "standardFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+    })
+    request(f"{realm_admin}/clients/{admin_client_uuid}", "PUT", token, admin_client)
+    admin_secret = client_secret(realm_admin, token, admin_client_uuid)
+    assign_service_account_realm_management_roles(
+        realm_admin, token, admin_client_uuid,
+        ["view-clients", "query-clients", "view-users", "query-users", "manage-users"],
+    )
 
     request(f"{realm_admin}/roles", "POST", token, {"name": "pdf-admin"})
     _, roles = request(f"{realm_admin}/roles/pdf-admin", token=token)
@@ -144,7 +205,10 @@ def main() -> None:
     request(f"{realm_admin}/users/{user_id}/role-mappings/realm", "POST", token, [roles])
 
     print(f"Realm configurado: {args.realm}")
-    print("Client: pdf-neural-api")
+    print(f"Client publico: {args.api_client_id}")
+    print(f"Client administrativo: {args.admin_client_id}")
+    print(f"KEYCLOAK_ADMIN_CLIENT_ID={args.admin_client_id}")
+    print(f"KEYCLOAK_ADMIN_CLIENT_SECRET={admin_secret}")
     print(f"Usuario administrador da aplicacao: {args.app_user}")
     print(f"Keycloak subject (sub): {user_id}")
     print(f"Client UUID: {client_uuid}")

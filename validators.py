@@ -42,6 +42,20 @@ def validate_category_query(query: dict[str, list[str]]) -> str | None:
     return validate_context_id(value, "category_id") if value else None
 
 
+def validate_boolean(value: object, label: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("1", "true", "sim", "yes", "on"):
+            return True
+        if normalized in ("0", "false", "nao", "não", "no", "off"):
+            return False
+    raise ValueError(f"{label} deve ser booleano")
+
+
 def validate_format_norm(value: object) -> str | None:
     if value in (None, ""):
         return None

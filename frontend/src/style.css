@@ -63,7 +63,8 @@ button:disabled { opacity: .5 }
 .editor.show { display: grid; gap: 8px }
 .editor input, .editor select, .editor textarea { width: 100%; border: 1px solid #4c668f; border-radius: 7px; background: #0c1425; color: #edf3ff; padding: 8px }
 .editor input[type="checkbox"] { width: 18px; height: 18px; padding: 0 }
-.editor .checkbox-row { display: flex; align-items: center; gap: 8px; color: #aab8d4; font-size: 14px }
+.checkbox-row { display: flex; align-items: center; gap: 8px; color: #aab8d4; font-size: 14px }
+.upload-option { margin-top: 12px }
 .number-rules { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
 .editor small { color: #aab8d4 }
 .field code, .confidence { color: #86b3ff }
@@ -79,6 +80,8 @@ button:disabled { opacity: .5 }
 .history-rename:hover { background: #1c3558 }
 .history-delete { color: #ff8790 }
 .history-delete:hover { background: #4a2030 }
+.history-toggle { display: flex; align-items: center; gap: 8px; margin: 6px 0; color: #c9d6ef; font-size: 13px }
+.history-toggle input { width: 16px; height: 16px; margin: 0 }
 .history-toolbar { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 14px }
 .history-toolbar label { display: grid; gap: 5px; flex: 1 1 220px; color: #aab8d4; font-size: 13px }
 .history-toolbar input { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 10px; font: inherit }
@@ -156,12 +159,53 @@ button:disabled { opacity: .5 }
 .viewer-message { margin: 32px 0; color: #aab8d4 }
 .viewer-error { color: #ff8790 }
 .viewer-success { color: #78d9a0; overflow-wrap: anywhere }
+.submission-values { display: grid; gap: 10px; margin: 18px 0 0 }
+.submission-value { border-top: 1px solid #344768; padding-top: 10px }
+.submission-value dt { color: #aab8d4; font-size: 13px; font-weight: 700; overflow-wrap: anywhere }
+.submission-value dd { margin: 5px 0 0; color: #edf3ff; overflow-wrap: anywhere; white-space: pre-wrap }
+.submitted-page { overflow: hidden }
+.submitted-list { flex: 1; min-height: 0; overflow-y: auto; display: grid; gap: 10px; align-content: start }
+.submitted-item { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; text-align: left; background: #101a2d; color: #edf3ff; border: 1px solid #344768; border-radius: 10px; padding: 14px }
+.submitted-item:hover { border-color: #75a7ff; background: #17233a }
+.submitted-item span { min-width: 0; display: grid; gap: 4px }
+.submitted-item strong { overflow-wrap: anywhere }
+.submitted-item small { color: #aab8d4; overflow-wrap: anywhere }
 .session-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; margin-bottom: 6px; color: #aab8d4 }
-.session-bar #session-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.session-bar .session-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .session-title { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.035em; text-align: center; white-space: nowrap }
 .session-bar button { justify-self: end; padding: 8px 12px; background: #25344f; color: #edf3ff }
+.session-bar button.active { background: #75a7ff; color: #08101e }
 .session-bar .button-group { justify-self: end; display: flex; gap: 8px }
+.viewer-top-menu { flex: 0 0 auto; margin-bottom: 18px }
 .app-description { max-width: none; margin: 0; font-size: 14px; line-height: 1.35 }
+
+.admin-page { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden }
+.admin-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px }
+.admin-header h2 { margin: 0; font-size: 28px }
+.admin-role { color: #86b3ff; font-size: 13px; font-weight: 700 }
+.admin-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 24px; flex: 1; min-height: 0; margin-top: 16px; overflow: hidden }
+.access-form, .access-list { margin-top: 0; min-height: 0 }
+.access-form { align-self: stretch; display: grid; gap: 12px; max-height: 100%; overflow-y: auto; padding-right: 18px }
+.access-form h3, .access-list h3 { margin: 0 }
+.access-form label { display: grid; gap: 6px; color: #aab8d4; font-size: 14px }
+.access-form input, .access-form select, .access-toolbar input { width: 100%; border: 1px solid #4c668f; border-radius: 9px; background: #0c1425; color: #edf3ff; padding: 10px; font: inherit }
+.access-form .access-check { display: flex; align-items: center; gap: 8px }
+.access-form .access-check input { width: 18px; height: 18px; padding: 0 }
+.access-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px }
+.access-list { overflow: hidden; display: flex; flex-direction: column }
+.access-toolbar { display: grid; grid-template-columns: auto minmax(180px, 320px); align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px }
+.user-access-table { display: grid; gap: 12px; overflow-y: auto; padding-right: 4px }
+.user-access-row { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.4fr); gap: 16px; padding: 14px; border: 1px solid #344768; border-radius: 10px; background: #101a2d }
+.user-access-identity { min-width: 0; display: grid; gap: 6px; align-content: start }
+.user-access-identity code { color: #86b3ff; overflow-wrap: anywhere; font-size: 12px }
+.user-delete { justify-self: start; margin-top: 6px; padding: 7px 10px }
+.user-access-scopes { display: grid; gap: 8px; min-width: 0 }
+.scope-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 10px; border-radius: 8px; background: #17233a }
+.scope-row div { min-width: 0; display: grid; gap: 2px }
+.scope-row strong, .scope-row span { overflow-wrap: anywhere }
+.scope-row span { color: #aab8d4; font-size: 13px }
+.scope-row button { padding: 7px 10px }
+.permission-badge { justify-self: start; padding: 4px 8px; border-radius: 999px; background: #243a61; color: #edf3ff !important; font-weight: 700 }
 
 .api-key-context-info { margin-bottom: 15px; padding: 10px; background: #1c2b42; border-radius: 6px; font-size: 13px; color: #aab8d4; border: 1px solid #2d3e5a }
 .api-key-active-context { margin-top: 5px; color: #fff; font-weight: 600 }
@@ -184,6 +228,14 @@ button:disabled { opacity: .5 }
     .viewer-layout { grid-template-columns: 1fr; overflow-y: auto }
     .viewer-document .preview { height: 70vh; min-height: 480px }
     .viewer-fields { overflow: visible }
+    .submitted-page { overflow-y: auto }
+    .submitted-list { overflow: visible }
+    .admin-page { overflow-y: auto }
+    .admin-layout { grid-template-columns: 1fr; overflow: visible }
+    .access-form { max-height: none; overflow: visible; padding-right: 24px }
+    .access-list { overflow: visible }
+    .user-access-table { overflow: visible }
+    .user-access-row { grid-template-columns: 1fr }
 }
 
 @media(max-width: 760px) {
@@ -194,4 +246,10 @@ button:disabled { opacity: .5 }
     .document-controls { grid-template-columns: 1fr auto }
     .preview { height: 560px }
     .context-grid { grid-template-columns: 1fr }
+    .session-bar { grid-template-columns: 1fr; justify-items: stretch }
+    .session-title { text-align: left }
+    .session-bar .button-group { justify-self: stretch; flex-wrap: wrap }
+    .submitted-item { grid-template-columns: 1fr }
+    .scope-row { grid-template-columns: 1fr 1fr; align-items: stretch }
+    .scope-row div { grid-column: 1 / -1 }
 }

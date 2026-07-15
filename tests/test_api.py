@@ -77,6 +77,9 @@ class AsyncApiTest(unittest.TestCase):
         self.assertIn("extractionFinished", spec["paths"]["/api/jobs"]["post"]["callbacks"])
         self.assertEqual(spec["security"], [{"bearerAuth": []}, {"apiKeyAuth": []}])
         self.assertIn("bearerAuth", spec["components"]["securitySchemes"])
+        self.assertIn("/api/users", spec["paths"])
+        self.assertIn("/api/users/access", spec["paths"])
+        self.assertIn("/api/users/{subject}", spec["paths"])
         self.assertIn("/api/users/{subject}/access", spec["paths"])
 
     def test_rejects_missing_bearer_token(self):
@@ -107,6 +110,78 @@ class AsyncApiTest(unittest.TestCase):
         first_query = database.user_access.find_one.call_args_list[0].args[0]
         self.assertEqual(first_query["$or"], [{"group_id": None}, {"group_id": "b" * 32}])
         self.assertEqual(first_query["permission"], "editor")
+
+    def test_lists_all_user_access_grouped_with_context_names(self):
+        class FakeCursor(list):
+            def sort(self, *_args):
+                return self
+
+        class FakeCollection:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def find(self, *_args, **_kwargs):
+                return FakeCursor(self.rows)
+
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.tenants = FakeCollection([{"tenant_id": "a" * 32, "name": "Tenant A"}])
+        database.groups = FakeCollection([{"tenant_id": "a" * 32, "group_id": "b" * 32, "name": "Grupo B"}])
+        database.user_access = FakeCollection([
+            {
+                "subject": "sub-1", "username": "Maria", "tenant_id": "a" * 32,
+                "group_id": "b" * 32, "permission": "editor",
+            },
+            {
+                "subject": "sub-1", "username": "Maria", "tenant_id": "a" * 32,
+                "group_id": None, "permission": "reader",
+            },
+        ])
+
+        users = database.list_all_user_access()
+
+        self.assertEqual(len(users), 1)
+        self.assertEqual(users[0]["subject"], "sub-1")
+        self.assertEqual(users[0]["access"][0]["tenant_name"], "Tenant A")
+        self.assertEqual(users[0]["access"][0]["group_name"], "Grupo B")
+        self.assertEqual(users[0]["access"][1]["group_id"], None)
+
+    def test_delete_user_access_removes_all_subject_entries(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.user_access = MagicMock()
+        database.user_access.delete_many.return_value.deleted_count = 2
+
+        self.assertEqual(database.delete_user_access("sub-1"), 2)
+        database.user_access.delete_many.assert_called_once_with({"subject": "sub-1"})
+
+    @patch("urllib.request.urlopen")
+    def test_create_keycloak_user_sets_password_and_returns_subject(self, mock_urlopen):
+        os.environ["KEYCLOAK_ADMIN_CLIENT_ID"] = "admin"
+        os.environ["KEYCLOAK_ADMIN_CLIENT_SECRET"] = "secret"
+        authenticator = KeycloakAuthenticator()
+        authenticator._admin_token = None
+
+        res_token = MagicMock()
+        res_token.read.return_value = json.dumps({"access_token": "admin-token", "expires_in": 3600}).encode()
+        res_token.__enter__.return_value = res_token
+        res_search_empty = MagicMock()
+        res_search_empty.read.return_value = json.dumps([]).encode()
+        res_search_empty.__enter__.return_value = res_search_empty
+        res_create = MagicMock()
+        res_create.headers = {"Location": "http://kc/admin/realms/pdf-neural/users/user-uuid"}
+        res_create.__enter__.return_value = res_create
+        res_password = MagicMock()
+        res_password.__enter__.return_value = res_password
+        mock_urlopen.side_effect = [res_token, res_search_empty, res_create, res_password]
+
+        created = authenticator.create_user("maria", "maria@example.com", "password123", True)
+
+        self.assertEqual(created["id"], "user-uuid")
+        self.assertEqual(created["username"], "maria")
+        password_request = mock_urlopen.call_args_list[-1].args[0]
+        self.assertEqual(password_request.get_method(), "PUT")
+        self.assertIn("/users/user-uuid/reset-password", password_request.full_url)
 
     def test_validates_manually_edited_fields(self):
         fields = app.validate_fields_payload([{
@@ -225,6 +300,82 @@ class AsyncApiTest(unittest.TestCase):
         self.assertRegex(saved["submission_id"], r"^[0-9a-f]{32}$")
         self.assertEqual(saved["values"], {"nome": "Ana"})
         database.document_submissions.insert_one.assert_called_once_with(saved)
+
+    def test_detects_previous_submission_for_same_document_and_user(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.document_submissions = MagicMock()
+        database.document_submissions.find_one.return_value = {"submission_id": "s" * 32}
+
+        exists = database.user_already_submitted_document(
+            {"document_id": "c" * 64, "job_id": "b" * 32},
+            "user-1",
+        )
+
+        self.assertTrue(exists)
+        database.document_submissions.find_one.assert_called_once_with({
+            "document_id": "c" * 64,
+            "subject": "user-1",
+        })
+
+    def test_lists_user_document_submissions_with_document_name(self):
+        class FakeCursor(list):
+            def sort(self, *_args):
+                return self
+
+            def limit(self, _limit):
+                return self
+
+        class FakeCollection:
+            def find(self, query):
+                self.query = query
+                return FakeCursor([{
+                    "submission_id": "s" * 32,
+                    "document_id": "d" * 64,
+                    "job_id": "j" * 32,
+                    "version": 1,
+                    "tenant_id": "a" * 32,
+                    "group_id": None,
+                    "subject": "sub-1",
+                    "email": "ana@example.com",
+                }])
+
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.document_submissions = FakeCollection()
+        database.get_document = MagicMock(return_value={"name": "Ficha preenchida", "metadata": {"filename": "ficha.pdf"}})
+
+        items = database.list_document_submissions_for_user("sub-1")
+
+        self.assertEqual(database.document_submissions.query, {"subject": "sub-1"})
+        self.assertEqual(items[0]["submission_id"], "s" * 32)
+        self.assertEqual(items[0]["document_name"], "Ficha preenchida")
+
+    def test_hides_single_submission_documents_already_submitted_by_user(self):
+        class FakeCursor(list):
+            def sort(self, *_args):
+                return self
+
+            def limit(self, _limit):
+                return self
+
+        class FakeDocuments:
+            def find(self, *_args, **_kwargs):
+                return FakeCursor([
+                    {"document_id": "a" * 64, "single_submission_per_user": True},
+                    {"document_id": "b" * 64, "single_submission_per_user": False},
+                ])
+
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.documents = FakeDocuments()
+        database.document_submissions = MagicMock()
+        database.list_user_access = MagicMock(return_value=[{"tenant_id": "t" * 32, "group_id": None}])
+        database.document_submissions.find_one.side_effect = [{"submission_id": "s" * 32}]
+
+        items = database.list_submittable_documents_for_user("user-1")
+
+        self.assertEqual([item["document_id"] for item in items], ["b" * 64])
 
     @patch("urllib.request.urlopen")
     def test_api_key_inherits_context_and_roles_from_keycloak(self, mock_urlopen):
@@ -531,6 +682,23 @@ class AsyncApiTest(unittest.TestCase):
             {"job_id": {"$in": ["b" * 32]}, "tenant_id": "d" * 32},
             {"$set": {"category_id": "f" * 32}},
         )
+
+    def test_updates_single_submission_flag_across_document_versions_and_jobs(self):
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.documents = MagicMock()
+        database.versions = MagicMock()
+        database.documents.find_one.return_value = {"document_id": "c" * 64}
+        database.versions.find.return_value = [{"job_id": "b" * 32}]
+
+        updated = database.update_document_single_submission_per_user(
+            "c" * 64, True, "d" * 32, "e" * 32,
+        )
+
+        self.assertTrue(updated)
+        self.assertTrue(database.documents.update_one.call_args.args[1]["$set"]["single_submission_per_user"])
+        database.versions.update_many.assert_called_once()
+        database.jobs.update_many.assert_called_once()
 
     def test_lists_categories_scoped_by_tenant_and_group(self):
         database = Database.__new__(Database)

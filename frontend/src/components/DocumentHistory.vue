@@ -61,6 +61,12 @@ async function rename(item: DocumentHistoryItem) {
   if (name !== null) await doc.saveDocumentName(item.document_id, name)
 }
 
+async function toggleSingleSubmission(item: DocumentHistoryItem, event: Event) {
+  if (!item.document_id) return
+  const enabled = (event.target as HTMLInputElement).checked
+  await doc.setSingleSubmissionPerUser(item.document_id, enabled)
+}
+
 function title(item: DocumentHistoryItem): string {
   return item.metadata?.filename || item.metadata?.pdf_url || item.job_id
 }
@@ -86,6 +92,14 @@ function title(item: DocumentHistoryItem): string {
             <button type="button" class="history-action history-delete" @click.stop="remove(item)" :aria-label="`Excluir ${title(item)}`">Excluir</button>
             <button v-if="item.document_id" type="button" class="history-action history-rename" @click.stop="rename(item)" :aria-label="`Renomear ${title(item)}`">Renomear</button>
             <h4>{{ title(item) }}</h4>
+            <label v-if="item.document_id" class="history-toggle" @click.stop>
+              <input
+                type="checkbox"
+                :checked="Boolean(item.single_submission_per_user)"
+                @change="toggleSingleSubmission(item, $event)"
+              >
+              Preenchimento único por usuário
+            </label>
             <small>{{ new Date(item.created_at).toLocaleString() }}</small><br>
             <small>{{ context.groupName(item.group_id) }}</small><br>
             <small>{{ context.categoryName(item.category_id) }}</small><br>

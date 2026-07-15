@@ -10,9 +10,10 @@ const fieldEditor = useFieldEditorStore()
 const runtime = usePreviewRuntime()
 const textEditing = useTextEditing()
 const iframe = ref<HTMLIFrameElement | null>(null)
-const props = withDefaults(defineProps<{ fitContentWidth?: boolean; readonlyGeometry?: boolean }>(), {
+const props = withDefaults(defineProps<{ fitContentWidth?: boolean; readonlyGeometry?: boolean; readonlyValues?: boolean }>(), {
   fitContentWidth: false,
   readonlyGeometry: false,
+  readonlyValues: false,
 })
 let fitResizeObserver: ResizeObserver | null = null
 let fitContentResizeObserver: ResizeObserver | null = null
@@ -84,9 +85,10 @@ function prepareRuntime() {
   fitIframeContentWidth(doc)
   observePreviewWidth()
   doc?.documentElement.removeAttribute('data-field-editor-ready')
-  runtime.renderPreviewFields(doc, { readonlyGeometry: props.readonlyGeometry })
+  runtime.renderPreviewFields(doc, { readonlyGeometry: props.readonlyGeometry, readonlyValues: props.readonlyValues })
+  runtime.renderFormValues(doc)
   if (!props.readonlyGeometry) runtime.installDrawingHandlers(doc)
-  textEditing.installTextEditing(doc, requestSave)
+  if (!props.readonlyValues) textEditing.installTextEditing(doc, requestSave)
 }
 
 function requestSave() {
@@ -108,7 +110,7 @@ watch(
 watch(
   () => docStore.currentFields,
   () => {
-    runtime.renderPreviewFields(contentDocument(), { readonlyGeometry: props.readonlyGeometry })
+    runtime.renderPreviewFields(contentDocument(), { readonlyGeometry: props.readonlyGeometry, readonlyValues: props.readonlyValues })
   },
   { deep: true },
 )
@@ -123,7 +125,7 @@ watch(
 
 watch(
   () => [fieldEditor.addingField, fieldEditor.pendingRadioBoxes?.length || 0],
-  () => runtime.renderPreviewFields(contentDocument(), { readonlyGeometry: props.readonlyGeometry }),
+  () => runtime.renderPreviewFields(contentDocument(), { readonlyGeometry: props.readonlyGeometry, readonlyValues: props.readonlyValues }),
 )
 
 function toggleTextEdit() {

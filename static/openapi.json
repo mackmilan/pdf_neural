@@ -22,6 +22,41 @@
         "responses": {"200": {"description": "Identidade autenticada"}, "401": {"$ref": "#/components/responses/Unauthorized"}}
       }
     },
+    "/api/users/access": {
+      "get": {
+        "tags": ["Usuarios"], "summary": "Lista todos os acessos de usuarios (pdf-admin)", "operationId": "listAllUserAccess",
+        "responses": {
+          "200": {"description": "Acessos agrupados por usuario", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/UserAccessSummary"}}}}},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/users": {
+      "post": {
+        "tags": ["Usuarios"], "summary": "Cria usuario no Keycloak e concede acesso inicial (pdf-admin)", "operationId": "createKeycloakUserWithAccess",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateUserRequest"}}}},
+        "responses": {
+          "201": {"description": "Usuario criado/localizado no Keycloak e acesso concedido"},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "502": {"description": "Falha na Admin API do Keycloak", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
+    "/api/users/{subject}": {
+      "parameters": [{"name": "subject", "in": "path", "required": true, "schema": {"type": "string"}, "description": "Claim sub do usuario no Keycloak"}],
+      "delete": {
+        "tags": ["Usuarios"], "summary": "Remove usuario da aplicacao revogando todos os acessos (pdf-admin)", "operationId": "deleteApplicationUser",
+        "responses": {
+          "200": {"description": "Usuario removido da aplicacao"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "503": {"$ref": "#/components/responses/ServiceUnavailable"}
+        }
+      }
+    },
     "/api/users/{subject}/access": {
       "parameters": [{"name": "subject", "in": "path", "required": true, "schema": {"type": "string"}, "description": "Claim sub do usuario no Keycloak"}],
       "get": {
@@ -138,6 +173,14 @@
         "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 255}}}}}},
         "responses": {"200": {"description": "Documento renomeado"}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}}
+      }
+    },
+    "/api/documents/{document_id}/single-submission": {
+      "put": {
+        "tags": ["Historico"], "summary": "Ativa ou desativa preenchimento unico por usuario", "operationId": "updateDocumentSingleSubmission",
+        "parameters": [{"$ref": "#/components/parameters/DocumentId"}, {"$ref": "#/components/parameters/TenantQuery"}, {"$ref": "#/components/parameters/GroupQuery"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["single_submission_per_user"], "properties": {"single_submission_per_user": {"type": "boolean"}}}}}},
+        "responses": {"200": {"description": "Regra atualizada"}, "400": {"$ref": "#/components/responses/BadRequest"}, "404": {"$ref": "#/components/responses/NotFound"}}
       }
     },
     "/api/documents/{document_id}/html": {
@@ -284,7 +327,8 @@
                   "url": {"type": "string", "format": "uri", "description": "URL publica HTTP/HTTPS do PDF. Use este campo ou pdf."}
                   ,"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
                   "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
-                  ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+                  ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                  "single_submission_per_user": {"type": "boolean", "default": false}
                 }
               }
             }
@@ -486,6 +530,41 @@
           "username": {"type": "string"}
         }
       },
+      "CreateUserRequest": {
+        "type": "object", "required": ["username", "password", "tenant_id", "permission"], "additionalProperties": false,
+        "properties": {
+          "username": {"type": "string", "minLength": 1, "maxLength": 120},
+          "email": {"type": "string", "format": "email"},
+          "password": {"type": "string", "minLength": 8, "maxLength": 256},
+          "temporary_password": {"type": "boolean", "default": true},
+          "display_name": {"type": "string"},
+          "tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "permission": {"type": "string", "enum": ["reader", "editor"]}
+        }
+      },
+      "UserAccessSummary": {
+        "type": "object", "required": ["subject", "access"],
+        "properties": {
+          "subject": {"type": "string"},
+          "username": {"type": "string"},
+          "access": {"type": "array", "items": {"$ref": "#/components/schemas/UserAccessEntry"}}
+        }
+      },
+      "UserAccessEntry": {
+        "type": "object", "required": ["subject", "tenant_id", "permission"],
+        "properties": {
+          "subject": {"type": "string"},
+          "username": {"type": "string"},
+          "tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "tenant_name": {"type": "string"},
+          "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "group_name": {"type": "string"},
+          "permission": {"type": "string", "enum": ["reader", "editor"]},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
       "CreateNamedResource": {
         "type": "object", "additionalProperties": false, "required": ["name"],
         "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 120}, "metadata": {"type": "object"}}
@@ -516,6 +595,7 @@
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
           "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
           "metadata": {"type": "object"},
+          "single_submission_per_user": {"type": "boolean", "default": false},
           "created_at": {"type": "string", "format": "date-time"}
         }
       },
@@ -536,6 +616,7 @@
           "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
           "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
           "metadata": {"type": "object"},
+          "single_submission_per_user": {"type": "boolean", "default": false},
           "created_at": {"type": "string", "format": "date-time"}
         }
       },
@@ -570,7 +651,8 @@
           "reference": {"description": "Valor opcional devolvido no status e callback para correlacao.", "examples": ["documento-123"]}
           ,"tenant_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
           "group_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
-          ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+          ,"category_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "single_submission_per_user": {"type": "boolean", "default": false}
         }
       },
       "Field": {
@@ -659,7 +741,8 @@
           "preview": {"type": "string", "example": "/jobs/9a46c0ef8db14a119a006f239683ef9f/html/index.html"},
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/Field"}},
           "tables": {"type": "array", "items": {"$ref": "#/components/schemas/Table"}},
-          "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}}
+          "neural_tables": {"type": "array", "items": {"$ref": "#/components/schemas/NeuralTable"}},
+          "single_submission_per_user": {"type": "boolean", "default": false}
         }
       },
       "JobAccepted": {

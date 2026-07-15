@@ -9,6 +9,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const fileName = ref('')
 const url = ref('')
 const submitting = ref(false)
+const singleSubmissionPerUser = ref(false)
 
 function onFileChange() {
   fileName.value = fileInput.value?.files?.[0]?.name || ''
@@ -31,6 +32,7 @@ async function submit() {
     const formData = new FormData()
     if (fileInput.value?.files?.[0]) formData.append('pdf', fileInput.value.files[0])
     if (url.value.trim()) formData.append('url', url.value.trim())
+    formData.append('single_submission_per_user', singleSubmissionPerUser.value ? 'true' : 'false')
     await doc.uploadDocument(formData)
   } catch (error) {
     doc.status = (error as Error).message
@@ -50,6 +52,10 @@ async function submit() {
       </label>
       <div class="separator">ou use uma URL</div>
       <input class="url-input" v-model="url" type="url" inputmode="url" placeholder="https://exemplo.com/documento.pdf" aria-label="URL do arquivo PDF" @input="onUrlInput">
+      <label class="checkbox-row upload-option">
+        <input v-model="singleSubmissionPerUser" type="checkbox">
+        Preenchimento único por usuário
+      </label>
       <div class="actions">
         <button type="submit" :disabled="submitting">Converter documento</button>
         <span class="status">{{ doc.status }}</span>

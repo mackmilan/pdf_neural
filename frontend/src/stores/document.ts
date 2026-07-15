@@ -83,6 +83,7 @@ export const useDocumentStore = defineStore('document', {
     currentDocumentName: '' as string,
     currentCategoryId: null as string | null,
     currentFormatNorm: null as FormatNorm | null,
+    currentSingleSubmissionPerUser: false,
     currentVersion: null as number | null,
     currentFields: [] as Field[],
     savedFields: [] as Field[],
@@ -124,6 +125,12 @@ export const useDocumentStore = defineStore('document', {
           : data.format_norm !== undefined
             ? ((data.format_norm as FormatNorm | null) || null)
             : this.currentFormatNorm
+      this.currentSingleSubmissionPerUser =
+        result.single_submission_per_user !== undefined
+          ? Boolean(result.single_submission_per_user)
+          : data.single_submission_per_user !== undefined
+            ? Boolean(data.single_submission_per_user)
+            : this.currentSingleSubmissionPerUser
       this.currentFields = (result.fields || []).map(normalizeFieldBox)
       this.savedFields = this.currentFields.map(cloneField)
       this.formValues = {}
@@ -186,6 +193,7 @@ export const useDocumentStore = defineStore('document', {
       this.currentDocumentName = ''
       this.currentCategoryId = null
       this.currentFormatNorm = null
+      this.currentSingleSubmissionPerUser = false
       this.currentFields = []
       this.savedFields = []
       this.previewUrl = ''
@@ -269,6 +277,32 @@ export const useDocumentStore = defineStore('document', {
         this.status = formatNorm ? `Formatação ${formatNorm.toUpperCase()} aplicada na versão ${data.version}.` : 'Formatação removida.'
       } catch (error) {
         this.status = 'Erro ao aplicar formatação: ' + (error as Error).message
+      }
+    },
+    async setSingleSubmissionPerUser(documentId: string, enabled: boolean) {
+      const auth = useAuthStore()
+      const context = useContextStore()
+      this.status = 'Atualizando regra de preenchimento...'
+      try {
+        const response = await auth.apiFetch(
+          `/api/documents/${encodeURIComponent(documentId)}/single-submission?${context.searchParams}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ single_submission_per_user: enabled }),
+          },
+        )
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error)
+        if (this.currentDocumentId === documentId) {
+          this.currentSingleSubmissionPerUser = Boolean(data.single_submission_per_user)
+        }
+        await context.loadHistory()
+        this.status = enabled
+          ? 'Preenchimento único por usuário ativado.'
+          : 'Preenchimento único por usuário desativado.'
+      } catch (error) {
+        this.status = 'Erro ao atualizar regra: ' + (error as Error).message
       }
     },
     async loadVersions(selectedVersion?: number) {
