@@ -186,8 +186,19 @@ def validate_html_payload(value: object) -> str:
         raise ValueError("html_content excede o limite de 8 MB")
     if not re.search(r"<html[\s>]", html_content, re.IGNORECASE) or not re.search(r"</html\s*>", html_content, re.IGNORECASE):
         raise ValueError("html_content deve conter um documento HTML completo")
-    if re.search(r"<\s*(?:iframe|object|embed)\b", html_content, re.IGNORECASE):
+    if re.search(r"<\s*(?:iframe|object|embed|base|link)\b", html_content, re.IGNORECASE):
         raise ValueError("html_content contem elementos nao permitidos")
+    if re.search(r"<\s*meta\b[^>]*\bhttp-equiv\b", html_content, re.IGNORECASE):
+        raise ValueError("html_content contem elementos nao permitidos")
+    # Manipuladores de evento inline (onerror, onload, onclick, ...) permitem XSS
+    # armazenado, pois o HTML e servido na propria origem da aplicacao.
+    if re.search(r"<[^>]*?\son[a-z]+\s*=", html_content, re.IGNORECASE):
+        raise ValueError("html_content contem manipuladores de evento nao permitidos")
+    # URIs que executam script ou embutem outro documento HTML.
+    if re.search(r"(?:javascript|vbscript)\s*:", html_content, re.IGNORECASE):
+        raise ValueError("html_content contem URIs de script nao permitidos")
+    if re.search(r"data\s*:\s*text\s*/\s*html", html_content, re.IGNORECASE):
+        raise ValueError("html_content contem URIs de dados nao permitidos")
     for match in re.finditer(r"<script\b([^>]*)>(.*?)</script\s*>", html_content, re.IGNORECASE | re.DOTALL):
         attributes, script_body = match.group(1), match.group(2)
         normalized_script = re.sub(r"\s+", " ", script_body).strip()

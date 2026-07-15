@@ -25,9 +25,30 @@ from validators import (
 class Handler(BaseHTTPRequestHandler):
     _identity: Identity | None = None
 
+    SECURITY_HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Referrer-Policy": "no-referrer",
+    }
+    # Conteudo HTML derivado de PDF/edicao e servido na propria origem. Esta CSP
+    # bloqueia canais de exfiltracao (fetch/XHR, imagens externas, formularios)
+    # caso algum vetor de script escape da sanitizacao em validate_html_payload.
+    PREVIEW_CSP = (
+        "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; "
+        "font-src data:; script-src 'unsafe-inline'; connect-src 'none'; "
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+    )
+
+    def _emit_security_headers(self, csp: str | None = None) -> None:
+        for header, value in self.SECURITY_HEADERS.items():
+            self.send_header(header, value)
+        if csp:
+            self.send_header("Content-Security-Policy", csp)
+
     def send_json(self, status: int, value: object) -> None:
         payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
+        self._emit_security_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -102,6 +123,7 @@ class Handler(BaseHTTPRequestHandler):
         if not path.is_file():
             self.send_error(404); return
         self.send_response(200)
+        self._emit_security_headers()
         self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
         if disposition:
             self.send_header("Content-Disposition", disposition)
@@ -287,6 +309,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(404, {"error": "Conteudo convertido nao encontrado"})
                 payload = content.encode("utf-8")
                 self.send_response(200)
+                self._emit_security_headers(self.PREVIEW_CSP)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
@@ -335,6 +358,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(404, {"error": "Conteudo convertido nao encontrado"})
                 payload = content.encode("utf-8")
                 self.send_response(200)
+                self._emit_security_headers(self.PREVIEW_CSP)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
@@ -446,6 +470,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_error(404, "Documento nao encontrado")
                 content = doc["html_content"].encode("utf-8")
                 self.send_response(200)
+                self._emit_security_headers(self.PREVIEW_CSP)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(content)))
                 self.end_headers()

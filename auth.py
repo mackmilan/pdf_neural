@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import base64
 import json
@@ -14,6 +15,8 @@ from threading import Lock
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+LOGGER = logging.getLogger("pdf-neural.auth")
 
 
 class AuthenticationError(ValueError):
@@ -256,31 +259,27 @@ class KeycloakAuthenticator:
             with urllib.request.urlopen(req, timeout=5) as response:
                 clients = json.load(response)
                 if not clients:
-                    print(f"[DEBUG_LOG] Client '{client_id}' not found in Keycloak")
+                    LOGGER.warning("Client '%s' not found in Keycloak", client_id)
                     return False
-                
+
                 # Verifica se o service account está habilitado
                 client_data = clients[0]
                 enabled = client_data.get("serviceAccountsEnabled", False)
                 if not enabled:
-                    print(f"[DEBUG_LOG] Client '{client_id}' found but Service Account is disabled")
+                    LOGGER.warning("Client '%s' found but Service Account is disabled", client_id)
                 return enabled
         except urllib.error.URLError as exc:
-            # Erro de conexão ou HTTP
-            print(f"[DEBUG_LOG] Keycloak connection error during client validation: {exc}")
-            # Em desenvolvimento, se o Keycloak estiver fora, permitimos para não bloquear o fluxo básico,
-            # mas registramos o erro.
-            return True 
+            # Erro de conexão ou HTTP: fail-closed. Nao emitir API Key sem conseguir
+            # validar o client no Keycloak (evita criar chaves para clients inexistentes).
+            LOGGER.error("Keycloak connection error during client validation: %s", exc)
+            return False
         except AuthenticationError as exc:
-            # Erro de configuração do Admin
-            print(f"[DEBUG_LOG] Keycloak admin configuration error: {exc}")
-            # Se a configuração do admin está errada, não podemos validar.
-            # Decidimos se bloqueamos ou permitimos. Por segurança, vamos permitir
-            # mas logar fortemente.
-            return True
+            # Configuração de Admin ausente/incorreta: sem validacao possivel -> fail-closed.
+            LOGGER.error("Keycloak admin configuration error during client validation: %s", exc)
+            return False
         except Exception as exc:
-            print(f"[DEBUG_LOG] Unexpected error during client validation for {client_id}: {exc}")
-            return True
+            LOGGER.exception("Unexpected error during client validation for %s: %s", client_id, exc)
+            return False
 
     def authenticate_api_key(self, api_key: str | None) -> Identity:
         if not api_key:

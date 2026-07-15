@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import ipaddress
 import shutil
@@ -79,21 +80,36 @@ def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str
         elif b'name="single_submission_per_user"' in head:
             single_submission_per_user = data.decode("utf-8", "replace").strip()
     return pdf_name, pdf_data, url, tenant_id, group_id, category_id, single_submission_per_user
-def validate_public_url(raw_url: str) -> str:
+def _resolve_public_url(raw_url: str) -> tuple[str, str, int]:
+    """Valida a URL, resolve o DNS uma unica vez e retorna (url, ip_seguro, porta).
+
+    Todos os enderecos retornados precisam ser globais; o IP devolvido e usado
+    para fixar a conexao (evita DNS rebinding/TOCTOU entre validacao e request)."""
     parsed = urllib.parse.urlsplit(raw_url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError("Informe uma URL HTTP ou HTTPS valida")
     if parsed.username or parsed.password:
         raise ValueError("URLs com credenciais nao sao permitidas")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
-        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise ValueError("Nao foi possivel localizar o servidor da URL") from exc
+    safe_ip = None
     for address in addresses:
         ip = ipaddress.ip_address(address[4][0])
         if not ip.is_global:
             raise ValueError("URLs locais ou de rede privada nao sao permitidas")
-    return urllib.parse.urlunsplit(parsed)
+        if safe_ip is None:
+            safe_ip = address[4][0]
+    if safe_ip is None:
+        raise ValueError("Nao foi possivel localizar o servidor da URL")
+    return urllib.parse.urlunsplit(parsed), safe_ip, port
+
+
+def validate_public_url(raw_url: str) -> str:
+    url, _ip, _port = _resolve_public_url(raw_url)
+    return url
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -101,15 +117,77 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """Conecta ao IP previamente validado, mantendo o Host original nos headers."""
+
+    def __init__(self, host, *args, pinned_ip=None, **kwargs):
+        super().__init__(host, *args, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self):
+        self.sock = socket.create_connection((self._pinned_ip, self.port), self.timeout, self.source_address)
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """Igual a _PinnedHTTPConnection, mas preserva SNI e validacao de certificado
+    contra o hostname original ao aplicar o TLS sobre o IP fixado."""
+
+    def __init__(self, host, *args, pinned_ip=None, **kwargs):
+        super().__init__(host, *args, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self):
+        sock = socket.create_connection((self._pinned_ip, self.port), self.timeout, self.source_address)
+        if self._tunnel_host:
+            self.sock = sock
+            self._tunnel()
+            sock = self.sock
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, pinned_ip, **kwargs):
+        super().__init__(**kwargs)
+        self._pinned_ip = pinned_ip
+
+    def http_open(self, req):
+        return self.do_open(self._connection, req)
+
+    def _connection(self, host, **kwargs):
+        return _PinnedHTTPConnection(host, pinned_ip=self._pinned_ip, **kwargs)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, pinned_ip, **kwargs):
+        super().__init__(**kwargs)
+        self._pinned_ip = pinned_ip
+
+    def https_open(self, req):
+        return self.do_open(self._connection, req, context=self._context)
+
+    def _connection(self, host, **kwargs):
+        return _PinnedHTTPSConnection(host, pinned_ip=self._pinned_ip, **kwargs)
+
+
+def _pinned_opener(pinned_ip: str) -> urllib.request.OpenerDirector:
+    """Opener que recusa redirects e conecta apenas ao IP validado."""
+    return urllib.request.build_opener(
+        NoRedirect, _PinnedHTTPHandler(pinned_ip), _PinnedHTTPSHandler(pinned_ip),
+    )
+
+
 def download_pdf(raw_url: str) -> tuple[str, bytes]:
     LOGGER.debug("Validando URL para download: %s", raw_url)
     url = validate_public_url(raw_url)
-    opener = urllib.request.build_opener(NoRedirect)
     headers = {"User-Agent": "PDF-Neural/1.0", "Accept": "application/pdf"}
     for attempt in range(6):
         try:
             LOGGER.info("Baixando PDF (tentativa %d): %s", attempt + 1, url)
-            response = opener.open(urllib.request.Request(url, headers=headers), timeout=20)
+            # Revalida e fixa o IP a cada tentativa/redirect, inclusive resolvendo o DNS.
+            url, safe_ip, _port = _resolve_public_url(url)
+            response = _pinned_opener(safe_ip).open(urllib.request.Request(url, headers=headers), timeout=20)
         except urllib.error.HTTPError as exc:
             if exc.code in (301, 302, 303, 307, 308) and exc.headers.get("Location"):
                 url = validate_public_url(urllib.parse.urljoin(url, exc.headers["Location"]))
@@ -147,15 +225,15 @@ def deliver_callback(callback_url: str, payload: dict) -> None:
     for attempt in range(3):
         try:
             LOGGER.info("Enviando callback (tentativa %d): %s", attempt + 1, callback_url)
-            # Revalidate on every attempt, including DNS resolution.
-            url = validate_public_url(callback_url)
+            # Revalida e fixa o IP a cada tentativa, inclusive resolvendo o DNS.
+            url, safe_ip, _port = _resolve_public_url(callback_url)
             request = urllib.request.Request(
                 url, data=body, method="POST",
                 headers={"Content-Type": "application/json", "User-Agent": "PDF-Neural/1.0"},
             )
-            # Redirects are rejected to prevent a public callback URL from
-            # redirecting the request into the local network.
-            with urllib.request.build_opener(NoRedirect).open(request, timeout=20) as response:
+            # Redirects sao recusados e a conexao fica presa ao IP validado, para
+            # que uma URL publica nao redirecione a requisicao para a rede interna.
+            with _pinned_opener(safe_ip).open(request, timeout=20) as response:
                 if not 200 <= response.status < 300:
                     raise ValueError(f"Callback respondeu HTTP {response.status}")
             LOGGER.info("Callback entregue com sucesso")
