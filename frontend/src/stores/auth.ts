@@ -4,6 +4,8 @@ import type { AuthConfig, AuthTokens } from '../types'
 const STORAGE_KEY = 'pdf-neural-oidc'
 const STATE_KEY = 'pdf-neural-oidc-state'
 const VERIFIER_KEY = 'pdf-neural-pkce-verifier'
+const ACCOUNT_SETUP_MESSAGE =
+  'Sua conta precisa ser concluída no Keycloak antes de entrar por e-mail e senha.'
 
 function decodeToken(token: string): Record<string, any> {
   try {
@@ -32,12 +34,23 @@ function redirectUri(): string {
   return `${location.origin}${location.pathname}`
 }
 
+function normalizeAuthError(data: Record<string, any>): Error {
+  const description = String(data.error_description || data.error || '')
+  if (/account is not fully set up|required action|resolve required actions/i.test(description)) {
+    const error = new Error(ACCOUNT_SETUP_MESSAGE)
+    ;(error as Error & { accountSetupRequired?: boolean }).accountSetupRequired = true
+    return error
+  }
+  return new Error(description || 'Não foi possível autenticar no Keycloak')
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     config: null as AuthConfig | null,
     tokens: null as AuthTokens | null,
     initialized: false,
     loginError: '' as string,
+    accountSetupRequired: false,
     refreshTimer: null as ReturnType<typeof setTimeout> | null,
   }),
   getters: {
@@ -82,8 +95,8 @@ export const useAuthStore = defineStore('auth', {
           `Não foi possível acessar o Keycloak em ${this.config.issuer}. Verifique se ele está online e se a origem ${location.origin} está autorizada em Web Origins/Redirect URIs.`,
         )
       }
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error_description || 'Não foi possível autenticar no Keycloak')
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw normalizeAuthError(data)
       this.storeTokens(data)
       return data
     },
@@ -93,6 +106,7 @@ export const useAuthStore = defineStore('auth', {
     },
     async loginWithPassword(email: string, password: string) {
       this.loginError = ''
+      this.accountSetupRequired = false
       if (!email.trim() || !password) throw new Error('Informe o e-mail e a senha.')
       await this.exchangeToken({
         grant_type: 'password',
@@ -103,6 +117,7 @@ export const useAuthStore = defineStore('auth', {
     },
     async beginLogin() {
       if (!this.config) throw new Error('Configuração de autenticação não carregada')
+      this.accountSetupRequired = false
       const verifier = randomValue()
       const state = randomValue()
       sessionStorage.setItem(VERIFIER_KEY, verifier)
@@ -123,6 +138,7 @@ export const useAuthStore = defineStore('auth', {
       this.tokens = null
       sessionStorage.removeItem(STORAGE_KEY)
       this.loginError = error?.message || 'Faça login para continuar.'
+      this.accountSetupRequired = Boolean((error as Error & { accountSetupRequired?: boolean } | undefined)?.accountSetupRequired)
     },
     logout() {
       const idToken = this.tokens?.id_token

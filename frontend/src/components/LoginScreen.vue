@@ -47,6 +47,15 @@ function loginWithKeycloak() {
         </button>
       </form>
       <button v-else type="button" :disabled="!auth.config" @click="loginWithKeycloak">Entrar com Keycloak</button>
+      <button
+        v-if="passwordLogin && auth.accountSetupRequired"
+        type="button"
+        class="button-secondary login-setup-button"
+        :disabled="!auth.config"
+        @click="loginWithKeycloak"
+      >
+        Concluir cadastro no Keycloak
+      </button>
       <p class="status">{{ auth.initialized ? auth.loginError || 'Faça login para continuar.' : 'Verificando sessão…' }}</p>
     </div>
   </section>
