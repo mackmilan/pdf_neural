@@ -42,6 +42,8 @@ export function maskValue(value: string, mask: string): string {
 export function usePreviewRuntime() {
   const docStore = useDocumentStore()
   const fieldEditor = useFieldEditorStore()
+  const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+  let activeSelection: { fieldName: string; optionIndex: number | null } | null = null
 
   function valueInputType(field: Field): string {
     return field.mask || field.type === 'select' ? 'text' : field.type
@@ -244,12 +246,19 @@ export function usePreviewRuntime() {
         const element = doc.createElement('div')
         if (optionIndex === 0) element.id = field.name
         element.className = 'pdf-field'
+        element.tabIndex = readonlyGeometry ? -1 : 0
         element.dataset.name = field.name
         element.dataset.type = field.type
         element.dataset.manual = field.source === 'manual' ? 'true' : 'false'
         if (field.type === 'radio') {
           element.dataset.optionIndex = String(optionIndex)
           if (box.value) element.dataset.optionValue = box.value
+        }
+        if (activeSelection?.fieldName === field.name && activeSelection.optionIndex === (field.type === 'radio' ? optionIndex : null)) {
+          element.style.outline = '2px solid #1677ff'
+          requestAnimationFrame(() => {
+            if (element.isConnected) element.focus({ preventScroll: true })
+          })
         }
         element.title = field.type === 'radio' ? `${field.label}: ${box.value}` : field.label
         const fieldHeight = field.type === 'radio' ? 18 : normalizedFieldHeight(field)
@@ -361,6 +370,11 @@ export function usePreviewRuntime() {
       pointerX: number
       original: Field
     } | null = null
+    let activeField: {
+      fieldIndex: number
+      optionIndex: number | null
+      element: HTMLElement
+    } | null = null
 
     const optionIndexFrom = (element: HTMLElement | null): number | null => {
       const value = element?.dataset.optionIndex
@@ -385,6 +399,58 @@ export function usePreviewRuntime() {
         const first = field.option_boxes[0]
         Object.assign(field, { page: first.page, x: first.x, y: first.y, width: first.width, height: first.height })
       }
+    }
+
+    const pageBounds = (page: HTMLElement) => {
+      const rect = page.getBoundingClientRect()
+      const shell = page.closest('.pdf-page-shell') as HTMLElement | null
+      const pageWidth = Number(shell?.dataset.pageWidth) || rect.width
+      const pageHeight = Number(shell?.dataset.pageHeight) || rect.height
+      return { pageWidth, pageHeight }
+    }
+
+    const selectFieldElement = (fieldIndex: number, optionIndex: number | null, element: HTMLElement) => {
+      if (activeField?.element && activeField.element !== element) activeField.element.style.outline = ''
+      activeField = { fieldIndex, optionIndex, element }
+      activeSelection = { fieldName: docStore.currentFields[fieldIndex].name, optionIndex }
+      element.style.outline = '2px solid #1677ff'
+      element.focus({ preventScroll: true })
+    }
+
+    const currentActiveField = () => {
+      if (activeField?.element.isConnected) return activeField
+      if (!activeSelection) return null
+      const fieldIndex = docStore.currentFields.findIndex((field) => field.name === activeSelection?.fieldName)
+      if (fieldIndex < 0) return null
+      const element = Array.from(doc.querySelectorAll<HTMLElement>('.pdf-field')).find((fieldElement) => {
+        const optionIndex = optionIndexFrom(fieldElement)
+        return fieldElement.dataset.name === activeSelection?.fieldName && optionIndex === activeSelection?.optionIndex
+      })
+      if (!element) return null
+      activeField = { fieldIndex, optionIndex: activeSelection.optionIndex, element }
+      element.style.outline = '2px solid #1677ff'
+      return activeField
+    }
+
+    const moveActiveFieldByKeyboard = (event: KeyboardEvent) => {
+      const selected = currentActiveField()
+      if (!selected || !ARROW_KEYS.has(event.key) || event.altKey || event.ctrlKey || event.metaKey) return
+      if (closestFromEvent(event, '.pdf-field-value')) return
+      const field = editableGeometry(selected.fieldIndex, selected.optionIndex)
+      const page = selected.element.closest('.pdf-page') as HTMLElement | null
+      if (!page) return
+      event.preventDefault()
+      event.stopPropagation()
+      const step = event.shiftKey ? 10 : 1
+      const deltaX = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
+      const deltaY = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
+      const { pageWidth, pageHeight } = pageBounds(page)
+      const x = Math.max(0, Math.min(field.x + deltaX, pageWidth - field.width))
+      const y = Math.max(0, Math.min(field.y + deltaY, pageHeight - field.height))
+      selected.element.style.left = `${x}px`
+      selected.element.style.top = `${y}px`
+      saveGeometry(selected.fieldIndex, selected.optionIndex, selected.element)
+      docStore.status = 'Campo movido com o teclado. Clique em Salvar alterações.'
     }
 
     doc.addEventListener('pointerdown', (event) => {
@@ -414,7 +480,7 @@ export function usePreviewRuntime() {
           pointerX: ((event as PointerEvent).clientX - rect.left) * scale,
           original: editableGeometry(fieldIndex, optionIndex),
         }
-        fieldElement!.style.outline = '2px solid #1677ff'
+        selectFieldElement(fieldIndex, optionIndex, fieldElement!)
         return
       }
       const fieldElement = closestFromEvent(event, '.pdf-field') as HTMLElement | null
@@ -438,7 +504,7 @@ export function usePreviewRuntime() {
           offsetX: ((event as PointerEvent).clientX - rect.left) * scale - editableGeometry(fieldIndex, optionIndex).x,
           offsetY: ((event as PointerEvent).clientY - rect.top) * scale - editableGeometry(fieldIndex, optionIndex).y,
         }
-        fieldElement.style.outline = '2px solid #1677ff'
+        selectFieldElement(fieldIndex, optionIndex, fieldElement)
         return
       }
       if (!fieldEditor.addingField) return
@@ -523,7 +589,7 @@ export function usePreviewRuntime() {
       const pointerEvent = event as PointerEvent
       if (resizing) {
         saveGeometry(resizing.fieldIndex, resizing.optionIndex, resizing.element)
-        resizing.element.style.outline = ''
+        selectFieldElement(resizing.fieldIndex, resizing.optionIndex, resizing.element)
         resizing = null
         clearAlignmentGuides(doc)
         docStore.status = 'Campo redimensionado. Clique em Salvar alterações.'
@@ -531,7 +597,7 @@ export function usePreviewRuntime() {
       }
       if (moving) {
         saveGeometry(moving.fieldIndex, moving.optionIndex, moving.element)
-        moving.element.style.outline = ''
+        selectFieldElement(moving.fieldIndex, moving.optionIndex, moving.element)
         moving = null
         clearAlignmentGuides(doc)
         docStore.status = 'Campo movido. Clique em Salvar alterações.'
@@ -582,6 +648,8 @@ export function usePreviewRuntime() {
       draft = null
       clearAlignmentGuides(doc)
     })
+
+    doc.addEventListener('keydown', moveActiveFieldByKeyboard)
   }
 
   return {
