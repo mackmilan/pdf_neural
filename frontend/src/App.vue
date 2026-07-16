@@ -58,7 +58,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <LoginScreen v-if="!auth.initialized || !auth.isAuthenticated" :password-login="Boolean(viewerDocumentId || viewerSubmissionId)" />
+  <LoginScreen
+    v-if="!auth.initialized || !auth.isAuthenticated"
+    :password-login="Boolean(viewerDocumentId || viewerSubmissionId)"
+    :document-id="viewerDocumentId"
+  />
   <DocumentViewer v-else-if="viewerDocumentId" :document-id="viewerDocumentId" />
   <SubmissionViewer v-else-if="viewerSubmissionId" :submission-id="viewerSubmissionId" />
   <SubmittedDocuments v-else-if="isSubmittedDocumentsRoute" />

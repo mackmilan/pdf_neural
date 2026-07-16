@@ -1,13 +1,30 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 
-defineProps<{ passwordLogin?: boolean }>()
+const props = defineProps<{ passwordLogin?: boolean; documentId?: string }>()
 
 const auth = useAuthStore()
 const email = ref('')
 const password = ref('')
 const submitting = ref(false)
+const documentTitle = ref('')
+
+const title = computed(() => documentTitle.value || (props.documentId ? 'Documento' : 'PDF Neural'))
+
+async function loadDocumentTitle() {
+  documentTitle.value = ''
+  if (!props.documentId) return
+  try {
+    const response = await fetch(`/api/public/viewer/documents/${encodeURIComponent(props.documentId)}`)
+    const data = await response.json().catch(() => ({}))
+    if (response.ok && typeof data.document_name === 'string') {
+      documentTitle.value = data.document_name.trim()
+    }
+  } catch {
+    documentTitle.value = ''
+  }
+}
 
 async function login() {
   submitting.value = true
@@ -24,12 +41,15 @@ async function login() {
 function loginWithKeycloak() {
   auth.beginLogin().catch((error) => auth.showLogin(error))
 }
+
+onMounted(loadDocumentTitle)
+watch(() => props.documentId, loadDocumentTitle)
 </script>
 
 <template>
   <section class="login-screen" id="login-screen">
     <div class="card login-card">
-      <h1>PDF Neural</h1>
+      <h1>{{ title }}</h1>
       <p class="lead">
         {{ passwordLogin ? 'Entre com seu e-mail e senha para visualizar o documento.' : 'Entre com sua conta para acessar documentos, conversões e histórico.' }}
       </p>

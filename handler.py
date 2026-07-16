@@ -179,6 +179,18 @@ class Handler(BaseHTTPRequestHandler):
                 "issuer": authenticator.issuer,
                 "client_id": authenticator.audience,
             })
+        public_document_match = re.fullmatch(r"/api/public/viewer/documents/([0-9a-f]{32}|[0-9a-f]{64})", path)
+        if public_document_match:
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            document = db.get_document_summary(public_document_match.group(1))
+            if not document or not document.get("allow_document_page_submission"):
+                return self.send_json(404, {"error": "Documento nao encontrado"})
+            metadata = document.get("metadata") or {}
+            return self.send_json(200, json_safe({
+                "document_id": document.get("document_id") or document.get("job_id"),
+                "document_name": document.get("name") or metadata.get("filename") or "Documento",
+            }))
         identity = self.authenticate()
         if identity is None:
             return
