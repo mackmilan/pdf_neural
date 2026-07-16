@@ -23,7 +23,6 @@ function goToAdminDocuments() {
 <template>
   <nav class="session-bar viewer-top-menu" aria-label="Menu principal">
     <span class="session-user">{{ auth.displayName }}</span>
-    <h1 class="session-title">Neural PDF</h1>
     <div class="button-group">
       <button type="button" :class="{ active: props.activeRoute === 'available' }" @click="goToAvailable">
         Documentos disponíveis
