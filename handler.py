@@ -113,6 +113,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(403, {"error": "Usuario sem acesso ao tenant ou grupo solicitado"})
         return False
 
+    def authorize_document_page_access(self, identity: Identity, document: dict) -> bool:
+        """Exige vinculo exato ao tenant/grupo do documento no visualizador."""
+        if identity.has_role(authenticator.admin_role):
+            return True
+        tenant_id = document.get("tenant_id")
+        group_id = document.get("group_id")
+        if not tenant_id:
+            self.send_json(403, {"error": "Documento sem tenant vinculado"})
+            return False
+        if db and db.is_available():
+            access_entries = db.list_user_access(identity.subject)
+            for access in access_entries:
+                if access.get("tenant_id") == tenant_id and access.get("group_id") == group_id:
+                    return True
+        self.send_json(403, {"error": "Usuario sem acesso ao tenant ou grupo do documento"})
+        return False
+
     def base_url(self) -> str:
         proto = self.headers.get("X-Forwarded-Proto", "http").split(",", 1)[0].strip()
         if proto not in ("http", "https"):
@@ -301,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
             document = db.get_document(parts[3])
             if not document:
                 return self.send_json(404, {"error": "Documento nao encontrado"})
-            if not self.authorize_context(identity, document.get("tenant_id"), document.get("group_id")):
+            if not self.authorize_document_page_access(identity, document):
                 return
             if not document.get("allow_document_page_submission"):
                 return self.send_json(403, {"error": "Este documento nao permite preenchimento pela pagina de documento."})
@@ -899,7 +916,7 @@ class Handler(BaseHTTPRequestHandler):
                 document = db.get_document(viewer_match.group(1))
                 if not document:
                     return self.send_json(404, {"error": "Documento nao encontrado"})
-                if not self.authorize_context(identity, document.get("tenant_id"), document.get("group_id")):
+                if not self.authorize_document_page_access(identity, document):
                     return
                 if not document.get("allow_document_page_submission"):
                     return self.send_json(403, {"error": "Este documento nao permite preenchimento pela pagina de documento."})

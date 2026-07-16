@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import app
+import handler as handler_module
 from auth import AuthenticationError, KeycloakAuthenticator
 from converter import ConversionResult
 from database import Database, db
@@ -398,6 +399,55 @@ class AsyncApiTest(unittest.TestCase):
         database.list_submittable_documents_for_user()
 
         self.assertEqual(database.documents.query["allow_document_page_submission"], True)
+
+    def test_submittable_documents_use_exact_user_tenant_group_scopes(self):
+        class FakeCursor(list):
+            def sort(self, *_args):
+                return self
+
+            def limit(self, _limit):
+                return self
+
+        class FakeDocuments:
+            def find(self, query, *_args, **_kwargs):
+                self.query = query
+                return FakeCursor([])
+
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.documents = FakeDocuments()
+        database.list_user_access = MagicMock(return_value=[
+            {"tenant_id": "a" * 32, "group_id": "b" * 32},
+            {"tenant_id": "c" * 32, "group_id": None},
+        ])
+
+        database.list_submittable_documents_for_user("user-1")
+
+        self.assertEqual(database.documents.query["$or"], [
+            {"tenant_id": "a" * 32, "group_id": "b" * 32},
+            {"tenant_id": "c" * 32, "group_id": None},
+        ])
+
+    def test_document_page_access_requires_exact_tenant_group_binding(self):
+        request_handler = app.Handler.__new__(app.Handler)
+        request_handler.send_json = MagicMock()
+        identity = app.Identity("user-1", "User", frozenset(), {})
+        fake_db = MagicMock()
+        fake_db.is_available.return_value = True
+        fake_db.list_user_access.return_value = [
+            {"tenant_id": "a" * 32, "group_id": None},
+        ]
+
+        with patch.object(handler_module, "db", fake_db):
+            allowed = request_handler.authorize_document_page_access(
+                identity,
+                {"tenant_id": "a" * 32, "group_id": "b" * 32},
+            )
+
+        self.assertFalse(allowed)
+        request_handler.send_json.assert_called_once_with(
+            403, {"error": "Usuario sem acesso ao tenant ou grupo do documento"}
+        )
 
     @patch("urllib.request.urlopen")
     def test_api_key_inherits_context_and_roles_from_keycloak(self, mock_urlopen):

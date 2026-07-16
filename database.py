@@ -605,7 +605,7 @@ class Database:
                 if not tenant_id:
                     continue
                 group_id = item.get("group_id")
-                scopes.append({"tenant_id": tenant_id, "group_id": group_id} if group_id else {"tenant_id": tenant_id})
+                scopes.append({"tenant_id": tenant_id, "group_id": group_id})
             if not scopes:
                 return []
             query["$or"] = scopes
