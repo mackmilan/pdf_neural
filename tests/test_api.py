@@ -10,7 +10,7 @@ import app
 import handler as handler_module
 from auth import AuthenticationError, KeycloakAuthenticator
 from converter import ConversionResult
-from database import Database, db
+from database import Database, FIELD_TEXT_HEIGHT, db, normalize_field_heights
 
 
 class FakeDatabase:
@@ -250,6 +250,12 @@ class AsyncApiTest(unittest.TestCase):
         }])
         self.assertEqual((checkbox_fields[0]["width"], checkbox_fields[0]["height"]), (14.0, 18.0))
 
+        textarea_fields = app.validate_fields_payload([{
+            "name": "observacoes", "label": "Observacoes", "type": "textarea",
+            "page": 1, "x": 10, "y": 20, "width": 180, "height": 120,
+        }])
+        self.assertEqual(textarea_fields[0]["height"], 120.0)
+
         with self.assertRaises(ValueError):
             app.validate_fields_payload([
                 {**fields[0], "name": "duplicado"},
@@ -267,6 +273,17 @@ class AsyncApiTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "entre 2 e 100"):
             app.validate_fields_payload([{**fields[0], "type": "radio", "options": ["Unica"], "option_boxes": []}])
+
+    def test_normalize_field_heights_preserves_textarea_height(self):
+        normalized = normalize_field_heights([
+            {"name": "nome", "type": "text", "width": 100, "height": 80},
+            {"name": "observacoes", "type": "textarea", "width": 200, "height": 140},
+            {"name": "aceite", "type": "checkbox", "width": 80, "height": 80},
+        ])
+
+        self.assertEqual(normalized[0]["height"], float(FIELD_TEXT_HEIGHT))
+        self.assertEqual(normalized[1]["height"], 140.0)
+        self.assertEqual((normalized[2]["width"], normalized[2]["height"]), (14.0, 18.0))
 
         with self.assertRaisesRegex(ValueError, "duplicadas"):
             app.validate_fields_payload([{**fields[0], "type": "radio", "options": ["Sim", "Sim"], "option_boxes": []}])
