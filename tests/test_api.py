@@ -185,6 +185,27 @@ class AsyncApiTest(unittest.TestCase):
         self.assertEqual(password_request.get_method(), "PUT")
         self.assertIn("/users/user-uuid/reset-password", password_request.full_url)
 
+    @patch("urllib.request.urlopen")
+    def test_converts_html_with_gotenberg(self, mock_urlopen):
+        response = MagicMock()
+        response.read.return_value = b"%PDF-1.4\nfake"
+        response.__enter__.return_value = response
+        mock_urlopen.return_value = response
+
+        request_handler = handler_module.Handler.__new__(handler_module.Handler)
+        pdf = request_handler.convert_html_with_gotenberg("<html><body>ok</body></html>")
+
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertTrue(request.full_url.endswith("/forms/chromium/convert/html"))
+        self.assertIn(b'name="files"; filename="index.html"', request.data)
+        self.assertIn(b"<html><body>ok</body></html>", request.data)
+        self.assertIn(b'name="printBackground"\r\n\r\ntrue', request.data)
+        self.assertIn(b'name="preferCssPageSize"\r\n\r\ntrue', request.data)
+        self.assertIn(b'name="marginTop"\r\n\r\n0', request.data)
+        self.assertIn(b'name="scale"\r\n\r\n1', request.data)
+
     def test_validates_manually_edited_fields(self):
         fields = app.validate_fields_payload([{
             "name": "data_dia", "label": "Data - dia", "type": "date",

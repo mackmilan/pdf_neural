@@ -19,6 +19,10 @@ MAX_JSON_SIZE = 64 * 1024
 MAX_HTML_JSON_SIZE = 8 * 1024 * 1024
 TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+GOTENBERG_URL = os.environ.get(
+    "GOTENBERG_URL",
+    "http://yjcd2rmuvgkjyjo6odj5fuy4.2.25.177.136.sslip.io:3010/",
+).rstrip("/")
 WORKERS = int(os.environ.get("PDF_WORKERS", "2"))
 TABLE_MODEL = Path(os.environ.get("TABLE_MODEL", ROOT / "models" / "uepg_table_detector.pt"))
 FIELD_MODEL = Path(os.environ.get("FIELD_MODEL", ROOT / "models" / "field_detector.pt"))

@@ -5,14 +5,16 @@ import json
 import mimetypes
 import re
 import shutil
+import urllib.error
 import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from auth import AuthenticationError, Identity, authenticator
-from config import EXECUTOR, LOGGER, MAX_HTML_JSON_SIZE, MAX_JSON_SIZE, MAX_PDF_SIZE, STATIC
+from config import EXECUTOR, GOTENBERG_URL, LOGGER, MAX_HTML_JSON_SIZE, MAX_JSON_SIZE, MAX_PDF_SIZE, STATIC
 from database import db
 from jobs import run_api_job
 from services import convert_pdf_bytes
@@ -160,6 +162,112 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(path.stat().st_size)); self.end_headers()
         with path.open("rb") as handle:
             shutil.copyfileobj(handle, self.wfile)
+
+    @staticmethod
+    def _pdf_filename(value: object) -> str:
+        filename = str(value or "documento.pdf").strip().replace("\\", "_").replace("/", "_")
+        filename = re.sub(r"[^a-zA-Z0-9_.-]+", "_", filename).strip("._")
+        if not filename:
+            filename = "documento.pdf"
+        if not filename.lower().endswith(".pdf"):
+            filename += ".pdf"
+        return filename[:180]
+
+    @staticmethod
+    def _gotenberg_page_options(html_content: str) -> dict[str, str]:
+        match = re.search(
+            r'data-page-width="([0-9.]+)"[^>]*data-page-height="([0-9.]+)"',
+            html_content,
+            re.IGNORECASE,
+        )
+        options = {
+            "marginTop": "0",
+            "marginBottom": "0",
+            "marginLeft": "0",
+            "marginRight": "0",
+            "scale": "1",
+            "printBackground": "true",
+            "preferCssPageSize": "true",
+            "emulatedMediaType": "print",
+            "waitDelay": "500ms",
+        }
+        if match:
+            width_pt, height_pt = float(match.group(1)), float(match.group(2))
+            options["paperWidth"] = f"{width_pt / 72:.6f}in"
+            options["paperHeight"] = f"{height_pt / 72:.6f}in"
+        return options
+
+    @staticmethod
+    def _multipart_html(html_content: str) -> tuple[str, bytes]:
+        boundary = f"----pdf-neural-{uuid.uuid4().hex}"
+        payload = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="files"; filename="index.html"\r\n'
+            "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        ).encode("utf-8") + html_content.encode("utf-8")
+        for name, value in Handler._gotenberg_page_options(html_content).items():
+            payload += (
+                f"\r\n--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f"{value}"
+            ).encode("utf-8")
+        payload += f"\r\n--{boundary}--\r\n".encode("utf-8")
+        return f"multipart/form-data; boundary={boundary}", payload
+
+    @staticmethod
+    def _html_for_pdf_payload(value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("html_content deve ser uma string")
+        html_content = value.strip()
+        if not html_content:
+            raise ValueError("html_content nao pode ser vazio")
+        if len(html_content.encode("utf-8")) > MAX_PDF_SIZE:
+            raise ValueError("html_content excede o limite de 30 MB")
+        if not re.search(r"<html[\s>]", html_content, re.IGNORECASE) or not re.search(r"</html\s*>", html_content, re.IGNORECASE):
+            raise ValueError("html_content deve conter um documento HTML completo")
+        if re.search(r"<\s*(?:iframe|object|embed|base|link)\b", html_content, re.IGNORECASE):
+            raise ValueError("html_content contem elementos nao permitidos")
+        if re.search(r"<\s*meta\b[^>]*\bhttp-equiv\b", html_content, re.IGNORECASE):
+            raise ValueError("html_content contem elementos nao permitidos")
+        if re.search(r"<[^>]*?\son[a-z]+\s*=", html_content, re.IGNORECASE):
+            raise ValueError("html_content contem manipuladores de evento nao permitidos")
+        if re.search(r"(?:javascript|vbscript)\s*:", html_content, re.IGNORECASE):
+            raise ValueError("html_content contem URIs de script nao permitidos")
+        if re.search(r"data\s*:\s*text\s*/\s*html", html_content, re.IGNORECASE):
+            raise ValueError("html_content contem URIs de dados nao permitidos")
+        for match in re.finditer(r"<script\b([^>]*)>(.*?)</script\s*>", html_content, re.IGNORECASE | re.DOTALL):
+            attributes, script_body = match.group(1), match.group(2)
+            normalized_script = re.sub(r"\s+", " ", script_body).strip()
+            if attributes.strip() or "const resizePages=()" not in normalized_script or "ResizeObserver(resizePages)" not in normalized_script:
+                raise ValueError("html_content contem scripts nao permitidos")
+        return html_content
+
+    def send_pdf_bytes(self, payload: bytes, filename: str) -> None:
+        self.send_response(200)
+        self._emit_security_headers()
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def convert_html_with_gotenberg(self, html_content: str, filename: str = "documento.pdf") -> bytes:
+        content_type, body = self._multipart_html(html_content)
+        request = urllib.request.Request(
+            f"{GOTENBERG_URL}/forms/chromium/convert/html",
+            data=body,
+            headers={
+                "Content-Type": content_type,
+                "Accept": "application/pdf",
+                "Gotenberg-Output-Filename": filename,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:
+            pdf = response.read()
+        if not pdf.startswith(b"%PDF"):
+            raise ValueError("Gotenberg nao retornou um PDF valido")
+        return pdf
 
     def do_GET(self) -> None:
         parsed_request = urllib.parse.urlsplit(self.path)
@@ -922,6 +1030,29 @@ class Handler(BaseHTTPRequestHandler):
         if identity is None:
             return
         path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        if path == "/api/pdf/html":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > MAX_PDF_SIZE + 4096:
+                    raise ValueError("Corpo JSON ausente ou maior que 30 MB")
+                if self.headers.get_content_type() != "application/json":
+                    raise ValueError("Content-Type deve ser application/json")
+                request = json.loads(self.rfile.read(length))
+                if not isinstance(request, dict):
+                    raise ValueError("O corpo JSON deve ser um objeto")
+                html_content = self._html_for_pdf_payload(request.get("html_content"))
+                filename = self._pdf_filename(request.get("filename"))
+                pdf = self.convert_html_with_gotenberg(html_content, filename)
+                return self.send_pdf_bytes(pdf, filename)
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", "replace")[:500]
+                LOGGER.warning("Gotenberg retornou erro HTTP %s: %s", exc.code, detail)
+                return self.send_json(502, {"error": f"Gotenberg retornou erro HTTP {exc.code}"})
+            except urllib.error.URLError as exc:
+                LOGGER.warning("Erro ao acessar Gotenberg: %s", exc)
+                return self.send_json(502, {"error": "Nao foi possivel acessar o Gotenberg"})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self.send_json(400, {"error": str(exc)})
         if path == "/api/users":
             if not self.require_admin(identity):
                 return

@@ -287,13 +287,15 @@ export function usePreviewRuntime() {
         if (field.type === 'radio' && box.value) display.dataset.fieldOption = box.value
         display.textContent = visibleFieldValue(field, box.value)
         const isMark = field.type === 'checkbox' || field.type === 'radio'
+        const isMultiline = field.type === 'textarea'
         Object.assign(display.style, {
           position: 'absolute', inset: '0', zIndex: '90', display: 'flex',
-          alignItems: field.type === 'textarea' ? 'flex-start' : 'center',
+          alignItems: isMultiline ? 'flex-start' : 'center',
           justifyContent: isMark ? 'center' : 'flex-start', padding: isMark ? '0' : '2px 4px',
           color: '#111827', font: field.type === 'radio' ? '16px/1 Arial, sans-serif' : '12px/1.2 Arial, sans-serif',
-          textAlign: fieldTextAlign(field), whiteSpace: field.type === 'textarea' ? 'pre-wrap' : 'nowrap',
-          overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none',
+          textAlign: fieldTextAlign(field), whiteSpace: isMultiline ? 'pre-wrap' : 'nowrap',
+          overflow: isMultiline ? 'visible' : 'hidden', overflowWrap: isMultiline ? 'anywhere' : 'normal',
+          textOverflow: isMultiline ? 'clip' : 'ellipsis', pointerEvents: 'none',
         } as Partial<CSSStyleDeclaration>)
         if (!isMark && field.align === 'center') display.style.justifyContent = 'center'
         if (!isMark && field.align === 'right') display.style.justifyContent = 'flex-end'

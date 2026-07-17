@@ -9,9 +9,10 @@ const props = defineProps<{ submissionId: string }>()
 const auth = useAuthStore()
 const documentStore = useDocumentStore()
 const loading = ref(true)
+const generatingPdf = ref(false)
 const error = ref('')
-const printError = ref('')
-const preview = ref<{ printDocument: () => void } | null>(null)
+const pdfError = ref('')
+const preview = ref<{ generatePdf: (filename?: string) => Promise<void> } | null>(null)
 const submission = ref<{
   submission_id: string
   values: Record<string, unknown>
@@ -21,6 +22,34 @@ const submission = ref<{
 } | null>(null)
 
 const documentName = computed(() => documentStore.currentDocumentName || 'Documento preenchido')
+function filenamePart(value: string, fallback: string): string {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return normalized || fallback
+}
+
+function localDatePart(value?: string): string {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const pdfFilename = computed(() => {
+  const user = filenamePart(
+    submission.value?.email || auth.displayName || submission.value?.subject || '',
+    'usuario',
+  )
+  const date = localDatePart(submission.value?.created_at)
+  const document = filenamePart(documentName.value.replace(/\.pdf$/i, ''), 'documento')
+  return `${user}_${date}_${document}.pdf`
+})
 const createdAt = computed(() => {
   if (!submission.value?.created_at) return ''
   const date = new Date(submission.value.created_at)
@@ -40,12 +69,15 @@ function displayValue(value: unknown): string {
   return String(value)
 }
 
-function printSubmission() {
-  printError.value = ''
+async function generateSubmissionPdf() {
+  pdfError.value = ''
+  generatingPdf.value = true
   try {
-    preview.value?.printDocument()
+    await preview.value?.generatePdf(pdfFilename.value)
   } catch (cause) {
-    printError.value = (cause as Error).message
+    pdfError.value = (cause as Error).message
+  } finally {
+    generatingPdf.value = false
   }
 }
 
@@ -82,7 +114,9 @@ onMounted(loadSubmission)
       </div>
       <div class="viewer-session">
         <span>{{ auth.displayName }}</span>
-        <button type="button" class="button-secondary" :disabled="loading || !documentStore.previewHtml" @click="printSubmission">Imprimir</button>
+        <button type="button" class="button-secondary" :disabled="loading || generatingPdf || !documentStore.previewHtml" @click="generateSubmissionPdf">
+          {{ generatingPdf ? 'Gerando...' : 'Gerar PDF' }}
+        </button>
       </div>
     </header>
 
@@ -95,7 +129,7 @@ onMounted(loadSubmission)
       </section>
       <aside class="viewer-fields card">
         <h2>Dados salvos</h2>
-        <p v-if="printError" class="viewer-error">{{ printError }}</p>
+        <p v-if="pdfError" class="viewer-error">{{ pdfError }}</p>
         <p class="status">Protocolo: {{ submission?.submission_id }}</p>
         <p v-if="createdAt" class="status">Enviado em: {{ createdAt }}</p>
         <p v-if="submission?.email" class="status">Responsável: {{ submission.email }}</p>
