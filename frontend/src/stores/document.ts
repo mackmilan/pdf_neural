@@ -68,6 +68,20 @@ export function normalizeFieldBox(field: Field): Field {
     })
   } else delete normalized.options
   if (normalized.type !== 'radio') delete normalized.option_boxes
+  if (normalized.type === 'checkbox') {
+    const groupId = String(field.group_id || '').trim().slice(0, 64)
+    const groupLabel = String(field.group_label || '').trim().slice(0, 160)
+    if (groupId && groupLabel) {
+      normalized.group_id = groupId
+      normalized.group_label = groupLabel
+    } else {
+      delete normalized.group_id
+      delete normalized.group_label
+    }
+  } else {
+    delete normalized.group_id
+    delete normalized.group_label
+  }
   return normalized
 }
 

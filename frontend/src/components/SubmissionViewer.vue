@@ -2,8 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useDocumentStore } from '../stores/document'
+import { buildFieldTree } from '../composables/fieldTree'
 import PdfPreview from './PdfPreview.vue'
 import ViewerTopMenu from './ViewerTopMenu.vue'
+import type { FieldTreeGroup } from '../composables/fieldTree'
 
 const props = defineProps<{ submissionId: string }>()
 const auth = useAuthStore()
@@ -62,11 +64,24 @@ const filledFields = computed(() =>
     value: documentStore.formValues[field.name],
   })),
 )
+const fieldTreeNodes = computed(() => buildFieldTree(documentStore.currentFields))
 
 function displayValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Sim' : 'Não'
   if (value === null || value === undefined || value === '') return '-'
   return String(value)
+}
+
+function isSelectedValue(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value !== 'string') return false
+  return ['true', '1', 'sim', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
+function visibleGroupFields(group: FieldTreeGroup) {
+  if (!group.fields.every(({ field }) => field.type === 'checkbox')) return group.fields
+  return group.fields.filter(({ field }) => isSelectedValue(documentStore.formValues[field.name]))
 }
 
 async function generateSubmissionPdf() {
@@ -136,10 +151,28 @@ onMounted(loadSubmission)
 
         <div v-if="!filledFields.length" class="viewer-message">Esta submissão não possui campos.</div>
         <dl v-else class="submission-values">
-          <div v-for="field in filledFields" :key="field.name" class="submission-value">
-            <dt>{{ field.label }}</dt>
-            <dd>{{ displayValue(field.value) }}</dd>
-          </div>
+          <template v-for="node in fieldTreeNodes" :key="node.kind === 'group' ? node.groupId : node.field.name">
+            <div v-if="node.kind === 'group'" class="submission-value-group">
+              <dt class="submission-value-group-title">
+                <strong>{{ node.label }}</strong>
+                <small>{{ visibleGroupFields(node).length || 0 }} selecionado(s)</small>
+              </dt>
+              <dd class="submission-value-group-children">
+                <dl v-if="visibleGroupFields(node).length">
+                  <div v-for="{ field } in visibleGroupFields(node)" :key="field.name" class="submission-value submission-value-child">
+                    <dt>{{ field.label }}</dt>
+                    <dd v-if="field.type === 'checkbox'">Selecionado</dd>
+                    <dd v-else>{{ displayValue(documentStore.formValues[field.name]) }}</dd>
+                  </div>
+                </dl>
+                <span v-else class="submission-value-empty">-</span>
+              </dd>
+            </div>
+            <div v-else class="submission-value">
+              <dt>{{ node.field.label }}</dt>
+              <dd>{{ displayValue(documentStore.formValues[node.field.name]) }}</dd>
+            </div>
+          </template>
         </dl>
       </aside>
     </div>
