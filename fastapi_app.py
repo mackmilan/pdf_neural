@@ -298,9 +298,17 @@ def register_routes(api: FastAPI) -> None:
         if not document or not document.get("allow_document_page_submission"):
             raise HTTPException(status_code=404, detail={"error": "Documento nao encontrado"})
         metadata = document.get("metadata") or {}
+        tenant_id = document.get("tenant_id")
+        group_id = document.get("group_id")
+        tenant = db.get_tenant(tenant_id)
+        group = db.get_group(tenant_id, group_id)
         return json_safe({
             "document_id": document.get("document_id") or document.get("job_id"),
             "document_name": document.get("name") or metadata.get("filename") or "Documento",
+            "tenant_id": tenant_id,
+            "tenant_name": tenant.get("name") if tenant else None,
+            "group_id": group_id,
+            "group_name": group.get("name") if group else None,
         })
 
     @api.get("/api/users/access")

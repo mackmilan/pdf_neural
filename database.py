@@ -254,6 +254,16 @@ class Database:
             return []
         return list(self.groups.find({"tenant_id": tenant_id}).sort("name", 1))
 
+    def get_tenant(self, tenant_id: str | None) -> dict | None:
+        if not self.is_available() or not tenant_id:
+            return None
+        return self.tenants.find_one({"tenant_id": tenant_id})
+
+    def get_group(self, tenant_id: str | None, group_id: str | None) -> dict | None:
+        if not self.is_available() or not tenant_id or not group_id:
+            return None
+        return self.groups.find_one({"tenant_id": tenant_id, "group_id": group_id})
+
     def create_category(
         self, tenant_id: str, group_id: str, name: str, metadata: dict | None = None,
     ) -> dict | None:
