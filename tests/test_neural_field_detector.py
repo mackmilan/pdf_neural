@@ -57,6 +57,37 @@ class TestDateFieldTraining(unittest.TestCase):
         self.assertAlmostEqual(fields[0].width, 16.5)
         self.assertEqual([field.name for field in fields], ["data_dia", "data_mes", "data_ano"])
 
+    def test_ignores_underlined_email_text_as_field(self):
+        page = MagicMock()
+        page.width, page.height = 400, 300
+        page.rects, page.chars = [], []
+        page.lines = [
+            {"x0": 100.0, "x1": 218.0, "top": 104.0, "bottom": 104.0, "y0": 0.0, "y1": 0.0},
+        ]
+        words = [
+            {"text": "ana@example.com", "x0": 100.0, "x1": 218.0, "top": 90.0, "bottom": 102.0},
+        ]
+
+        fields = inferred_fields(page, 1, words, [])
+
+        self.assertEqual(fields, [])
+
+    def test_keeps_blank_email_line_as_editable_field(self):
+        page = MagicMock()
+        page.width, page.height = 400, 300
+        page.rects, page.chars = [], []
+        page.lines = [
+            {"x0": 90.0, "x1": 240.0, "top": 104.0, "bottom": 104.0, "y0": 0.0, "y1": 0.0},
+        ]
+        words = [
+            {"text": "E-mail:", "x0": 30.0, "x1": 74.0, "top": 90.0, "bottom": 102.0},
+        ]
+
+        fields = inferred_fields(page, 1, words, [])
+
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0].type, "email")
+
     def test_splits_slash_date_and_colon_time(self):
         page = MagicMock()
         page.chars = []

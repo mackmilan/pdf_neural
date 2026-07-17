@@ -1,4 +1,4 @@
-import { useDocumentStore, normalizedFieldHeight } from '../stores/document'
+import { FIELD_CHOICE_HEIGHT, FIELD_CHOICE_WIDTH, useDocumentStore, normalizedFieldHeight } from '../stores/document'
 import { useFieldEditorStore } from '../stores/fieldEditor'
 import {
   capturePointer,
@@ -200,8 +200,8 @@ export function usePreviewRuntime() {
     } as Partial<CSSStyleDeclaration>)
     if (field.type === 'checkbox') {
       Object.assign(input.style, {
-        width: '18px',
-        height: '18px',
+        width: `${FIELD_CHOICE_WIDTH}px`,
+        height: `${FIELD_CHOICE_HEIGHT}px`,
         inset: '50% auto auto 50%',
         transform: 'translate(-50%, -50%)',
       } as Partial<CSSStyleDeclaration>)
@@ -235,6 +235,7 @@ export function usePreviewRuntime() {
     closeInlineFieldValue(doc)
     clearAlignmentGuides(doc)
     doc.querySelectorAll('.pdf-field').forEach((element) => element.remove())
+    doc.querySelectorAll('.pdf-field-draft').forEach((element) => element.remove())
     doc.querySelectorAll('.pdf-radio-pending').forEach((element) => element.remove())
     docStore.currentFields.forEach((field) => {
       const renderBoxes = field.type === 'radio' && field.option_boxes?.length
@@ -261,12 +262,17 @@ export function usePreviewRuntime() {
           })
         }
         element.title = field.type === 'radio' ? `${field.label}: ${box.value}` : field.label
-        const fieldHeight = field.type === 'radio' ? 18 : normalizedFieldHeight(field)
-        if (field.type !== 'radio') field.height = fieldHeight
+        const isFixedChoice = field.type === 'checkbox' || field.type === 'radio'
+        const fieldHeight = isFixedChoice ? FIELD_CHOICE_HEIGHT : normalizedFieldHeight(field)
+        const fieldWidth = isFixedChoice ? FIELD_CHOICE_WIDTH : box.width
+        if (field.type !== 'radio') {
+          field.height = fieldHeight
+          if (field.type === 'checkbox') field.width = FIELD_CHOICE_WIDTH
+        }
         Object.assign(element.style, {
           left: `${box.x}px`,
           top: `${box.y}px`,
-          width: `${box.width}px`,
+          width: `${fieldWidth}px`,
           height: `${fieldHeight}px`,
           cursor: readonlyGeometry ? 'text' : 'move',
         })
@@ -304,16 +310,26 @@ export function usePreviewRuntime() {
           display.style.textAlignLast = 'justify'
         }
         element.appendChild(display)
-        if (!readonlyGeometry) {
+        if (!readonlyGeometry && !isFixedChoice) {
           const handles: HTMLElement[] = []
-          ;(['w', 'e'] as const).forEach((direction) => {
+          const directions = field.type === 'textarea'
+            ? (['n', 's', 'w', 'e', 'nw', 'ne', 'sw', 'se'] as const)
+            : (['w', 'e'] as const)
+          directions.forEach((direction) => {
             const handle = doc.createElement('span')
             handle.dataset.resize = direction
+            const vertical = direction.includes('n') || direction.includes('s')
+            const horizontal = direction.includes('w') || direction.includes('e')
             Object.assign(handle.style, {
               position: 'absolute', width: '9px', height: '9px', border: '1px solid white', borderRadius: '2px',
-              background: '#1677ff', zIndex: '100', opacity: '0', top: '50%', bottom: 'auto',
-              left: direction === 'w' ? '-5px' : 'auto', right: direction === 'e' ? '-5px' : 'auto',
-              transform: 'translateY(-50%)', cursor: 'ew-resize', pointerEvents: 'auto',
+              background: '#1677ff', zIndex: '100', opacity: '0',
+              top: direction.includes('n') ? '-5px' : direction.includes('s') ? 'auto' : '50%',
+              bottom: direction.includes('s') ? '-5px' : 'auto',
+              left: direction.includes('w') ? '-5px' : direction.includes('e') ? 'auto' : '50%',
+              right: direction.includes('e') ? '-5px' : 'auto',
+              transform: vertical && !horizontal ? 'translateX(-50%)' : horizontal && !vertical ? 'translateY(-50%)' : 'none',
+              cursor: vertical && horizontal ? `${direction}-resize` : vertical ? 'ns-resize' : 'ew-resize',
+              pointerEvents: 'auto',
             } as Partial<CSSStyleDeclaration>)
             handles.push(handle)
             element.appendChild(handle)
@@ -338,7 +354,7 @@ export function usePreviewRuntime() {
       const marker = doc.createElement('div')
       marker.className = 'pdf-radio-pending'
       Object.assign(marker.style, {
-        position: 'absolute', left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: '18px',
+        position: 'absolute', left: `${box.x}px`, top: `${box.y}px`, width: `${FIELD_CHOICE_WIDTH}px`, height: `${FIELD_CHOICE_HEIGHT}px`,
         zIndex: '89', border: '2px dashed #1677ff', background: '#1677ff22', pointerEvents: 'none',
       })
       page.appendChild(marker)
@@ -369,7 +385,9 @@ export function usePreviewRuntime() {
       rect: DOMRect
       scale: number
       pageWidth: number
+      pageHeight: number
       pointerX: number
+      pointerY: number
       original: Field
     } | null = null
     let activeField: {
@@ -386,14 +404,16 @@ export function usePreviewRuntime() {
     const editableGeometry = (fieldIndex: number, optionIndex: number | null): Field => {
       const field = docStore.currentFields[fieldIndex]
       if (optionIndex === null || !field.option_boxes?.[optionIndex]) return { ...field }
-      return { ...field, ...field.option_boxes[optionIndex], height: 18 }
+      return { ...field, ...field.option_boxes[optionIndex], width: FIELD_CHOICE_WIDTH, height: FIELD_CHOICE_HEIGHT }
     }
 
     const saveGeometry = (fieldIndex: number, optionIndex: number | null, element: HTMLElement) => {
       const field = docStore.currentFields[fieldIndex]
+      const isFixedChoice = field.type === 'checkbox' || field.type === 'radio'
       const geometry = {
         x: parseFloat(element.style.left), y: parseFloat(element.style.top),
-        width: parseFloat(element.style.width), height: field.type === 'radio' ? 18 : normalizedFieldHeight(field),
+        width: isFixedChoice ? FIELD_CHOICE_WIDTH : parseFloat(element.style.width),
+        height: isFixedChoice ? FIELD_CHOICE_HEIGHT : field.type === 'textarea' ? parseFloat(element.style.height) : normalizedFieldHeight(field),
       }
       if (optionIndex !== null && field.option_boxes?.[optionIndex]) Object.assign(field.option_boxes[optionIndex], geometry)
       else Object.assign(field, geometry)
@@ -459,6 +479,7 @@ export function usePreviewRuntime() {
       if (closestFromEvent(event, '.pdf-field-value')) return
       const resizeHandle = closestFromEvent(event, '[data-resize]') as HTMLElement | null
       if (!fieldEditor.addingField && resizeHandle) {
+        doc.querySelectorAll('.pdf-field-draft').forEach((element) => element.remove())
         const fieldElement = resizeHandle.closest('.pdf-field') as HTMLElement | null
         const fieldIndex = docStore.currentFields.findIndex((field) => field.name === fieldElement?.dataset.name)
         const optionIndex = optionIndexFrom(fieldElement)
@@ -468,7 +489,9 @@ export function usePreviewRuntime() {
         event.stopPropagation()
         capturePointer(event as PointerEvent)
         const rect = page.getBoundingClientRect()
-        const pageWidth = Number((page.closest('.pdf-page-shell') as HTMLElement)?.dataset.pageWidth) || rect.width
+        const shell = page.closest('.pdf-page-shell') as HTMLElement | null
+        const pageWidth = Number(shell?.dataset.pageWidth) || rect.width
+        const pageHeight = Number(shell?.dataset.pageHeight) || rect.height
         const scale = pageWidth / rect.width
         resizing = {
           fieldIndex,
@@ -479,7 +502,9 @@ export function usePreviewRuntime() {
           rect,
           scale,
           pageWidth,
+          pageHeight,
           pointerX: ((event as PointerEvent).clientX - rect.left) * scale,
+          pointerY: ((event as PointerEvent).clientY - rect.top) * scale,
           original: editableGeometry(fieldIndex, optionIndex),
         }
         selectFieldElement(fieldIndex, optionIndex, fieldElement!)
@@ -487,6 +512,7 @@ export function usePreviewRuntime() {
       }
       const fieldElement = closestFromEvent(event, '.pdf-field') as HTMLElement | null
       if (!fieldEditor.addingField && fieldElement) {
+        doc.querySelectorAll('.pdf-field-draft').forEach((element) => element.remove())
         const fieldIndex = docStore.currentFields.findIndex((field) => field.name === fieldElement.dataset.name)
         const optionIndex = optionIndexFrom(fieldElement)
         const page = fieldElement.closest('.pdf-page') as HTMLElement | null
@@ -519,6 +545,7 @@ export function usePreviewRuntime() {
       const scale = pageWidth / rect.width
       start = { page, rect, scale, x: ((event as PointerEvent).clientX - rect.left) * scale, y: ((event as PointerEvent).clientY - rect.top) * scale }
       draft = doc.createElement('div')
+      draft.className = 'pdf-field-draft'
       Object.assign(draft.style, {
         position: 'absolute',
         zIndex: '90',
@@ -533,26 +560,37 @@ export function usePreviewRuntime() {
       const pointerEvent = event as PointerEvent
       if (resizing) {
         const pointerX = (pointerEvent.clientX - resizing.rect.left) * resizing.scale
+        const pointerY = (pointerEvent.clientY - resizing.rect.top) * resizing.scale
         const dx = pointerX - resizing.pointerX
+        const dy = pointerY - resizing.pointerY
         const original = resizing.original
         const direction = resizing.direction
         let x = original.x
+        let y = original.y
         let width = original.width
+        let height = normalizedFieldHeight(original)
         if (direction.includes('e')) width = Math.max(5, Math.min(original.width + dx, resizing.pageWidth - original.x))
         if (direction.includes('w')) {
           x = Math.max(0, Math.min(original.x + dx, original.x + original.width - 5))
           width = original.width + (original.x - x)
         }
-        const snapped = snapHorizontalResize(
-          { x, y: original.y, width, height: normalizedFieldHeight(original) },
-          original.page,
-          direction,
-          docStore.currentFields,
-          resizing.fieldIndex,
-        )
+        if (direction.includes('s')) height = Math.max(5, Math.min(normalizedFieldHeight(original) + dy, resizing.pageHeight - original.y))
+        if (direction.includes('n')) {
+          y = Math.max(0, Math.min(original.y + dy, original.y + normalizedFieldHeight(original) - 5))
+          height = normalizedFieldHeight(original) + (original.y - y)
+        }
+        const snapped = direction.includes('e') || direction.includes('w')
+          ? snapHorizontalResize(
+            { x, y, width, height },
+            original.page,
+            direction,
+            docStore.currentFields,
+            resizing.fieldIndex,
+          )
+          : { box: { x, y, width, height }, guides: [] }
         x = Math.max(0, Math.min(snapped.box.x, resizing.pageWidth - 5))
         width = Math.max(5, Math.min(snapped.box.width, resizing.pageWidth - x))
-        Object.assign(resizing.element.style, { left: `${x}px`, width: `${width}px`, height: `${normalizedFieldHeight(original)}px` })
+        Object.assign(resizing.element.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` })
         showAlignmentGuides(resizing.page, snapped.guides)
         return
       }
@@ -580,8 +618,15 @@ export function usePreviewRuntime() {
       }
       if (!start || !draft) return
       const x = (pointerEvent.clientX - start.rect.left) * start.scale
+      const y = (pointerEvent.clientY - start.rect.top) * start.scale
       const fieldType = fieldEditor.form.type
-      const rawBox = { x: Math.min(start.x, x), y: start.y, width: Math.abs(x - start.x), height: normalizedFieldHeight({ type: fieldType }) }
+      const isMultiline = fieldType === 'textarea'
+      const rawBox = {
+        x: Math.min(start.x, x),
+        y: isMultiline ? Math.min(start.y, y) : start.y,
+        width: Math.abs(x - start.x),
+        height: isMultiline ? Math.abs(y - start.y) : normalizedFieldHeight({ type: fieldType }),
+      }
       const snapped = snapFieldBox(rawBox, Number(start.page.dataset.page), docStore.currentFields)
       Object.assign(draft.style, { left: `${snapped.box.x}px`, top: `${snapped.box.y}px`, width: `${snapped.box.width}px`, height: `${snapped.box.height}px` })
       showAlignmentGuides(start.page, snapped.guides)
@@ -607,11 +652,18 @@ export function usePreviewRuntime() {
       }
       if (!start || !draft) return
       const x = (pointerEvent.clientX - start.rect.left) * start.scale
+      const y = (pointerEvent.clientY - start.rect.top) * start.scale
       const fieldType = fieldEditor.form.type
-      const rawBox = { x: Math.min(start.x, x), y: start.y, width: Math.abs(x - start.x), height: normalizedFieldHeight({ type: fieldType }) }
+      const isMultiline = fieldType === 'textarea'
+      const rawBox = {
+        x: Math.min(start.x, x),
+        y: isMultiline ? Math.min(start.y, y) : start.y,
+        width: Math.abs(x - start.x),
+        height: isMultiline ? Math.abs(y - start.y) : normalizedFieldHeight({ type: fieldType }),
+      }
       const box = snapFieldBox(rawBox, Number(start.page.dataset.page), docStore.currentFields).box
       const labelValue = fieldEditor.form.label.trim()
-      if (box.width >= 3 && labelValue) {
+      if (box.width >= 3 && box.height >= 3 && labelValue) {
         const newField = fieldEditor.buildDraftField(labelValue, Number(start.page.dataset.page), box)
         if (!newField) {
           draft.remove()
@@ -632,6 +684,7 @@ export function usePreviewRuntime() {
         docStore.currentFields.push(newField)
         fieldEditor.stop()
         docStore.status = 'Campo adicionado. Clique em Salvar alterações.'
+        draft.remove()
         renderPreviewFields(doc)
       } else {
         draft.remove()

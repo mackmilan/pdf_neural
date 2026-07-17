@@ -67,6 +67,8 @@ def validate_format_norm(value: object) -> str | None:
 
 FIELD_TYPES = {"text", "date", "time", "email", "tel", "number", "password", "checkbox", "radio", "select", "textarea"}
 FIELD_ALIGNS = {"left", "center", "justify", "right"}
+FIELD_CHOICE_WIDTH = 14.0
+FIELD_CHOICE_HEIGHT = 18.0
 
 
 def optional_number(value: object, label: str, index: int) -> float | None:
@@ -126,6 +128,8 @@ def validate_fields_payload(value: object) -> list[dict]:
             raise ValueError(f"Coordenadas invalidas no campo {index}")
         if x < 0 or y < 0 or width <= 0 or height <= 0 or width > 10000 or height > 10000:
             raise ValueError(f"Dimensoes invalidas no campo {index}")
+        if kind in {"checkbox", "radio"}:
+            width, height = FIELD_CHOICE_WIDTH, FIELD_CHOICE_HEIGHT
         option_boxes = []
         if kind == "radio":
             raw_boxes = raw.get("option_boxes")
@@ -152,7 +156,7 @@ def validate_fields_payload(value: object) -> list[dict]:
                 seen_box_values.add(value)
                 option_boxes.append({
                     "value": value, "page": box_page, "x": box_x, "y": box_y,
-                    "width": box_width, "height": box_height,
+                    "width": FIELD_CHOICE_WIDTH, "height": FIELD_CHOICE_HEIGHT,
                 })
         used_names.add(name)
         fields.append({

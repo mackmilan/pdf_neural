@@ -9,9 +9,16 @@ const FIELD_TEXT_VERTICAL_PADDING = 4
 export const FIELD_TEXT_HEIGHT = Math.ceil(
   FIELD_TEXT_FONT_SIZE * FIELD_TEXT_LINE_HEIGHT + FIELD_TEXT_VERTICAL_PADDING,
 )
+export const FIELD_CHOICE_WIDTH = 14
+export const FIELD_CHOICE_HEIGHT = 18
 
-export function normalizedFieldHeight(field: Pick<Field, 'type'>): number {
-  return field.type === 'checkbox' || field.type === 'radio' ? 18 : FIELD_TEXT_HEIGHT
+export function normalizedFieldHeight(field: Pick<Field, 'type'> & Partial<Pick<Field, 'height'>>): number {
+  if (field.type === 'checkbox' || field.type === 'radio') return FIELD_CHOICE_HEIGHT
+  if (field.type === 'textarea') {
+    const height = Number(field.height)
+    return Number.isFinite(height) ? Math.max(5, height) : FIELD_TEXT_HEIGHT
+  }
+  return FIELD_TEXT_HEIGHT
 }
 
 export function optionalNumber(value: unknown): number | null {
@@ -33,6 +40,10 @@ export function normalizeFieldBox(field: Field): Field {
     height: normalizedFieldHeight(field),
     align: ['left', 'center', 'justify', 'right'].includes(field.align as string) ? field.align : 'left',
   }
+  if (normalized.type === 'checkbox' || normalized.type === 'radio') {
+    normalized.width = FIELD_CHOICE_WIDTH
+    normalized.height = FIELD_CHOICE_HEIGHT
+  }
   const min = optionalNumber(field.min)
   const max = optionalNumber(field.max)
   if (normalized.type === 'number' && Number.isFinite(min)) normalized.min = min as number
@@ -51,8 +62,8 @@ export function normalizeFieldBox(field: Field): Field {
         page: Number(box?.page) || normalized.page,
         x: Number.isFinite(Number(box?.x)) ? Number(box!.x) : normalized.x + index * 22,
         y: Number.isFinite(Number(box?.y)) ? Number(box!.y) : normalized.y,
-        width: Number.isFinite(Number(box?.width)) && Number(box!.width) > 0 ? Number(box!.width) : 18,
-        height: 18,
+        width: FIELD_CHOICE_WIDTH,
+        height: FIELD_CHOICE_HEIGHT,
       }
     })
   } else delete normalized.options

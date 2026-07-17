@@ -4,6 +4,6 @@ __pycache__/
 output/
 tmp/
 .env
-.idea
-.claude
-.junie
+.idea/
+.claude/
+.junie/

@@ -96,7 +96,7 @@ def render_pdf(pdf_path: Path, output_dir: Path, dpi: int = 150) -> list[Path]:
 
 def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, float, float, float]]]]:
     """Extrai campos (AcroForms e detectados pelo converter) para usar como rotulo."""
-    from converter import acro_fields, inferred_fields
+    from converter import acro_fields, inferred_fields, textual_empty_parentheses_fields
     from pypdf import PdfReader
     
     pages_data = []
@@ -115,6 +115,7 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
             table_bboxes = [table.bbox for table in tables]
 
             inferred = inferred_fields(page, pno, words, current_acros, table_bboxes)
+            empty_parentheses = textual_empty_parentheses_fields(page, words)
 
             all_fields = current_acros + inferred
 
@@ -177,6 +178,7 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
                 return (x0, y0, x1, y1)
 
             bboxes = [normalize_bbox((f.x, f.y, f.x + f.width, f.y + f.height)) for f in filtered_fields]
+            bboxes.extend(option["bbox"] for option in empty_parentheses)
             pages_data.append((float(page.width), float(page.height), bboxes))
             
     return pages_data
@@ -279,6 +281,43 @@ def augment_date_field(image: Image.Image, mask: Image.Image, rng: random.Random
             cursor = part_right
     return image, mask
 
+
+def augment_empty_parentheses_field(
+    image: Image.Image,
+    mask: Image.Image,
+    rng: random.Random = random,
+) -> tuple[Image.Image, Image.Image]:
+    """Insere um controle visual com match textual exato ``( )``."""
+    image = image.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE)).copy()
+    mask = mask.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE)).copy()
+    draw, mask_draw = ImageDraw.Draw(image), ImageDraw.Draw(mask)
+    font = ImageFont.load_default()
+    tone = rng.randint(0, 45)
+    y = rng.randint(24, IMAGE_SIZE - 36)
+    label = rng.choice((
+        "Sim",
+        "Nao",
+        "Concordo",
+        "Discordo",
+        "Masculino",
+        "Feminino",
+        "Opcao",
+    ))
+    if rng.random() < .55:
+        label_box = draw.textbbox((0, 0), label + " ", font=font)
+        x = rng.randint(max(4, label_box[2] + 8), IMAGE_SIZE - 40)
+        draw.text((x - label_box[2], y), label + " ", fill=tone, font=font)
+    else:
+        x = rng.randint(8, IMAGE_SIZE - 90)
+        label_box = draw.textbbox((0, 0), " " + label, font=font)
+        draw.text((x + 22, y), " " + label, fill=tone, font=font)
+    # A sequencia abaixo e deliberadamente fixa: abre-parentese, espaco, fecha-parentese.
+    token = "( )"
+    draw.text((x, y), token, fill=tone, font=font)
+    token_box = draw.textbbox((x, y), token, font=font)
+    mask_draw.rectangle(token_box, fill=255)
+    return image, mask
+
 def train(
     dataset_dir: Path,
     model_path: Path,
@@ -286,6 +325,7 @@ def train(
     learning_rate: float = 1e-3,
     resume_path: Path | None = None,
     date_augmentation: bool = True,
+    empty_parentheses_augmentation: bool = True,
 ) -> None:
     torch, nn = require_torch()
     import torch.nn.functional as functional
@@ -319,6 +359,8 @@ def train(
             source_mask = Image.open(dataset_dir / sample["mask"])
             if date_augmentation and random.random() < .65:
                 source_image, source_mask = augment_date_field(source_image, source_mask)
+            if empty_parentheses_augmentation and random.random() < .65:
+                source_image, source_mask = augment_empty_parentheses_field(source_image, source_mask)
             img = image_tensor(source_image, augment=True).unsqueeze(0).to(device)
             mask = image_tensor(source_mask).unsqueeze(0).to(device)
             
@@ -447,6 +489,7 @@ def main():
     t.add_argument("--learning-rate", type=float, default=1e-3)
     t.add_argument("--resume", type=Path)
     t.add_argument("--no-date-augmentation", action="store_true")
+    t.add_argument("--no-empty-parentheses-augmentation", action="store_true")
     
     args = parser.parse_args()
     
@@ -461,6 +504,7 @@ def main():
             Path(args.dataset), Path(args.output), epochs=args.epochs,
             learning_rate=args.learning_rate, resume_path=args.resume,
             date_augmentation=not args.no_date_augmentation,
+            empty_parentheses_augmentation=not args.no_empty_parentheses_augmentation,
         )
 
 if __name__ == "__main__":

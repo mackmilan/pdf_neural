@@ -20,6 +20,13 @@ from pypdf import PdfReader
 
 LOGGER = logging.getLogger("pdf-neural.converter")
 
+FIELD_CHOICE_WIDTH = 14.0
+FIELD_CHOICE_HEIGHT = 18.0
+EMAIL_TEXT_RE = re.compile(
+    r"(?<![\w.+-])[\w.!#$%&'*+/=?^_`{|}~-]+@[\w-]+(?:\.[\w-]+)+(?![\w.-])",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class Field:
@@ -45,6 +52,13 @@ class ConversionResult:
     tables: list[dict[str, Any]]
     pages: list[dict[str, Any]]
     neural_tables: list[dict[str, Any]]
+
+
+def normalize_choice_field(field: Field) -> Field:
+    if field.type in {"checkbox", "radio"}:
+        field.width = FIELD_CHOICE_WIDTH
+        field.height = FIELD_CHOICE_HEIGHT
+    return field
 
 
 def n(value: float) -> str:
@@ -88,6 +102,37 @@ def infer_type(label: str, width: float, height: float) -> str:
     if height > 34 or (height > 20 and width > 260):
         return "textarea"
     return "text"
+
+
+def is_email_text(value: str) -> bool:
+    return bool(EMAIL_TEXT_RE.search(value.strip(" <>[](){}.,;:")))
+
+
+def underlined_email_bboxes(
+    words: list[dict[str, Any]],
+    lines: list[dict[str, Any]],
+) -> list[tuple[float, float, float, float]]:
+    """Retorna areas de enderecos de email impressos com sublinhado visual."""
+    bboxes: list[tuple[float, float, float, float]] = []
+    email_words = [word for word in words if is_email_text(str(word.get("text", "")))]
+    for word in email_words:
+        wx0, wtop, wx1, wbottom = (
+            float(word["x0"]), float(word["top"]), float(word["x1"]), float(word["bottom"])
+        )
+        word_width = max(1.0, wx1 - wx0)
+        for line in lines:
+            lx0, lx1 = sorted((float(line["x0"]), float(line["x1"])))
+            ltop = float(line.get("top", 0.0))
+            lbottom = float(line.get("bottom", ltop))
+            if abs(float(line.get("y1", 0.0)) - float(line.get("y0", 0.0))) > 1.5:
+                continue
+            overlap = min(wx1, lx1) - max(wx0, lx0)
+            if overlap < word_width * 0.6:
+                continue
+            vertical_gap = ltop - wbottom
+            if -1.5 <= vertical_gap <= 6.0:
+                bboxes.append((min(wx0, lx0), wtop, max(wx1, lx1), max(wbottom, lbottom)))
+    return bboxes
 
 
 def nearby_label(words: list[dict[str, Any]], x: float, top: float, max_dist: float = 110, allow_right: bool = False) -> str:
@@ -185,6 +230,42 @@ def textual_date_boxes(
     return [field["bbox"] for field in textual_segmented_fields(page, words) if field["type"] == "date"]
 
 
+def textual_empty_parentheses_fields(
+    page: pdfplumber.page.Page,
+    words: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Detecta somente a sequencia textual exata ``( )`` como controle visual."""
+    fields: list[dict[str, Any]] = []
+    rows: list[list[dict[str, Any]]] = []
+    char_top = lambda item: float(item.get("top", item.get("bottom", 0.0)))
+    for char in sorted(page.chars, key=lambda item: (round(char_top(item), 1), float(item["x0"]))):
+        if not rows or abs(char_top(char) - char_top(rows[-1][0])) > 2.5:
+            rows.append([char])
+        else:
+            rows[-1].append(char)
+
+    for row in rows:
+        for index in range(len(row) - 2):
+            first, middle, last = row[index], row[index + 1], row[index + 2]
+            if [str(first.get("text", "")), str(middle.get("text", "")), str(last.get("text", ""))] != ["(", " ", ")"]:
+                continue
+            x0 = float(first["x0"])
+            x1 = float(last["x1"])
+            top = min(char_top(char) for char in (first, middle, last))
+            bottom = max(float(char["bottom"]) for char in (first, middle, last))
+            label = (
+                nearby_label(words, x1, bottom, allow_right=True)
+                or nearby_label(words, x0, bottom)
+                or f"Opção {len(fields) + 1}"
+            )
+            fields.append({
+                "bbox": (x0, top, x1, bottom),
+                "label": label,
+                "type": "checkbox",
+            })
+    return fields
+
+
 def inferred_fields(
     page: pdfplumber.page.Page,
     page_no: int,
@@ -195,6 +276,7 @@ def inferred_fields(
     fields: list[Field] = []
     seen: set[tuple[int, int]] = set()
     table_bboxes = table_bboxes or []
+    email_underline_bboxes = underlined_email_bboxes(words, page.lines)
 
     def overlaps(x: float, y: float, w: float, h: float) -> bool:
         return any(not (x+w < f.x or f.x+f.width < x or y+h < f.y or f.y+f.height < y) for f in existing + fields)
@@ -205,12 +287,24 @@ def inferred_fields(
             for tx0, top, tx1, bottom in table_bboxes
         )
 
+    def overlaps_underlined_email(x: float, y: float, w: float, h: float) -> bool:
+        return any(
+            not (x + w < ex0 or ex1 < x or y + h < ey0 or ey1 < y)
+            for ex0, ey0, ex1, ey1 in email_underline_bboxes
+        )
+
     # Horizontal writing lines are the most common non-AcroForm field representation.
     for line in page.lines:
         x0, x1 = sorted((float(line["x0"]), float(line["x1"])))
         top = float(line.get("top", page.height - line["y0"]))
         width = x1 - x0
-        if width < 45 or abs(float(line["y1"]) - float(line["y0"])) > 1.5 or inside_table(x0, top-1, width, 2) or overlaps(x0, top-18, width, 20):
+        if (
+            width < 45
+            or abs(float(line["y1"]) - float(line["y0"])) > 1.5
+            or inside_table(x0, top-1, width, 2)
+            or overlaps(x0, top-18, width, 20)
+            or overlaps_underlined_email(x0, top-18, width, 20)
+        ):
             continue
         label = nearby_label(words, x0, top) or f"Campo {len(existing)+len(fields)+1}"
         key = (round(x0), round(top))
@@ -233,6 +327,16 @@ def inferred_fields(
         label = segmented["label"]
         fields.append(Field(slug(label), label, segmented["type"], page_no, x0, top, width, 20))
 
+    for option in textual_empty_parentheses_fields(page, words):
+        x0, top, x1, bottom = option["bbox"]
+        width, height = x1 - x0, bottom - top
+        key = (round(x0), round(top))
+        if width < 4 or height < 4 or key in seen or inside_table(x0, top, width, height) or overlaps(x0, top, width, height):
+            continue
+        seen.add(key)
+        label = option["label"]
+        fields.append(normalize_choice_field(Field(slug(label), label, option["type"], page_no, x0, top, max(8, width), max(8, height))))
+
     # Empty small rectangles usually represent checkboxes; larger ones are inputs/areas.
     for rect in page.rects:
         x, top = float(rect["x0"]), float(rect["top"])
@@ -242,7 +346,7 @@ def inferred_fields(
         is_checkbox = width <= 24 and height <= 24
         label = nearby_label(words, x + width, top + height, allow_right=is_checkbox) or f"Campo {len(existing)+len(fields)+1}"
         kind = "checkbox" if width <= 24 and height <= 24 else infer_type(label, width, height)
-        fields.append(Field(slug(label), label, kind, page_no, x, top, width, height))
+        fields.append(normalize_choice_field(Field(slug(label), label, kind, page_no, x, top, width, height)))
     return fields
 
 
@@ -358,11 +462,11 @@ def table_layouts(
                                 right = float(line_words[close_index]["x1"])
                                 line_top = min(float(word["top"]) for word in line_words)
                                 line_bottom = max(float(word["bottom"]) for word in line_words)
-                                fields.append(Field(
+                                fields.append(normalize_choice_field(Field(
                                     slug(label), label, "checkbox", page_no,
                                     left, line_top, max(8, right - left), max(8, line_bottom - line_top),
                                     "table",
-                                ))
+                                )))
 
                     # Labels ending in ':' inside a tall/merged cell describe
                     # independent writing areas even though no inner borders exist.
@@ -539,6 +643,7 @@ def convert(
                     lx0, ly0, lx1, ly1 = float(line["x0"]), float(line["top"]), float(line["x1"]), float(line["bottom"])
                     # Sublinhados costumam ser linhas horizontais finas
                     line_bboxes.append((lx0, ly0, lx1, ly1))
+                email_underline_bboxes = underlined_email_bboxes(words, page.lines)
 
                 for nf in neural_fields_by_page[page_no]:
                     nx, ny, nw, nh = nf["x"], nf["y"], nf["width"], nf["height"]
@@ -550,6 +655,11 @@ def convert(
                     # Evitar sobreposição com imagens
                     if any(not (nx1 <= ix0 or ix1 <= nx or ny1 <= iy0 or iy1 <= ny) for (ix0, iy0, ix1, iy1) in image_bboxes):
                         # LOGGER.debug("Neural field at (%f, %f) filtered by image", nx, ny)
+                        continue
+
+                    # Evitar que emails impressos com sublinhado (ex.: hyperlinks)
+                    # sejam tratados como campos editáveis pela rede.
+                    if any(not (nx1 < ex0 or ex1 < nx or ny1 < ey0 or ey1 < ny) for (ex0, ey0, ex1, ey1) in email_underline_bboxes):
                         continue
 
                     # Evitar sobreposição com texto
@@ -610,6 +720,7 @@ def convert(
             # Keep names unique across repeated labels.
             used = {f.name for f in all_fields}
             for field in fields:
+                normalize_choice_field(field)
                 base, counter = field.name, 2
                 while field.name in used:
                     field.name = f"{base}_{counter}"; counter += 1

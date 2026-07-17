@@ -5,7 +5,7 @@ from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
-from converter import ConversionResult, convert, image_key
+from converter import ConversionResult, convert, image_key, textual_empty_parentheses_fields
 from app import validate_public_url
 
 
@@ -131,6 +131,29 @@ class ConverterTest(unittest.TestCase):
             by_label = {field["label"]: field for field in fields}
             self.assertEqual(by_label["ANO"]["type"], "number")
             self.assertEqual(by_label["ATIVO"]["type"], "checkbox")
+
+    def test_detects_only_exact_empty_parentheses_sequence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            import pdfplumber
+
+            root = Path(temp); pdf = root / "exact-parentheses.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=(400, 300))
+            c.drawString(30, 250, "Aceite ( ) Sim")
+            c.drawString(30, 220, "Compacto () Nao")
+            c.drawString(30, 190, "Marcado (x) Talvez")
+            c.save()
+
+            with pdfplumber.open(pdf) as document:
+                page = document.pages[0]
+                fields = textual_empty_parentheses_fields(page, page.extract_words())
+
+            self.assertEqual(1, len(fields))
+            self.assertEqual("checkbox", fields[0]["type"])
+
+            output = convert(pdf, root / "out")
+            converted = json.loads((output / "fields.json").read_text())
+            checkbox = next(field for field in converted if field["type"] == "checkbox")
+            self.assertEqual((checkbox["width"], checkbox["height"]), (14.0, 18.0))
 
 
 if __name__ == "__main__":

@@ -238,6 +238,17 @@ class AsyncApiTest(unittest.TestCase):
         }])
         self.assertEqual(radio_fields[0]["options"], ["Manha", "Tarde", "Noite"])
         self.assertEqual([box["value"] for box in radio_fields[0]["option_boxes"]], ["Manha", "Tarde", "Noite"])
+        self.assertEqual((radio_fields[0]["width"], radio_fields[0]["height"]), (14.0, 18.0))
+        self.assertEqual(
+            [(box["width"], box["height"]) for box in radio_fields[0]["option_boxes"]],
+            [(14.0, 18.0), (14.0, 18.0), (14.0, 18.0)],
+        )
+
+        checkbox_fields = app.validate_fields_payload([{
+            "name": "aceite", "label": "Aceite", "type": "checkbox",
+            "page": 1, "x": 10, "y": 20, "width": 80, "height": 40,
+        }])
+        self.assertEqual((checkbox_fields[0]["width"], checkbox_fields[0]["height"]), (14.0, 18.0))
 
         with self.assertRaises(ValueError):
             app.validate_fields_payload([

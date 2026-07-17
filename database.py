@@ -23,20 +23,32 @@ FIELD_TEXT_FONT_SIZE = 12
 FIELD_TEXT_LINE_HEIGHT = 1.2
 FIELD_TEXT_VERTICAL_PADDING = 4
 FIELD_TEXT_HEIGHT = math.ceil(FIELD_TEXT_FONT_SIZE * FIELD_TEXT_LINE_HEIGHT + FIELD_TEXT_VERTICAL_PADDING)
-FIELD_CHECKBOX_HEIGHT = 18
+FIELD_CHOICE_WIDTH = 14
+FIELD_CHOICE_HEIGHT = 18
 FIELD_ALIGNS = {"left", "center", "justify", "right"}
 
 
 def normalized_field_height(field: dict) -> float:
-    return float(FIELD_CHECKBOX_HEIGHT if field.get("type") in {"checkbox", "radio"} else FIELD_TEXT_HEIGHT)
+    return float(FIELD_CHOICE_HEIGHT if field.get("type") in {"checkbox", "radio"} else FIELD_TEXT_HEIGHT)
+
+
+def normalize_choice_box(box: dict) -> dict:
+    item = dict(box)
+    item["width"] = float(FIELD_CHOICE_WIDTH)
+    item["height"] = float(FIELD_CHOICE_HEIGHT)
+    return item
 
 
 def normalize_field_heights(fields: list[dict]) -> list[dict]:
-    """Mantem todos os campos com altura padrao baseada no tamanho do texto."""
+    """Mantem campos com dimensoes padrao para texto e controles de escolha."""
     normalized = []
     for field in fields or []:
         item = dict(field)
         item["height"] = normalized_field_height(item)
+        if item.get("type") in {"checkbox", "radio"}:
+            item["width"] = float(FIELD_CHOICE_WIDTH)
+        if item.get("type") == "radio" and isinstance(item.get("option_boxes"), list):
+            item["option_boxes"] = [normalize_choice_box(box) for box in item["option_boxes"]]
         if item.get("align") not in FIELD_ALIGNS:
             item["align"] = "left"
         normalized.append(item)

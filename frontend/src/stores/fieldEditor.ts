@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { useDocumentStore } from './document'
-import { normalizedFieldHeight, optionalNumber } from './document'
+import { FIELD_CHOICE_HEIGHT, FIELD_CHOICE_WIDTH, normalizedFieldHeight, optionalNumber } from './document'
 import type { Field, FieldAlign, FieldType, RadioOptionBox } from '../types'
 
 export interface FieldFormState {
@@ -139,9 +139,11 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
         field.options = options
         field.option_boxes = options.map((value, index) => ({
           ...(previousBoxes.find((box) => box.value === value) || previousBoxes[index] || {
-            page: field.page, x: field.x + index * 22, y: field.y, width: 18, height: 18,
+            page: field.page, x: field.x + index * 22, y: field.y, width: FIELD_CHOICE_WIDTH, height: FIELD_CHOICE_HEIGHT,
           }),
           value,
+          width: FIELD_CHOICE_WIDTH,
+          height: FIELD_CHOICE_HEIGHT,
         }))
       } else {
         delete field.options
@@ -176,13 +178,17 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
         source: 'manual',
         required: this.form.required,
       }
+      if (field.type === 'checkbox' || field.type === 'radio') {
+        field.width = FIELD_CHOICE_WIDTH
+        field.height = FIELD_CHOICE_HEIGHT
+      }
       if (this.form.type === 'number') {
         if (Number.isFinite(minValue)) field.min = minValue as number
         if (Number.isFinite(maxValue)) field.max = maxValue as number
       }
       if (this.form.type === 'radio') {
         const optionIndex = this.pendingRadioBoxes.length
-        this.pendingRadioBoxes.push({ value: options[optionIndex], page, ...box, height: 18 })
+        this.pendingRadioBoxes.push({ value: options[optionIndex], page, ...box, width: FIELD_CHOICE_WIDTH, height: FIELD_CHOICE_HEIGHT })
         if (this.pendingRadioBoxes.length < options.length) {
           this.hint = `Desenhe a área da opção “${options[this.pendingRadioBoxes.length]}” (${this.pendingRadioBoxes.length + 1}/${options.length}).`
           return null

@@ -43,10 +43,13 @@ button:disabled { opacity: .5 }
 .fields { max-height: 720px; overflow: auto }
 .field-link { display: block; text-decoration: none; color: inherit; padding: 10px; border-bottom: 1px solid #283653; transition: background .2s }
 .field-link:hover { background: #1c2945 }
-.field-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; border-bottom: 1px solid #283653; transition: background .15s, opacity .15s }
+.field-row { display: grid; grid-template-columns: 34px auto minmax(0, 1fr) auto auto; align-items: center; border-bottom: 1px solid #283653; transition: background .15s, opacity .15s }
 .field-row.drag-over { background: #243a61; box-shadow: inset 0 0 0 1px #75a7ff }
 .field-row.dragging { opacity: .55 }
 .field-row .field-link { border: 0; min-width: 0 }
+.field-select { display: grid; place-items: center; width: 34px; min-height: 44px }
+.field-select input { width: 18px; height: 18px; padding: 0 }
+.field-select input:disabled { opacity: .25; cursor: not-allowed }
 .field-order-controls { display: grid; grid-template-columns: 26px 24px; grid-template-rows: 24px 24px; gap: 2px; margin-left: 4px }
 .move-field { min-width: 0; padding: 0; border-radius: 5px; background: transparent; color: #aab8d4; font-size: 14px; line-height: 1 }
 .move-field:hover:not(:disabled) { background: #1c3558; color: #edf3ff }
