@@ -95,10 +95,10 @@ Vite dev server juntos com:
 ./scripts/dev.sh
 ```
 
-Isso inicia `python app.py` (porta 8000) e `npm run dev` (porta 5173, com proxy
+Isso inicia `python fastapi_app.py` (porta 8000) e `npm run dev` (porta 5173, com proxy
 para `/api`, `/auth`, `/jobs`, `/docs` e `/openapi.json` apontando para o
 backend). Para gerar os estaticos de producao (servidos pelo proprio
-`app.py` a partir de `static/`):
+`fastapi_app.py` a partir de `static/`):
 
 ```bash
 npm --prefix frontend run build
@@ -176,7 +176,7 @@ origem. Para trocar o checkpoint ou ajustar a sensibilidade:
 TABLE_MODEL=models/uepg_table_detector.pt \
 NEURAL_THRESHOLD=0.7 \
 NEURAL_MIN_CONFIDENCE=0.65 \
-python app.py
+python fastapi_app.py
 ```
 
 Por padrao, uma falha neural e registrada e a conversao geometrica continua. Use
@@ -446,7 +446,7 @@ Em producao, configure a URL externa usada nos links e a quantidade de conversoe
 simultaneas:
 
 ```bash
-PUBLIC_BASE_URL=https://pdf.exemplo.com PDF_WORKERS=4 python app.py
+PUBLIC_BASE_URL=https://pdf.exemplo.com PDF_WORKERS=4 python fastapi_app.py
 ```
 
 ## Deploy com Coolify
