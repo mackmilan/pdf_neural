@@ -186,6 +186,27 @@ class AsyncApiTest(unittest.TestCase):
         self.assertIn("/users/user-uuid/reset-password", password_request.full_url)
 
     @patch("urllib.request.urlopen")
+    def test_delete_keycloak_user_uses_admin_api(self, mock_urlopen):
+        os.environ["KEYCLOAK_ADMIN_CLIENT_ID"] = "admin"
+        os.environ["KEYCLOAK_ADMIN_CLIENT_SECRET"] = "secret"
+        authenticator = KeycloakAuthenticator()
+        authenticator._admin_token = None
+
+        res_token = MagicMock()
+        res_token.read.return_value = json.dumps({"access_token": "admin-token", "expires_in": 3600}).encode()
+        res_token.__enter__.return_value = res_token
+        res_delete = MagicMock()
+        res_delete.__enter__.return_value = res_delete
+        mock_urlopen.side_effect = [res_token, res_delete]
+
+        deleted = authenticator.delete_user("user-uuid")
+
+        self.assertTrue(deleted)
+        delete_request = mock_urlopen.call_args_list[-1].args[0]
+        self.assertEqual(delete_request.get_method(), "DELETE")
+        self.assertIn("/users/user-uuid", delete_request.full_url)
+
+    @patch("urllib.request.urlopen")
     def test_converts_html_with_gotenberg(self, mock_urlopen):
         response = MagicMock()
         response.read.return_value = b"%PDF-1.4\nfake"

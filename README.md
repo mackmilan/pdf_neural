@@ -131,18 +131,18 @@ use ajuste fino. O treino pondera como negativos os pixels imediatamente externo
 cada tabela, evitando incluir campos proximos como `Data` e `Assinatura`:
 
 ```bash
-python neural_table_detector.py train data/uepg/tables \
-  --resume models/uepg_table_detector.pt \
-  -o models/uepg_table_detector.pt --epochs 10 --learning-rate 0.0002
+python neural_table_detector.py train data/tables \
+  --resume models/table_detector.pt \
+  -o models/table_detector.pt --epochs 10 --learning-rate 0.0002
 ```
 
-Um modelo treinado com os documentos publicos do Mestrado em Direito da UEPG
-esta disponivel em `models/uepg_table_detector.pt`. O corpus correspondente fica
-em `data/uepg/` (20 PDFs, 65 paginas, 25 paginas positivas e 40 negativas):
+Um modelo treinado com um corpus publico de documentos administrativos
+esta disponivel em `models/table_detector.pt`. O corpus correspondente deve ficar
+em `data/tables/`:
 
 ```bash
 python neural_table_detector.py detect documento.pdf \
-  --model models/uepg_table_detector.pt -o output/neural-tables.json
+  --model models/table_detector.pt -o output/neural-tables.json
 ```
 
 Cada resultado contem pagina, coordenadas PDF, dimensoes, confianca,
@@ -160,8 +160,8 @@ o que cobre documentos digitalizados sem camada de texto. Para ajustar o modelo
 existente sem perder o aprendizado anterior:
 
 ```bash
-python neural_field_detector.py prepare data/uepg/pdfs -o data/fields_uepg_v6
-python neural_field_detector.py train data/fields_uepg_v6 \
+python neural_field_detector.py prepare data/pdfs -o data/fields
+python neural_field_detector.py train data/fields \
   --resume models/field_detector.pt \
   -o models/field_detector.pt --epochs 10 --learning-rate 0.0002
 ```
@@ -183,7 +183,7 @@ Abra `http://127.0.0.1:8000`. Na interface, envie um arquivo local ou informe um
 URL publica HTTP/HTTPS que aponte para o PDF. Downloads remotos possuem limite de
 30 MB e enderecos locais ou de rede privada sao bloqueados.
 
-A interface executa automaticamente o modelo de tabela `models/uepg_table_detector.pt`
+A interface executa automaticamente o modelo de tabela configurado
 e o detector neural de campos configurado. Ela mostra as grades encontradas em
 **Tabelas - rede neural**. O arquivo `neural-tables.json` tambem e incluido no ZIP.
 Na previa HTML, linhas e colunas sao renderizadas nas coordenadas detectadas usando
@@ -191,7 +191,7 @@ a cor dos tracos do documento de origem. Para trocar o checkpoint de tabela ou
 ajustar a sensibilidade:
 
 ```bash
-TABLE_MODEL=models/uepg_table_detector.pt \
+TABLE_MODEL=models/table_detector.pt \
 NEURAL_THRESHOLD=0.7 \
 NEURAL_MIN_CONFIDENCE=0.65 \
 python fastapi_app.py
@@ -253,8 +253,8 @@ KEYCLOAK_ADMIN_CLIENT_ID=pdf-neural-admin
 KEYCLOAK_ADMIN_CLIENT_SECRET=secret_impresso_pelo_script
 ```
 
-Esse client administrativo é usado pela API para validar clients de API Key e
-criar usuários no Keycloak pela tela de usuários. O script habilita `Service
+Esse client administrativo é usado pela API para validar clients de API Key,
+criar usuários e excluir usuários no Keycloak pela tela de usuários. O script habilita `Service
 accounts roles` e atribui as roles do client `realm-management`: `view-clients`,
 `query-clients`, `view-users`, `query-users` e `manage-users`.
 

@@ -7,6 +7,12 @@ export interface ConfirmOptions {
   danger?: boolean
 }
 
+export interface AlertOptions {
+  title?: string
+  message: string
+  confirmLabel?: string
+}
+
 export interface TextInputOptions {
   title: string
   message?: string
@@ -18,6 +24,7 @@ export interface TextInputOptions {
 export const useModalsStore = defineStore('modals', {
   state: () => ({
     confirm: null as (ConfirmOptions & { resolve: (value: boolean) => void }) | null,
+    alert: null as (AlertOptions & { resolve: () => void }) | null,
     textInput: null as (TextInputOptions & { resolve: (value: string | null) => void; error: string }) | null,
   }),
   actions: {
@@ -30,6 +37,16 @@ export const useModalsStore = defineStore('modals', {
     resolveConfirm(accepted: boolean) {
       this.confirm?.resolve(accepted)
       this.confirm = null
+    },
+    showAlert(options: AlertOptions): Promise<void> {
+      if (this.alert) this.alert.resolve()
+      return new Promise((resolve) => {
+        this.alert = { title: 'Aviso', confirmLabel: 'OK', ...options, resolve }
+      })
+    },
+    resolveAlert() {
+      this.alert?.resolve()
+      this.alert = null
     },
     showTextInput(options: TextInputOptions): Promise<string | null> {
       if (this.textInput) this.textInput.resolve(null)

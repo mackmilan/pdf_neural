@@ -23,8 +23,8 @@ class TestNeuralFieldExclusion(unittest.TestCase):
             {"page": 1, "x": 500, "y": 700, "width": 50, "height": 20, "confidence": 0.9, "source": "neural_field"}
         ]
         
-        pdf_path = Path("data/uepg/pdfs/01-Cadastro_participante_externo_banca.pdf")
-        if not pdf_path.exists():
+        pdf_path = next(Path("data").glob("*/pdfs/01-Cadastro_participante_externo_banca.pdf"), None)
+        if pdf_path is None:
             self.skipTest("PDF de teste não encontrado")
 
         result = convert(pdf_path, field_detector=mock_detector)

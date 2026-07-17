@@ -293,9 +293,8 @@ def train(
             optimizer.zero_grad()
             logits = model(image)
             probabilities = torch.sigmoid(logits)
-            # Penaliza especialmente os falsos positivos logo apos as bordas.
-            # No formulario UEPG, essa faixa contem o campo "Data", que nao faz
-            # parte da tabela apesar de estar visualmente muito proximo dela.
+            # Penaliza especialmente os falsos positivos logo apos as bordas,
+            # onde campos como "Data" podem ficar visualmente proximos da tabela.
             halo = (functional.max_pool2d(mask, kernel_size=17, stride=1, padding=8) - mask).clamp_(0, 1)
             pixel_loss = functional.binary_cross_entropy_with_logits(
                 logits, mask, pos_weight=pos_weight, reduction="none",

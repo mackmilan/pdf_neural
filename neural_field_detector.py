@@ -262,7 +262,7 @@ def augment_date_field(image: Image.Image, mask: Image.Image, rng: random.Random
         draw.text((line_x, y), underscores, fill=tone, font=font)
         right = min(IMAGE_SIZE - 8, line_x + line_width)
     else:
-        # Formato usado pelo LibreOffice no formulario da UEPG.
+        # Formato comum usado pelo LibreOffice em formularios.
         template = "___ de _____________ de 20___"
         draw.text((line_x, y), template, fill=tone, font=font)
         right = min(IMAGE_SIZE - 8, draw.textbbox((line_x, y), template, font=font)[2])

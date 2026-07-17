@@ -2,10 +2,12 @@
 import { computed, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useContextStore } from '../stores/context'
+import { useModalsStore } from '../stores/modals'
 import type { ApiKeyInfo } from '../types'
 
 const auth = useAuthStore()
 const context = useContextStore()
+const modals = useModalsStore()
 
 const show = ref(false)
 const clientId = ref('')
@@ -48,7 +50,13 @@ function close() {
 }
 
 async function revoke(targetClientId: string) {
-  if (!confirm(`Deseja realmente revogar o acesso do cliente ${targetClientId}?`)) return
+  const confirmed = await modals.showConfirm({
+    title: 'Revogar API Key?',
+    message: `Deseja realmente revogar o acesso do cliente ${targetClientId}?`,
+    confirmLabel: 'Revogar acesso',
+    danger: true,
+  })
+  if (!confirmed) return
   try {
     const response = await auth.apiFetch('/api/api-keys/revoke', {
       method: 'POST',
@@ -59,10 +67,10 @@ async function revoke(targetClientId: string) {
       await loadKeys()
     } else {
       const error = await response.json()
-      alert(error.error || 'Erro ao revogar chave')
+      await modals.showAlert({ title: 'Erro ao revogar chave', message: error.error || 'Erro ao revogar chave' })
     }
   } catch (error) {
-    alert((error as Error).message)
+    await modals.showAlert({ title: 'Erro ao revogar chave', message: (error as Error).message })
   }
 }
 
@@ -85,7 +93,7 @@ async function submit() {
     message.value = 'Chave gerada com sucesso!'
     await loadKeys()
   } catch (error) {
-    alert((error as Error).message)
+    await modals.showAlert({ title: 'Erro ao gerar API Key', message: (error as Error).message })
   } finally {
     submitting.value = false
   }

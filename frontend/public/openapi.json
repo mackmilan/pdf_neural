@@ -48,11 +48,12 @@
     "/api/users/{subject}": {
       "parameters": [{"name": "subject", "in": "path", "required": true, "schema": {"type": "string"}, "description": "Claim sub do usuario no Keycloak"}],
       "delete": {
-        "tags": ["Usuarios"], "summary": "Remove usuario da aplicacao revogando todos os acessos (pdf-admin)", "operationId": "deleteApplicationUser",
+        "tags": ["Usuarios"], "summary": "Remove usuario do Keycloak e da aplicacao revogando todos os acessos (pdf-admin)", "operationId": "deleteApplicationUser",
         "responses": {
-          "200": {"description": "Usuario removido da aplicacao"},
+          "200": {"description": "Usuario removido do Keycloak e da aplicacao"},
           "403": {"$ref": "#/components/responses/Forbidden"},
           "404": {"$ref": "#/components/responses/NotFound"},
+          "502": {"description": "Falha na Admin API do Keycloak", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
           "503": {"$ref": "#/components/responses/ServiceUnavailable"}
         }
       }

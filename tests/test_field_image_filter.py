@@ -8,7 +8,7 @@ class TestNeuralFieldImageOverlap(unittest.TestCase):
     def test_convert_filters_neural_fields_on_images(self):
         # Mock do field_detector
         mock_detector = MagicMock()
-        # Campo 1: sobrepõe a imagem do logo da UEPG (x0=32.75, top=-0.049, x1=147.05, bottom=80.8)
+        # Campo 1: sobrepõe a imagem do logo institucional (x0=32.75, top=-0.049, x1=147.05, bottom=80.8)
         # Vamos colocar um campo em x=50, y=50 que está dentro dessa imagem.
         # Campo 2: fora de imagens
         mock_detector.detect.return_value = [
@@ -16,8 +16,8 @@ class TestNeuralFieldImageOverlap(unittest.TestCase):
             {"page": 1, "x": 500, "y": 700, "width": 50, "height": 20, "confidence": 0.9, "source": "neural_field"}
         ]
         
-        pdf_path = Path("data/uepg/pdfs/01-Cadastro_participante_externo_banca.pdf")
-        if not pdf_path.exists():
+        pdf_path = next(Path("data").glob("*/pdfs/01-Cadastro_participante_externo_banca.pdf"), None)
+        if pdf_path is None:
             self.skipTest("PDF de teste não encontrado")
 
         result = convert(pdf_path, field_detector=mock_detector)
@@ -32,8 +32,8 @@ class TestNeuralFieldImageOverlap(unittest.TestCase):
 
     def test_field_boxes_filters_images(self):
         from neural_field_detector import field_boxes
-        pdf_path = Path("data/uepg/pdfs/01-Cadastro_participante_externo_banca.pdf")
-        if not pdf_path.exists():
+        pdf_path = next(Path("data").glob("*/pdfs/01-Cadastro_participante_externo_banca.pdf"), None)
+        if pdf_path is None:
             self.skipTest("PDF de teste não encontrado")
             
         data = field_boxes(pdf_path)

@@ -2,18 +2,23 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 
-const props = defineProps<{ passwordLogin?: boolean; documentId?: string }>()
+const props = defineProps<{ documentId?: string }>()
 
 const auth = useAuthStore()
-const email = ref('')
-const password = ref('')
-const submitting = ref(false)
 const documentTitle = ref('')
+const tenantName = ref('')
+const groupName = ref('')
 
-const title = computed(() => documentTitle.value || (props.documentId ? 'Documento' : 'PDF Neural'))
+const title = computed(() => documentTitle.value || 'PDF Neural')
+const subtitle = computed(() => {
+  if (!props.documentId) return 'Entre com sua conta para acessar documentos, conversões e histórico.'
+  return [tenantName.value, groupName.value].filter(Boolean).join(' · ') || 'Documento disponível para preenchimento.'
+})
 
 async function loadDocumentTitle() {
   documentTitle.value = ''
+  tenantName.value = ''
+  groupName.value = ''
   if (!props.documentId) return
   try {
     const response = await fetch(`/api/public/viewer/documents/${encodeURIComponent(props.documentId)}`)
@@ -21,20 +26,16 @@ async function loadDocumentTitle() {
     if (response.ok && typeof data.document_name === 'string') {
       documentTitle.value = data.document_name.trim()
     }
+    if (response.ok && typeof data.tenant_name === 'string') {
+      tenantName.value = data.tenant_name.trim()
+    }
+    if (response.ok && typeof data.group_name === 'string') {
+      groupName.value = data.group_name.trim()
+    }
   } catch {
     documentTitle.value = ''
-  }
-}
-
-async function login() {
-  submitting.value = true
-  try {
-    await auth.loginWithPassword(email.value, password.value)
-    password.value = ''
-  } catch (error) {
-    auth.showLogin(error as Error)
-  } finally {
-    submitting.value = false
+    tenantName.value = ''
+    groupName.value = ''
   }
 }
 
@@ -51,31 +52,9 @@ watch(() => props.documentId, loadDocumentTitle)
     <div class="card login-card">
       <h1>{{ title }}</h1>
       <p class="lead">
-        {{ passwordLogin ? 'Entre com seu e-mail e senha para visualizar o documento.' : 'Entre com sua conta para acessar documentos, conversões e histórico.' }}
+        {{ subtitle }}
       </p>
-      <form v-if="passwordLogin" class="login-form" @submit.prevent="login">
-        <label>
-          E-mail
-          <input v-model="email" type="email" autocomplete="username" required />
-        </label>
-        <label>
-          Senha
-          <input v-model="password" type="password" autocomplete="current-password" required />
-        </label>
-        <button type="submit" :disabled="!auth.config || submitting">
-          {{ submitting ? 'Entrando…' : 'Entrar' }}
-        </button>
-      </form>
-      <button v-else type="button" :disabled="!auth.config" @click="loginWithKeycloak">Entrar com Keycloak</button>
-      <button
-        v-if="passwordLogin && auth.accountSetupRequired"
-        type="button"
-        class="button-secondary login-setup-button"
-        :disabled="!auth.config"
-        @click="loginWithKeycloak"
-      >
-        Concluir cadastro no Keycloak
-      </button>
+      <button type="button" :disabled="!auth.config" @click="loginWithKeycloak">Entrar com Keycloak</button>
       <p class="status">{{ auth.initialized ? auth.loginError || 'Faça login para continuar.' : 'Verificando sessão…' }}</p>
     </div>
   </section>

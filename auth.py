@@ -247,6 +247,34 @@ class KeycloakAuthenticator:
         except urllib.error.URLError as exc:
             raise AuthenticationError(f"Nao foi possivel acessar o Keycloak Admin: {exc.reason}") from exc
 
+    def delete_user(self, user_id: str) -> bool:
+        """Remove um usuario do Keycloak pelo ID interno/claim sub."""
+        try:
+            user_id = user_id.strip()
+            if not user_id:
+                raise AuthenticationError("user_id obrigatorio")
+            if not self.enabled:
+                return True
+
+            token = self._get_admin_token()
+            req = urllib.request.Request(
+                f"{self.admin_url}/users/{urllib.parse.quote(user_id, safe='')}",
+                headers={"Authorization": f"Bearer {token}"},
+                method="DELETE",
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+            return True
+        except AuthenticationError:
+            raise
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")
+            if exc.code == 404:
+                return False
+            raise AuthenticationError(f"Keycloak respondeu HTTP {exc.code}: {body or exc.reason}") from exc
+        except urllib.error.URLError as exc:
+            raise AuthenticationError(f"Nao foi possivel acessar o Keycloak Admin: {exc.reason}") from exc
+
     def validate_client(self, client_id: str) -> bool:
         """Valida se o client_id existe no Keycloak e tem Service Account ativo."""
         if not self.enabled:

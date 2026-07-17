@@ -19,6 +19,9 @@ const error = ref('')
 const submissions = ref<SubmissionListItem[]>([])
 
 const title = computed(() => auth.displayName || 'Usuário')
+const topbarChips = computed(() => [
+  `${submissions.value.length} submiss${submissions.value.length === 1 ? 'ão' : 'ões'}`,
+])
 
 function formatDate(value?: string): string {
   if (!value) return ''
@@ -65,17 +68,17 @@ onMounted(loadSubmissions)
 
 <template>
   <main class="submitted-page">
-    <ViewerTopMenu :active-route="auth.isAdmin ? 'filled' : 'submissions'" />
-
-    <header class="viewer-header">
-      <div>
-        <span class="viewer-kicker">Documentos submetidos</span>
-        <h1>{{ title }}</h1>
-      </div>
-      <div class="viewer-session">
+    <ViewerTopMenu
+      :active-route="auth.isAdmin ? 'filled' : 'submissions'"
+      eyebrow="Documentos submetidos"
+      :title="title"
+      context="Histórico"
+      :chips="topbarChips"
+    >
+      <template #actions>
         <button type="button" class="button-secondary" @click="loadSubmissions">Atualizar</button>
-      </div>
-    </header>
+      </template>
+    </ViewerTopMenu>
 
     <section class="card submitted-list">
       <p v-if="loading" class="viewer-message">Carregando documentos submetidos...</p>

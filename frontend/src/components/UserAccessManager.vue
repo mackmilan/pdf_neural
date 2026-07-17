@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { useModalsStore } from '../stores/modals'
 import type { Group, Tenant, UserAccessEntry, UserAccessSummary, UserPermission } from '../types'
 
 const auth = useAuthStore()
+const modals = useModalsStore()
 const users = ref<UserAccessSummary[]>([])
 const tenants = ref<Tenant[]>([])
 const groups = ref<Group[]>([])
@@ -186,12 +188,20 @@ async function revokeAccess(access: UserAccessEntry) {
 }
 
 async function deleteUser(user: UserAccessSummary) {
-  if (!confirm(`Excluir ${user.username || user.subject} da aplicação e revogar todos os acessos?`)) return
+  const confirmed = await modals.showConfirm({
+    title: 'Excluir usuário?',
+    message: `Excluir ${user.username || user.subject} do Keycloak e da aplicação?`,
+    confirmLabel: 'Excluir usuário',
+    danger: true,
+  })
+  if (!confirmed) return
   try {
-    const data = await parseResponse<{ deleted: number }>(
+    const data = await parseResponse<{ deleted: number; keycloak_deleted: boolean }>(
       await auth.apiFetch(`/api/users/${encodeURIComponent(user.subject)}`, { method: 'DELETE' }),
     )
-    status.value = data.deleted === 1 ? 'Usuário excluído.' : `${data.deleted} acessos removidos.`
+    status.value = data.keycloak_deleted
+      ? 'Usuário excluído do Keycloak e da aplicação.'
+      : 'Usuário removido da aplicação. Ele não foi encontrado no Keycloak.'
     if (form.value.subject === user.subject) resetForm()
     await loadUsers()
   } catch (error) {

@@ -24,6 +24,10 @@ const submission = ref<{
 } | null>(null)
 
 const documentName = computed(() => documentStore.currentDocumentName || 'Documento preenchido')
+const topbarChips = computed(() => [
+  submission.value?.submission_id ? `Protocolo ${submission.value.submission_id}` : '',
+  createdAt.value ? `Enviado em ${createdAt.value}` : '',
+].filter(Boolean))
 function filenamePart(value: string, fallback: string): string {
   const normalized = value
     .normalize('NFD')
@@ -120,20 +124,19 @@ onMounted(loadSubmission)
 
 <template>
   <main class="viewer-page">
-    <ViewerTopMenu :active-route="auth.isAdmin ? 'filled' : 'submissions'" />
-
-    <header class="viewer-header">
-      <div>
-        <span class="viewer-kicker">Submissão</span>
-        <h1>{{ documentName }}</h1>
-      </div>
-      <div class="viewer-session">
-        <span>{{ auth.displayName }}</span>
+    <ViewerTopMenu
+      :active-route="auth.isAdmin ? 'filled' : 'submissions'"
+      eyebrow="Submissão"
+      :title="documentName"
+      context="Dados salvos"
+      :chips="topbarChips"
+    >
+      <template #actions>
         <button type="button" class="button-secondary" :disabled="loading || generatingPdf || !documentStore.previewHtml" @click="generateSubmissionPdf">
           {{ generatingPdf ? 'Gerando...' : 'Gerar PDF' }}
         </button>
-      </div>
-    </header>
+      </template>
+    </ViewerTopMenu>
 
     <p v-if="loading" class="viewer-message">Carregando submissão...</p>
     <p v-else-if="error && !documentStore.previewHtml" class="viewer-message viewer-error">{{ error }}</p>

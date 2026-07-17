@@ -24,6 +24,9 @@ const error = ref('')
 const documents = ref<AvailableDocument[]>([])
 
 const title = computed(() => auth.displayName || 'Usuário')
+const topbarChips = computed(() => [
+  `${documents.value.length} documento${documents.value.length === 1 ? '' : 's'}`,
+])
 
 function documentKey(document: AvailableDocument): string {
   return document.document_id || document.job_id || document.current_job_id || ''
@@ -80,17 +83,17 @@ onMounted(loadDocuments)
 
 <template>
   <main class="submitted-page">
-    <ViewerTopMenu active-route="available" />
-
-    <header class="viewer-header">
-      <div>
-        <span class="viewer-kicker">Documentos disponíveis</span>
-        <h1>{{ title }}</h1>
-      </div>
-      <div class="viewer-session">
+    <ViewerTopMenu
+      active-route="available"
+      eyebrow="Documentos disponíveis"
+      :title="title"
+      context="Para preenchimento"
+      :chips="topbarChips"
+    >
+      <template #actions>
         <button type="button" class="button-secondary" @click="loadDocuments">Atualizar</button>
-      </div>
-    </header>
+      </template>
+    </ViewerTopMenu>
 
     <section class="card submitted-list">
       <p v-if="loading" class="viewer-message">Carregando documentos disponíveis...</p>

@@ -420,8 +420,8 @@ def table_layouts(
                     "text": text or "",
                 })
 
-                # A blank cell beside a labelled cell is the characteristic
-                # layout of registration forms such as the UEPG example.
+                # A blank cell beside a labelled cell is a characteristic
+                # layout of registration forms.
                 if text in ("", None):
                     labels = [
                         str(value).strip()

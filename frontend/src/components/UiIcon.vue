@@ -4,11 +4,18 @@ type IconName =
   | 'check'
   | 'edit'
   | 'external-link'
+  | 'file-text'
+  | 'key'
+  | 'log-out'
   | 'maximize'
   | 'more-horizontal'
   | 'refresh'
   | 'save'
   | 'trash'
+  | 'search'
+  | 'upload'
+  | 'user'
+  | 'wand'
 
 defineProps<{
   name: IconName
@@ -33,6 +40,23 @@ defineProps<{
       <path d="M15 3h6v6" />
       <path d="M10 14 21 3" />
       <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </g>
+    <g v-else-if="name === 'file-text'">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 2v6h6" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+      <path d="M10 9H8" />
+    </g>
+    <g v-else-if="name === 'key'">
+      <path d="M21 2 11 12" />
+      <path d="M15.5 7.5 19 11l-3 3-3.5-3.5" />
+      <path d="M9 15a4 4 0 1 1-5.7 0A4 4 0 0 1 9 15Z" />
+    </g>
+    <g v-else-if="name === 'log-out'">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
     </g>
     <g v-else-if="name === 'maximize'">
       <path d="M8 3H5a2 2 0 0 0-2 2v3" />
@@ -62,6 +86,30 @@ defineProps<{
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </g>
+    <g v-else-if="name === 'search'">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </g>
+    <g v-else-if="name === 'upload'">
+      <path d="M12 13V3" />
+      <path d="m7 8 5-5 5 5" />
+      <path d="M5 17a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4" />
+    </g>
+    <g v-else-if="name === 'user'">
+      <path d="M20 21a8 8 0 0 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
+    </g>
+    <g v-else-if="name === 'wand'">
+      <path d="M15 4V2" />
+      <path d="M15 16v-2" />
+      <path d="M8 9h2" />
+      <path d="M20 9h2" />
+      <path d="m17.8 6.2 1.4-1.4" />
+      <path d="m10.8 13.2-1.4 1.4" />
+      <path d="m17.8 11.8 1.4 1.4" />
+      <path d="m2 22 14-14" />
+      <path d="m8 16-2-2" />
     </g>
   </svg>
 </template>

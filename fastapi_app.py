@@ -121,7 +121,7 @@ def authorize_tenant_access(identity: Identity, tenant_id: str) -> None:
     if identity.has_role(authenticator.admin_role):
         return
     require_database()
-    if not db.user_has_access(identity.subject, tenant_id):
+    if not db.user_has_tenant_access(identity.subject, tenant_id):
         raise HTTPException(status_code=403, detail={"error": "Acesso negado ao tenant"})
 
 
@@ -298,9 +298,17 @@ def register_routes(api: FastAPI) -> None:
         if not document or not document.get("allow_document_page_submission"):
             raise HTTPException(status_code=404, detail={"error": "Documento nao encontrado"})
         metadata = document.get("metadata") or {}
+        tenant_id = document.get("tenant_id")
+        group_id = document.get("group_id")
+        tenant = db.get_tenant(tenant_id)
+        group = db.get_group(tenant_id, group_id)
         return json_safe({
             "document_id": document.get("document_id") or document.get("job_id"),
             "document_name": document.get("name") or metadata.get("filename") or "Documento",
+            "tenant_id": tenant_id,
+            "tenant_name": tenant.get("name") if tenant else None,
+            "group_id": group_id,
+            "group_name": group.get("name") if group else None,
         })
 
     @api.get("/api/users/access")
@@ -392,10 +400,19 @@ def register_routes(api: FastAPI) -> None:
     def delete_user(subject: str, identity: Annotated[Identity, Depends(current_identity)]) -> object:
         require_admin(identity)
         require_database()
+        if not db.list_user_access(subject):
+            raise HTTPException(status_code=404, detail={"error": "Usuario nao encontrado"})
+        try:
+            keycloak_deleted = authenticator.delete_user(subject)
+        except AuthenticationError as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
+        except Exception as exc:
+            LOGGER.exception("Erro ao excluir usuario no Keycloak")
+            raise HTTPException(status_code=502, detail={"error": f"Falha ao excluir usuario no Keycloak: {exc}"}) from exc
         deleted = db.delete_user_access(subject)
         if not deleted:
             raise HTTPException(status_code=404, detail={"error": "Usuario nao encontrado"})
-        return {"deleted": deleted}
+        return {"deleted": deleted, "keycloak_deleted": keycloak_deleted}
 
     @api.get("/api/api-keys")
     def api_keys(request: Request, identity: Annotated[Identity, Depends(current_identity)]) -> object:

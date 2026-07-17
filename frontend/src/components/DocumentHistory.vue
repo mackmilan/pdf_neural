@@ -4,6 +4,7 @@ import { useContextStore } from '../stores/context'
 import { useDocumentStore } from '../stores/document'
 import { useModalsStore } from '../stores/modals'
 import type { DocumentHistoryItem } from '../types'
+import UiIcon from './UiIcon.vue'
 
 const context = useContextStore()
 const doc = useDocumentStore()
@@ -61,33 +62,26 @@ async function rename(item: DocumentHistoryItem) {
   if (name !== null) await doc.saveDocumentName(item.document_id, name)
 }
 
-async function toggleSingleSubmission(item: DocumentHistoryItem, event: Event) {
-  if (!item.document_id) return
-  const enabled = (event.target as HTMLInputElement).checked
-  await doc.setSingleSubmissionPerUser(item.document_id, enabled)
-}
-
-async function toggleDocumentPageSubmission(item: DocumentHistoryItem, event: Event) {
-  if (!item.document_id) return
-  const enabled = (event.target as HTMLInputElement).checked
-  await doc.setDocumentPageSubmissionAllowed(item.document_id, enabled)
-}
-
 function title(item: DocumentHistoryItem): string {
   return item.metadata?.filename || item.metadata?.pdf_url || item.job_id
 }
 </script>
 
 <template>
-  <details v-if="visible" class="card collapsible-card" open>
-    <summary><h3>Documentos</h3></summary>
+  <details v-if="visible" class="card collapsible-card documents-card" open>
+    <summary>
+      <h3>Documentos</h3>
+      <span class="documents-count">{{ context.historyTotal || context.historyItems.length }} item(ns)</span>
+    </summary>
     <div class="collapsible-content">
       <form class="history-toolbar" @submit.prevent="search">
         <label>Filtrar por nome
           <input v-model="context.historyNameFilter" maxlength="255" placeholder="Digite o nome do documento" autocomplete="off">
         </label>
-        <button type="submit">Buscar</button>
-        <button type="button" class="button-secondary" @click="clearFilter">Limpar</button>
+        <button type="submit" class="history-search-button" aria-label="Buscar">
+          <UiIcon name="search" />
+        </button>
+        <button type="button" class="button-secondary history-clear-button" @click="clearFilter">Limpar</button>
       </form>
       <div class="history-list">
         <template v-if="context.historyError">
@@ -95,29 +89,24 @@ function title(item: DocumentHistoryItem): string {
         </template>
         <template v-else-if="context.historyItems.length">
           <div v-for="item in context.historyItems" :key="item.document_id || item.job_id" class="history-item" @click="open(item)">
-            <button type="button" class="history-action history-delete" @click.stop="remove(item)" :aria-label="`Excluir ${title(item)}`">Excluir</button>
-            <button v-if="item.document_id" type="button" class="history-action history-rename" @click.stop="rename(item)" :aria-label="`Renomear ${title(item)}`">Renomear</button>
-            <h4>{{ title(item) }}</h4>
-            <label v-if="item.document_id" class="history-toggle" @click.stop>
-              <input
-                type="checkbox"
-                :checked="Boolean(item.allow_document_page_submission)"
-                @change="toggleDocumentPageSubmission(item, $event)"
-              >
-              Permitir preenchimento pela página do documento
-            </label>
-            <label v-if="item.document_id" class="history-toggle" @click.stop>
-              <input
-                type="checkbox"
-                :checked="Boolean(item.single_submission_per_user)"
-                @change="toggleSingleSubmission(item, $event)"
-              >
-              Preenchimento único por usuário
-            </label>
-            <small>{{ new Date(item.created_at).toLocaleString() }}</small><br>
-            <small>{{ context.groupName(item.group_id) }}</small><br>
-            <small>{{ context.categoryName(item.category_id) }}</small><br>
-            <small>v{{ item.current_version || item.version || 1 }} · {{ item.fields.length }} campos · {{ item.tables.length }} tabelas</small>
+            <div class="history-item-main">
+              <h4>{{ title(item) }}</h4>
+              <small>{{ context.groupName(item.group_id) }} · {{ context.categoryName(item.category_id) }}</small>
+              <small>{{ new Date(item.created_at).toLocaleString() }}</small>
+              <div class="history-badges">
+                <span>v{{ item.current_version || item.version || 1 }}</span>
+                <span>{{ item.fields.length }} campos</span>
+                <span>{{ item.tables.length }} tabelas</span>
+              </div>
+            </div>
+            <div class="history-actions">
+              <button v-if="item.document_id" type="button" class="history-action history-rename" @click.stop="rename(item)" :aria-label="`Renomear ${title(item)}`" title="Renomear">
+                <UiIcon name="edit" />
+              </button>
+              <button type="button" class="history-action history-delete" @click.stop="remove(item)" :aria-label="`Excluir ${title(item)}`" title="Excluir">
+                <UiIcon name="trash" />
+              </button>
+            </div>
           </div>
         </template>
         <template v-else-if="context.historyLoaded">
