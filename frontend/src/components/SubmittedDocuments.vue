@@ -2,16 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import ViewerTopMenu from './ViewerTopMenu.vue'
-
-interface SubmissionListItem {
-  submission_id: string
-  document_name: string
-  document_id?: string
-  job_id?: string
-  version?: number
-  created_at?: string
-  email?: string
-}
+import type { SubmissionListItem } from '../types'
 
 const auth = useAuthStore()
 const loading = ref(true)

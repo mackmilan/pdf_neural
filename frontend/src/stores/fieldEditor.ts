@@ -1,18 +1,7 @@
 import { defineStore } from 'pinia'
 import { useDocumentStore } from './document'
 import { FIELD_CHOICE_HEIGHT, FIELD_CHOICE_WIDTH, normalizedFieldHeight, optionalNumber } from './document'
-import type { Field, FieldAlign, FieldType, RadioOptionBox } from '../types'
-
-export interface FieldFormState {
-  label: string
-  type: FieldType
-  mask: string
-  align: FieldAlign
-  required: boolean
-  min: string
-  max: string
-  options: string
-}
+import type { Field, FieldAlign, FieldFormState, RadioOptionBox } from '../types'
 
 const DIACRITICS_PATTERN = new RegExp(
   `[${String.fromCharCode(0x0300)}-${String.fromCharCode(0x036f)}]`,

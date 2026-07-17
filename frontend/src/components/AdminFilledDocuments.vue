@@ -1,22 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
-import type { Category, Group, Tenant } from '../types'
-
-interface AdminSubmission {
-  submission_id: string
-  document_name: string
-  tenant_id?: string | null
-  tenant_name?: string | null
-  group_id?: string | null
-  group_name?: string | null
-  category_id?: string | null
-  category_name?: string | null
-  subject?: string
-  username?: string | null
-  email?: string | null
-  created_at?: string
-}
+import type { AdminSubmission, Category, Group, Tenant } from '../types'
 
 const auth = useAuthStore()
 const tenants = ref<Tenant[]>([])

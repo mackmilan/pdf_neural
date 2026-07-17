@@ -5,7 +5,7 @@ import { useDocumentStore } from '../stores/document'
 import { buildFieldTree } from '../composables/fieldTree'
 import PdfPreview from './PdfPreview.vue'
 import ViewerTopMenu from './ViewerTopMenu.vue'
-import type { FieldTreeGroup } from '../composables/fieldTree'
+import type { FieldTreeGroup, SubmissionDetail } from '../types'
 
 const props = defineProps<{ submissionId: string }>()
 const auth = useAuthStore()
@@ -15,13 +15,7 @@ const generatingPdf = ref(false)
 const error = ref('')
 const pdfError = ref('')
 const preview = ref<{ generatePdf: (filename?: string) => Promise<void> } | null>(null)
-const submission = ref<{
-  submission_id: string
-  values: Record<string, unknown>
-  created_at?: string
-  subject?: string
-  email?: string
-} | null>(null)
+const submission = ref<SubmissionDetail | null>(null)
 
 const documentName = computed(() => documentStore.currentDocumentName || 'Documento preenchido')
 const topbarChips = computed(() => [

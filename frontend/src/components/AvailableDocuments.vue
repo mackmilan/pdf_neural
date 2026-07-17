@@ -2,21 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import ViewerTopMenu from './ViewerTopMenu.vue'
-
-interface AvailableDocument {
-  document_id?: string
-  job_id?: string
-  current_job_id?: string
-  current_version?: number
-  version?: number
-  tenant_id?: string
-  group_id?: string | null
-  category_id?: string | null
-  updated_at?: string
-  created_at?: string
-  metadata?: { filename?: string; pdf_url?: string }
-  fields?: unknown[]
-}
+import type { AvailableDocument } from '../types'
 
 const auth = useAuthStore()
 const loading = ref(true)
