@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useContextStore } from '../stores/context'
 import { useDocumentStore } from '../stores/document'
+import UiIcon from './UiIcon.vue'
 
 const context = useContextStore()
 const doc = useDocumentStore()
@@ -9,8 +10,6 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const fileName = ref('')
 const url = ref('')
 const submitting = ref(false)
-const singleSubmissionPerUser = ref(false)
-const allowDocumentPageSubmission = ref(false)
 
 function onFileChange() {
   fileName.value = fileInput.value?.files?.[0]?.name || ''
@@ -33,8 +32,8 @@ async function submit() {
     const formData = new FormData()
     if (fileInput.value?.files?.[0]) formData.append('pdf', fileInput.value.files[0])
     if (url.value.trim()) formData.append('url', url.value.trim())
-    formData.append('single_submission_per_user', singleSubmissionPerUser.value ? 'true' : 'false')
-    formData.append('allow_document_page_submission', allowDocumentPageSubmission.value ? 'true' : 'false')
+    formData.append('single_submission_per_user', 'false')
+    formData.append('allow_document_page_submission', 'false')
     await doc.uploadDocument(formData)
   } catch (error) {
     doc.status = (error as Error).message
@@ -45,25 +44,25 @@ async function submit() {
 </script>
 
 <template>
-  <section class="card">
+  <section class="card upload-card">
+    <div class="sidebar-section-heading">
+      <h2>Novo documento</h2>
+    </div>
     <form @submit.prevent="submit">
       <label class="drop">
         <input ref="fileInput" type="file" accept="application/pdf" @change="onFileChange">
+        <UiIcon name="upload" />
         <strong>{{ fileName || 'Escolha ou arraste um PDF' }}</strong>
         <br><small>Maximo de 30 MB</small>
       </label>
-      <div class="separator">ou use uma URL</div>
-      <input class="url-input" v-model="url" type="url" inputmode="url" placeholder="https://exemplo.com/documento.pdf" aria-label="URL do arquivo PDF" @input="onUrlInput">
-      <label class="checkbox-row upload-option">
-        <input v-model="singleSubmissionPerUser" type="checkbox">
-        Preenchimento único por usuário
-      </label>
-      <label class="checkbox-row upload-option">
-        <input v-model="allowDocumentPageSubmission" type="checkbox">
-        Permitir preenchimento pela página do documento
+      <label class="url-field">URL do PDF
+        <input class="url-input" v-model="url" type="url" inputmode="url" placeholder="https://exemplo.com/documento.pdf" aria-label="URL do arquivo PDF" @input="onUrlInput">
       </label>
       <div class="actions">
-        <button type="submit" :disabled="submitting">Converter documento</button>
+        <button type="submit" class="button-with-icon primary-block-button" :disabled="submitting">
+          <UiIcon name="wand" />
+          Converter documento
+        </button>
         <span class="status">{{ doc.status }}</span>
       </div>
     </form>

@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useContextStore } from '../stores/context'
 
 const context = useContextStore()
 const tenantName = ref('')
 const groupName = ref('')
 const categoryName = ref('')
+
+const currentTenantName = computed(() => context.tenants.find((tenant) => tenant.tenant_id === context.tenantId)?.name || 'Sem tenant')
+const currentGroupName = computed(() => context.groupName(context.groupId) || 'Todos os grupos')
+const currentCategoryName = computed(() => context.categoryName(context.categoryId) || 'Todas as categorias')
 
 onMounted(() => {
   context.loadTenants()
@@ -68,10 +72,15 @@ async function createCategory() {
 </script>
 
 <template>
-  <details class="card collapsible-card" open>
-    <summary><h2>Contexto dos documentos</h2></summary>
+  <details class="card collapsible-card context-card">
+    <summary>
+      <span class="context-summary-copy">
+        <h2>Contexto</h2>
+        <span>{{ currentTenantName }} · {{ currentGroupName }} · {{ currentCategoryName }}</span>
+      </span>
+      <span class="context-summary-action">Alterar</span>
+    </summary>
     <div class="collapsible-content">
-      <p class="status">Organize documentos por tenants, grupos e categorias vinculadas ao grupo.</p>
       <div class="context-grid">
         <div>
           <label class="context-field">Tenant

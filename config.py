@@ -24,7 +24,7 @@ GOTENBERG_URL = os.environ.get(
     "http://yjcd2rmuvgkjyjo6odj5fuy4.2.25.177.136.sslip.io:3010/",
 ).rstrip("/")
 WORKERS = int(os.environ.get("PDF_WORKERS", "2"))
-TABLE_MODEL = Path(os.environ.get("TABLE_MODEL", ROOT / "models" / "uepg_table_detector.pt"))
+TABLE_MODEL = Path(os.environ.get("TABLE_MODEL", ROOT / "models" / "table_detector.pt"))
 FIELD_MODEL = Path(os.environ.get("FIELD_MODEL", ROOT / "models" / "field_detector.pt"))
 FIELD_MODELS = [
     Path(item.strip())

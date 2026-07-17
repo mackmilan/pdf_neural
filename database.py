@@ -320,6 +320,11 @@ class Database:
             return []
         return list(self.user_access.find({"subject": subject}).sort([("tenant_id", 1), ("group_id", 1)]))
 
+    def user_has_tenant_access(self, subject: str, tenant_id: str) -> bool:
+        if not self.is_available():
+            return False
+        return self.user_access.find_one({"subject": subject, "tenant_id": tenant_id}) is not None
+
     def list_all_user_access(self) -> list[dict]:
         if not self.is_available():
             return []

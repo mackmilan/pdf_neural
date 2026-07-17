@@ -249,6 +249,26 @@ class FastApiMigrationTest(unittest.TestCase):
         fake_db.grant_user_access.assert_called_once_with("sub-1", "a" * 32, None, "editor", "Maria")
         fake_db.revoke_user_access.assert_called_once_with("sub-1", "a" * 32, None)
 
+    @patch("fastapi_app.authenticator.delete_user")
+    @patch("fastapi_app.authenticator.authenticate")
+    @patch("fastapi_app.db")
+    def test_admin_deletes_user_from_keycloak_and_local_access(self, fake_db, authenticate, delete_user):
+        authenticate.return_value = ADMIN
+        delete_user.return_value = True
+        fake_db.is_available.return_value = True
+        fake_db.list_user_access.return_value = [{"tenant_id": "a" * 32, "group_id": None}]
+        fake_db.delete_user_access.return_value = 2
+
+        response = self.client.delete(
+            "/api/users/sub-1",
+            headers={"Authorization": "Bearer token"},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"deleted": 2, "keycloak_deleted": True}, response.json())
+        delete_user.assert_called_once_with("sub-1")
+        fake_db.delete_user_access.assert_called_once_with("sub-1")
+
     @patch("fastapi_app.authenticator.authenticate")
     @patch("fastapi_app.db")
     def test_editor_renames_document_with_context_permission(self, fake_db, authenticate):

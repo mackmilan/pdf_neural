@@ -18,6 +18,10 @@ const preview = ref<{ scrollToField: (fieldName: string, optionValue?: string) =
 
 const documentName = computed(() => documentStore.currentDocumentName || 'Documento convertido')
 const fieldTreeNodes = computed(() => buildFieldTree(documentStore.currentFields))
+const topbarChips = computed(() => [
+  `${documentStore.currentFields.length} campo${documentStore.currentFields.length === 1 ? '' : 's'}`,
+  documentStore.currentSingleSubmissionPerUser ? 'Preenchimento único' : 'Múltiplos envios',
+])
 
 function inputType(field: Field): string {
   if (field.mask || field.type === 'select' || field.type === 'textarea') return 'text'
@@ -80,17 +84,13 @@ onMounted(loadDocument)
 
 <template>
   <main class="viewer-page">
-    <ViewerTopMenu :active-route="auth.isAdmin ? 'documents' : 'available'" />
-
-    <header class="viewer-header">
-      <div>
-        <span class="viewer-kicker">Documento</span>
-        <h1>{{ documentName }}</h1>
-      </div>
-      <div class="viewer-session">
-        <span>{{ auth.displayName }}</span>
-      </div>
-    </header>
+    <ViewerTopMenu
+      :active-route="auth.isAdmin ? 'documents' : 'available'"
+      eyebrow="Documento"
+      :title="documentName"
+      context="Preenchimento"
+      :chips="topbarChips"
+    />
 
     <p v-if="loading" class="viewer-message">Carregando documento…</p>
     <p v-else-if="error && !documentStore.previewHtml" class="viewer-message viewer-error">{{ error }}</p>

@@ -60,7 +60,11 @@ export const useContextStore = defineStore('context', {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       this.groups = data
-      this.groupId = preferredGroup && data.some((group: Group) => group.group_id === preferredGroup) ? preferredGroup : ''
+      this.groupId = preferredGroup && data.some((group: Group) => group.group_id === preferredGroup)
+        ? preferredGroup
+        : auth.isAdmin
+          ? ''
+          : data[0]?.group_id || ''
       localStorage.setItem(TENANT_KEY, this.tenantId)
       localStorage.setItem(GROUP_KEY, this.groupId)
       await this.loadHistory()

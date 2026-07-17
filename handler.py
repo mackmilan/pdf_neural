@@ -958,8 +958,17 @@ class Handler(BaseHTTPRequestHandler):
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
             subject = urllib.parse.unquote(delete_user_match.group(1))
+            if not db.list_user_access(subject):
+                return self.send_json(404, {"error": "Usuario nao encontrado"})
+            try:
+                keycloak_deleted = authenticator.delete_user(subject)
+            except AuthenticationError as exc:
+                return self.send_json(502, {"error": str(exc)})
+            except Exception as exc:
+                LOGGER.exception("Erro ao excluir usuario no Keycloak")
+                return self.send_json(502, {"error": f"Falha ao excluir usuario no Keycloak: {exc}"})
             deleted = db.delete_user_access(subject)
-            return self.send_json(200, {"deleted": deleted}) if deleted else self.send_json(404, {"error": "Usuario nao encontrado"})
+            return self.send_json(200, {"deleted": deleted, "keycloak_deleted": keycloak_deleted}) if deleted else self.send_json(404, {"error": "Usuario nao encontrado"})
         user_match = re.fullmatch(r"/api/users/([^/]+)/access", path)
         if user_match:
             if not self.require_admin(identity):

@@ -13,7 +13,7 @@ services:
       TIMEOUT: ${TIMEOUT:-60}
       PDF_WORKERS: ${PDF_WORKERS:-2}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-      TABLE_MODEL: ${TABLE_MODEL:-/app/models/uepg_table_detector.pt}
+      TABLE_MODEL: ${TABLE_MODEL:-/app/models/table_detector.pt}
       FIELD_MODELS: ${FIELD_MODELS:-}
       FIELD_MODEL: ${FIELD_MODEL:-/app/models/field_detector.pt}
       NEURAL_THRESHOLD: ${NEURAL_THRESHOLD:-0.7}
