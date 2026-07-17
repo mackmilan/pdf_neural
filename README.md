@@ -23,8 +23,69 @@ em `fields.json` para permitir o preenchimento posterior do PDF.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python app.py
+python fastapi_app.py
 ```
+
+### API FastAPI em migracao
+
+A migracao para FastAPI ja cobre os fluxos principais da API e o Docker usa
+`fastapi_app.py` como entrada. O servidor legado em `app.py` permanece no
+repositorio como referencia durante a estabilizacao:
+
+```bash
+python fastapi_app.py
+```
+
+Rotas ja presentes na camada FastAPI:
+
+- `GET /auth/config`
+- `POST /api/pdf/html`
+- `GET /api/me`
+- `POST /api/users`
+- `GET /api/users/access`
+- `GET /api/users/{subject}/access`
+- `PUT /api/users/{subject}/access`
+- `DELETE /api/users/{subject}/access`
+- `DELETE /api/users/{subject}`
+- `GET /api/api-keys`
+- `POST /api/api-keys`
+- `POST /api/api-keys/revoke`
+- `GET /api/documents`
+- `GET /api/documents/{document_id}`
+- `PUT /api/documents/{job_id}/fields`
+- `PUT /api/documents/{document_id}/format-norm`
+- `PUT /api/documents/{document_id}/html`
+- `PUT /api/documents/{document_id}/name`
+- `PUT /api/documents/{document_id}/category`
+- `PUT /api/documents/{document_id}/single-submission`
+- `PUT /api/documents/{document_id}/document-page-submission`
+- `DELETE /api/documents/{document_id}`
+- `GET /api/documents/{document_id}/versions`
+- `GET /api/documents/{document_id}/versions/current`
+- `GET /api/documents/{document_id}/versions/{version}`
+- `PUT /api/documents/{document_id}/versions/{version}/current`
+- `PUT /api/documents/{document_id}/versions/{version}/deprecated`
+- `DELETE /api/documents/{document_id}/versions/{version}`
+- `DELETE /api/documents/{document_id}/versions/{version}/deprecated`
+- `GET /api/jobs`
+- `POST /api/jobs`
+- `GET /api/jobs/{job_id}`
+- `POST /api/convert`
+- `GET /jobs/{job_id}/html/index.html`
+- `GET /api/public/viewer/documents/{document_id}`
+- `GET /api/viewer/documents`
+- `GET /api/viewer/documents/{document_id}`
+- `GET /api/viewer/documents/{document_id}/html`
+- `POST /api/viewer/documents/{document_id}/submissions`
+- `GET /api/viewer/submissions`
+- `GET /api/viewer/submissions/{submission_id}`
+- `GET /api/viewer/submissions/{submission_id}/html`
+- `GET /api/tenants`
+- `POST /api/tenants`
+- `GET /api/tenants/{tenant_id}/groups`
+- `POST /api/tenants/{tenant_id}/groups`
+- `GET /api/tenants/{tenant_id}/groups/{group_id}/categories`
+- `POST /api/tenants/{tenant_id}/groups/{group_id}/categories`
 
 O frontend (Vue 3 + TypeScript, em `frontend/`) precisa ser instalado uma vez com
 `npm install --prefix frontend`. Em desenvolvimento, rode o backend Python e o

@@ -8,3 +8,6 @@ pymongo==4.10.1
 python-dotenv==1.0.1
 cryptography==49.0.0
 PyMuPDF==1.26.5
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+httpx==0.28.1
