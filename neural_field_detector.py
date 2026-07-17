@@ -285,6 +285,7 @@ def train(
     epochs: int = 40,
     learning_rate: float = 1e-3,
     resume_path: Path | None = None,
+    date_augmentation: bool = True,
 ) -> None:
     torch, nn = require_torch()
     import torch.nn.functional as functional
@@ -316,7 +317,7 @@ def train(
         for sample in samples:
             source_image = Image.open(dataset_dir / sample["image"])
             source_mask = Image.open(dataset_dir / sample["mask"])
-            if random.random() < .65:
+            if date_augmentation and random.random() < .65:
                 source_image, source_mask = augment_date_field(source_image, source_mask)
             img = image_tensor(source_image, augment=True).unsqueeze(0).to(device)
             mask = image_tensor(source_mask).unsqueeze(0).to(device)
@@ -445,6 +446,7 @@ def main():
     t.add_argument("--epochs", type=int, default=40)
     t.add_argument("--learning-rate", type=float, default=1e-3)
     t.add_argument("--resume", type=Path)
+    t.add_argument("--no-date-augmentation", action="store_true")
     
     args = parser.parse_args()
     
@@ -458,6 +460,7 @@ def main():
         train(
             Path(args.dataset), Path(args.output), epochs=args.epochs,
             learning_rate=args.learning_rate, resume_path=args.resume,
+            date_augmentation=not args.no_date_augmentation,
         )
 
 if __name__ == "__main__":

@@ -1,0 +1,138 @@
+{
+  "image_size": 512,
+  "source": "mongodb",
+  "collection": "documents",
+  "manual_only": true,
+  "samples": [
+    {
+      "image": "images/pesquisa-aplicada-page-0001.png",
+      "mask": "masks/pesquisa-aplicada-page-0001.png",
+      "fields": 2,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0002.png",
+      "mask": "masks/pesquisa-aplicada-page-0002.png",
+      "fields": 18,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0003.png",
+      "mask": "masks/pesquisa-aplicada-page-0003.png",
+      "fields": 17,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0004.png",
+      "mask": "masks/pesquisa-aplicada-page-0004.png",
+      "fields": 19,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0005.png",
+      "mask": "masks/pesquisa-aplicada-page-0005.png",
+      "fields": 24,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0006.png",
+      "mask": "masks/pesquisa-aplicada-page-0006.png",
+      "fields": 23,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0007.png",
+      "mask": "masks/pesquisa-aplicada-page-0007.png",
+      "fields": 20,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0008.png",
+      "mask": "masks/pesquisa-aplicada-page-0008.png",
+      "fields": 15,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0009.png",
+      "mask": "masks/pesquisa-aplicada-page-0009.png",
+      "fields": 20,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0010.png",
+      "mask": "masks/pesquisa-aplicada-page-0010.png",
+      "fields": 21,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0011.png",
+      "mask": "masks/pesquisa-aplicada-page-0011.png",
+      "fields": 18,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0012.png",
+      "mask": "masks/pesquisa-aplicada-page-0012.png",
+      "fields": 19,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0013.png",
+      "mask": "masks/pesquisa-aplicada-page-0013.png",
+      "fields": 25,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0014.png",
+      "mask": "masks/pesquisa-aplicada-page-0014.png",
+      "fields": 22,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0015.png",
+      "mask": "masks/pesquisa-aplicada-page-0015.png",
+      "fields": 17,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    },
+    {
+      "image": "images/pesquisa-aplicada-page-0016.png",
+      "mask": "masks/pesquisa-aplicada-page-0016.png",
+      "fields": 5,
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "version": null
+    }
+  ],
+  "skipped": [],
+  "used_documents": 1
+}

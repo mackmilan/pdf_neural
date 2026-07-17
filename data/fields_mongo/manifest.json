@@ -1,0 +1,26 @@
+{
+  "image_size": 512,
+  "source": "mongodb",
+  "collection": "documents",
+  "manual_only": true,
+  "samples": [
+    {
+      "image": "images/modelo-do-termo-de-aprovacao-page-0001.png",
+      "mask": "masks/modelo-do-termo-de-aprovacao-page-0001.png",
+      "fields": 7,
+      "document_id": "886a04959890c90e6673793d45a2b449a1936fe1eabf5782430d74e4c4a53e03",
+      "job_id": "569bcd1f74ba41408de24fab3773cea0",
+      "version": null
+    }
+  ],
+  "skipped": [
+    {
+      "document_id": "4ec69002319ee8fa1d53c66ab88b287df0121d4ace19666e89047ad66e8f2f83",
+      "job_id": "50266b442b1d48c785a53f331004669b",
+      "filename": "PESQUISA APLICADA",
+      "content_hash": "4161d09b443757e45a102e2c9e47cbfb676ecbb495aed8a3de6149236facbe50",
+      "reason": "pdf nao encontrado localmente e metadata.pdf_url ausente"
+    }
+  ],
+  "used_documents": 1
+}
