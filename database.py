@@ -29,7 +29,15 @@ FIELD_ALIGNS = {"left", "center", "justify", "right"}
 
 
 def normalized_field_height(field: dict) -> float:
-    return float(FIELD_CHOICE_HEIGHT if field.get("type") in {"checkbox", "radio"} else FIELD_TEXT_HEIGHT)
+    if field.get("type") in {"checkbox", "radio"}:
+        return float(FIELD_CHOICE_HEIGHT)
+    if field.get("type") == "textarea":
+        try:
+            height = float(field.get("height"))
+        except (TypeError, ValueError):
+            return float(FIELD_TEXT_HEIGHT)
+        return height if math.isfinite(height) and height > 0 else float(FIELD_TEXT_HEIGHT)
+    return float(FIELD_TEXT_HEIGHT)
 
 
 def normalize_choice_box(box: dict) -> dict:
