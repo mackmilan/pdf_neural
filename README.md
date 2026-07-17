@@ -166,15 +166,29 @@ python neural_field_detector.py train data/fields_uepg_v6 \
   -o models/field_detector.pt --epochs 10 --learning-rate 0.0002
 ```
 
+Por padrao a aplicacao carrega `models/field_detector.pt`. Para combinar modelos
+especializados, configure `FIELD_MODELS` com caminhos separados por virgula. A API
+executa todos os checkpoints e junta as deteccoes por sobreposicao, mantendo a caixa
+com maior confianca quando dois modelos apontam para o mesmo campo:
+
+```bash
+FIELD_MODELS=models/field_detector.pt,models/field_detector_mongo.pt,models/field_detector_pesquisa_aplicada.pt \
+python fastapi_app.py
+```
+
+`FIELD_MODEL` continua aceito para compatibilidade e e usado como fallback quando
+`FIELD_MODELS` nao e informado.
+
 Abra `http://127.0.0.1:8000`. Na interface, envie um arquivo local ou informe uma
 URL publica HTTP/HTTPS que aponte para o PDF. Downloads remotos possuem limite de
 30 MB e enderecos locais ou de rede privada sao bloqueados.
 
-A interface executa automaticamente o modelo `models/uepg_table_detector.pt` e
-mostra as grades encontradas em **Tabelas - rede neural**. O arquivo
-`neural-tables.json` tambem e incluido no ZIP. Na previa HTML, linhas e colunas sao
-renderizadas nas coordenadas detectadas usando a cor dos tracos do documento de
-origem. Para trocar o checkpoint ou ajustar a sensibilidade:
+A interface executa automaticamente o modelo de tabela `models/uepg_table_detector.pt`
+e o detector neural de campos configurado. Ela mostra as grades encontradas em
+**Tabelas - rede neural**. O arquivo `neural-tables.json` tambem e incluido no ZIP.
+Na previa HTML, linhas e colunas sao renderizadas nas coordenadas detectadas usando
+a cor dos tracos do documento de origem. Para trocar o checkpoint de tabela ou
+ajustar a sensibilidade:
 
 ```bash
 TABLE_MODEL=models/uepg_table_detector.pt \
@@ -466,6 +480,7 @@ PUBLIC_BASE_URL=https://pdf.exemplo.com
 PDF_WORKERS=2
 MONGO_URI=mongodb://usuario:senha@mongo-host:27017/pdf_neural
 GOTENBERG_URL=http://gotenberg:3000
+FIELD_MODELS=/app/models/field_detector.pt,/app/models/field_detector_mongo.pt
 NEURAL_REQUIRED=false
 ```
 
