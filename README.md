@@ -98,11 +98,15 @@ Vite dev server juntos com:
 Isso inicia `python fastapi_app.py` (porta 8000) e `npm run dev` (porta 5173, com proxy
 para `/api`, `/auth`, `/jobs`, `/docs` e `/openapi.json` apontando para o
 backend). Para gerar os estaticos de producao (servidos pelo proprio
-`fastapi_app.py` a partir de `static/`):
+`fastapi_app.py` a partir de `static/`), rode:
 
 ```bash
 npm --prefix frontend run build
 ```
+
+A pasta `static/` e um artefato gerado pelo build do frontend e nao deve ser
+versionada. A imagem Docker sempre executa esse build e copia o resultado para
+`/app/static`.
 
 ## Detector neural de tabelas
 
