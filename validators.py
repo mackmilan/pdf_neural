@@ -97,6 +97,8 @@ def validate_fields_payload(value: object) -> list[dict]:
         kind = str(raw.get("type", "text"))
         mask = str(raw.get("mask", "")).strip()[:80]
         align = str(raw.get("align", "left"))
+        group_id = str(raw.get("group_id", "")).strip()[:64]
+        group_label = str(raw.get("group_label", "")).strip()[:160]
         min_value = optional_number(raw.get("min"), "Valor minimo", index)
         max_value = optional_number(raw.get("max"), "Valor maximo", index)
         raw_options = raw.get("options", [])
@@ -116,6 +118,11 @@ def validate_fields_payload(value: object) -> list[dict]:
                 raise ValueError(f"Opcoes invalidas ou duplicadas no campo {index}")
         elif raw_options not in (None, []):
             raise ValueError(f"Opcoes permitidas apenas para campo radio no campo {index}")
+        if group_id or group_label:
+            if kind != "checkbox":
+                raise ValueError(f"Agrupamento permitido apenas para checkbox no campo {index}")
+            if not group_id or not group_label or not re.fullmatch(r"[a-zA-Z0-9_\-]+", group_id):
+                raise ValueError(f"Grupo invalido no campo {index}")
         if min_value is not None and max_value is not None and min_value > max_value:
             raise ValueError(f"Valor minimo deve ser menor ou igual ao maximo no campo {index}")
         try:
@@ -176,6 +183,9 @@ def validate_fields_payload(value: object) -> list[dict]:
         elif kind == "radio":
             fields[-1]["options"] = options
             fields[-1]["option_boxes"] = option_boxes
+        if kind == "checkbox" and group_id and group_label:
+            fields[-1]["group_id"] = group_id
+            fields[-1]["group_label"] = group_label
     return fields
 
 

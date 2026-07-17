@@ -49,6 +49,7 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
     editingFieldIndex: null as number | null,
     form: emptyForm(),
     pendingRadioBoxes: [] as RadioOptionBox[],
+    targetCheckboxGroup: null as { groupId: string; label: string } | null,
     hint: 'Arraste sobre a página para marcar a área do novo campo.',
   }),
   actions: {
@@ -66,7 +67,16 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       this.editingFieldIndex = null
       this.form = emptyForm()
       this.pendingRadioBoxes = []
+      this.targetCheckboxGroup = null
       this.hint = 'Arraste sobre a página para marcar a área do novo campo.'
+    },
+    startAddCheckboxInGroup(groupId: string, label: string) {
+      this.addingField = true
+      this.editingFieldIndex = null
+      this.form = { ...emptyForm(), type: 'checkbox' }
+      this.pendingRadioBoxes = []
+      this.targetCheckboxGroup = { groupId, label }
+      this.hint = `Informe o nome e arraste sobre a página para adicionar um checkbox ao grupo "${label}".`
     },
     startEdit(index: number) {
       const docStore = useDocumentStore()
@@ -75,6 +85,7 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       this.addingField = false
       this.editingFieldIndex = index
       this.pendingRadioBoxes = []
+      this.targetCheckboxGroup = null
       this.form = {
         label: field.label,
         type: field.type,
@@ -91,6 +102,7 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       this.addingField = false
       this.editingFieldIndex = null
       this.pendingRadioBoxes = []
+      this.targetCheckboxGroup = null
       this.hint = 'Arraste sobre a página para marcar a área do novo campo.'
     },
     onAlignChange() {
@@ -181,6 +193,10 @@ export const useFieldEditorStore = defineStore('fieldEditor', {
       if (field.type === 'checkbox' || field.type === 'radio') {
         field.width = FIELD_CHOICE_WIDTH
         field.height = FIELD_CHOICE_HEIGHT
+      }
+      if (field.type === 'checkbox' && this.targetCheckboxGroup) {
+        field.group_id = this.targetCheckboxGroup.groupId
+        field.group_label = this.targetCheckboxGroup.label
       }
       if (this.form.type === 'number') {
         if (Number.isFinite(minValue)) field.min = minValue as number

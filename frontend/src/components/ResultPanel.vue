@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useContextStore } from '../stores/context'
 import { useDocumentStore } from '../stores/document'
 import { useModalsStore } from '../stores/modals'
 import type { FormatNorm } from '../types'
 import PdfPreview from './PdfPreview.vue'
 import FieldsSidebar from './FieldsSidebar.vue'
+import UiIcon from './UiIcon.vue'
 
 const context = useContextStore()
 const docStore = useDocumentStore()
 const modals = useModalsStore()
 const preview = ref<InstanceType<typeof PdfPreview> | null>(null)
-const fullscreenLabel = ref('⛶ Tela cheia')
+const activePreviewFieldName = ref<string | null>(null)
+const fullscreenLabel = ref('Tela cheia')
 const documentName = ref('')
 const categoryValue = ref('')
 const formatNormValue = ref<FormatNorm | ''>('')
@@ -41,7 +43,7 @@ watch(
 
 onMounted(() => {
   document.addEventListener('fullscreenchange', () => {
-    fullscreenLabel.value = document.fullscreenElement ? 'Sair da tela cheia' : '⛶ Tela cheia'
+    fullscreenLabel.value = document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia'
   })
 })
 
@@ -75,19 +77,6 @@ async function discardText() {
   if (!confirmed) return
   preview.value?.discardTextEdits()
   docStore.status = 'Alterações de texto descartadas.'
-}
-
-async function saveDocumentName() {
-  if (!docStore.currentDocumentId) return
-  await docStore.saveDocumentName(docStore.currentDocumentId, documentName.value)
-}
-
-async function applyCategory() {
-  await docStore.applyCategory(categoryValue.value || null)
-}
-
-async function applyFormatNorm() {
-  await docStore.applyFormatNorm(formatNormValue.value || null)
 }
 
 async function toggleDocumentPageSubmission(event: Event) {
@@ -145,6 +134,27 @@ const versionNote = computed(() => {
   const selected = selectedVersionInfo.value
   return selected?.deprecated ? 'Versão obsoleta' : selected?.is_current ? 'Versão padrão atual' : 'Visualizando uma versão anterior'
 })
+const metadataDirty = computed(
+  () =>
+    documentName.value !== docStore.currentDocumentName ||
+    (categoryValue.value || '') !== (docStore.currentCategoryId || '') ||
+    (formatNormValue.value || '') !== (docStore.currentFormatNorm || ''),
+)
+
+async function saveDocumentMetadata() {
+  if (!docStore.isEditableDocument || !docStore.currentDocumentId) return
+  const tasks: Promise<unknown>[] = []
+  if (documentName.value !== docStore.currentDocumentName) {
+    tasks.push(docStore.saveDocumentName(docStore.currentDocumentId, documentName.value))
+  }
+  if ((categoryValue.value || '') !== (docStore.currentCategoryId || '')) {
+    tasks.push(docStore.applyCategory(categoryValue.value || null))
+  }
+  if ((formatNormValue.value || '') !== (docStore.currentFormatNorm || '')) {
+    tasks.push(docStore.applyFormatNorm(formatNormValue.value || null))
+  }
+  await Promise.all(tasks)
+}
 
 function scrollTo(id: string) {
   preview.value?.scrollToElement(id)
@@ -152,6 +162,17 @@ function scrollTo(id: string) {
 
 function openValue(index: number) {
   preview.value?.openFieldValue(index)
+}
+
+function onPreviewFieldSelected(detail: { fieldName: string }) {
+  if (activePreviewFieldName.value === detail.fieldName) {
+    activePreviewFieldName.value = null
+    void nextTick(() => {
+      activePreviewFieldName.value = detail.fieldName
+    })
+    return
+  }
+  activePreviewFieldName.value = detail.fieldName
 }
 
 function openDocumentRender() {
@@ -169,28 +190,43 @@ function openDocumentRender() {
   <section class="card result" :class="{ show: docStore.resultVisible }">
     <div class="result-heading">
       <div><small>Resultado</small><h2>{{ docStore.currentDocumentName || 'Documento' }}</h2></div>
-      <button type="button" class="text-edit-button" :class="{ active: docStore.textEditMode }" :disabled="!docStore.currentDocumentId" @click="toggleTextEdit">
-        {{ docStore.textEditMode ? 'Finalizar edição' : 'Editar textos' }}
+      <button type="button" class="render-page-button button-with-icon" :disabled="!documentRenderUrl" aria-label="Abrir renderização do documento em nova aba" @click="openDocumentRender">
+        <UiIcon name="external-link" />
+        Abrir renderização
       </button>
-      <button type="button" class="text-save-button" :disabled="!docStore.currentDocumentId || !docStore.textEditDirty" @click="saveText">Salvar textos</button>
-      <button type="button" class="text-discard-button" :disabled="!docStore.textEditDirty" @click="discardText">Descartar textos</button>
-      <button type="button" class="render-page-button" :disabled="!documentRenderUrl" aria-label="Abrir renderização do documento em nova aba" @click="openDocumentRender">Abrir renderização</button>
-      <button type="button" class="fullscreen-button" :disabled="!docStore.previewUrl" @click="toggleFullscreen">{{ fullscreenLabel }}</button>
+      <details class="result-actions-menu">
+        <summary aria-label="Mais ações"><UiIcon name="more-horizontal" /></summary>
+        <div class="result-actions-popover">
+          <button type="button" class="text-edit-button button-with-icon" :class="{ active: docStore.textEditMode }" :disabled="!docStore.currentDocumentId" @click="toggleTextEdit">
+            <UiIcon name="edit" />
+            {{ docStore.textEditMode ? 'Finalizar edição' : 'Editar textos' }}
+          </button>
+          <button type="button" class="text-save-button button-with-icon" :disabled="!docStore.currentDocumentId || !docStore.textEditDirty" @click="saveText">
+            <UiIcon name="save" />
+            Salvar textos
+          </button>
+          <button type="button" class="text-discard-button button-with-icon" :disabled="!docStore.textEditDirty" @click="discardText">
+            <UiIcon name="refresh" />
+            Descartar textos
+          </button>
+          <button type="button" class="fullscreen-button button-with-icon" :disabled="!docStore.previewUrl" @click="toggleFullscreen">
+            <UiIcon name="maximize" />
+            {{ fullscreenLabel }}
+          </button>
+        </div>
+      </details>
     </div>
-    <div class="document-controls">
+
+    <div class="metadata-panel">
       <label>Nome do documento
-        <input v-model="documentName" maxlength="255" aria-label="Nome do documento" :disabled="!docStore.isEditableDocument" @keydown.enter.prevent="saveDocumentName">
+        <input v-model="documentName" maxlength="255" aria-label="Nome do documento" :disabled="!docStore.isEditableDocument" @keydown.enter.prevent="saveDocumentMetadata">
       </label>
-      <button type="button" :disabled="!docStore.isEditableDocument" @click="saveDocumentName">Alterar nome</button>
       <label>Categoria
         <select v-model="categoryValue" aria-label="Categoria do documento" :disabled="!docStore.isEditableDocument">
           <option value="">Sem categoria</option>
           <option v-for="category in context.categories" :key="category.category_id" :value="category.category_id">{{ category.name }}</option>
         </select>
       </label>
-      <button type="button" :disabled="!docStore.isEditableDocument" @click="applyCategory">Alterar categoria</button>
-    </div>
-    <div class="format-controls">
       <label>Norma de formatação
         <select v-model="formatNormValue" aria-label="Norma de formatação do documento" :disabled="!docStore.isEditableDocument">
           <option value="">Nenhuma</option>
@@ -198,46 +234,65 @@ function openDocumentRender() {
           <option value="apa">APA (7th edition)</option>
         </select>
       </label>
-      <button type="button" :disabled="!docStore.isEditableDocument" @click="applyFormatNorm">Aplicar formatação</button>
-    </div>
-    <div class="submission-controls">
-      <label>
-        <input
-          type="checkbox"
-          :checked="docStore.currentAllowDocumentPageSubmission"
-          :disabled="!docStore.isEditableDocument"
-          @change="toggleDocumentPageSubmission"
-        >
-        Permitir preenchimento pela página do documento
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          :checked="docStore.currentSingleSubmissionPerUser"
-          :disabled="!docStore.isEditableDocument"
-          @change="toggleSingleSubmission"
-        >
-        Preenchimento único por usuário
-      </label>
-    </div>
-    <div class="version-controls" :class="{ show: docStore.availableVersions.length > 0 }">
-      <label>Versão
-        <select :value="docStore.currentVersion" aria-label="Selecionar versão do documento" @change="onVersionChange(Number(($event.target as HTMLSelectElement).value))">
-          <option v-for="item in docStore.availableVersions" :key="item.version" :value="item.version">
-            v{{ item.version }}{{ item.is_current ? ' (padrão)' : '' }}{{ item.deprecated ? ' (deprecated)' : '' }}
-          </option>
-        </select>
-      </label>
-      <button type="button" :disabled="!selectedVersionInfo || selectedVersionInfo.is_current || selectedVersionInfo.deprecated" @click="setCurrentVersion(docStore.currentVersion!)">Definir como padrão</button>
-      <button type="button" :disabled="!selectedVersionInfo || selectedVersionInfo.is_current" @click="toggleDeprecated(docStore.currentVersion!, !selectedVersionInfo?.deprecated)">
-        {{ selectedVersionInfo?.deprecated ? 'Restaurar versão' : 'Marcar como deprecated' }}
+
+      <div class="version-controls" :class="{ show: docStore.availableVersions.length > 0 }">
+        <label>Versão
+          <select :value="docStore.currentVersion" aria-label="Selecionar versão do documento" @change="onVersionChange(Number(($event.target as HTMLSelectElement).value))">
+            <option v-for="item in docStore.availableVersions" :key="item.version" :value="item.version">
+              v{{ item.version }}{{ item.is_current ? ' (padrão)' : '' }}{{ item.deprecated ? ' (deprecated)' : '' }}
+            </option>
+          </select>
+        </label>
+        <span class="version-note">{{ versionNote }}</span>
+        <details class="version-actions-menu">
+          <summary aria-label="Ações da versão"><UiIcon name="more-horizontal" /></summary>
+          <div class="version-actions-popover">
+            <button type="button" class="button-with-icon" :disabled="!selectedVersionInfo || selectedVersionInfo.is_current || selectedVersionInfo.deprecated" @click="setCurrentVersion(docStore.currentVersion!)">
+              <UiIcon name="check" />
+              Definir como padrão
+            </button>
+            <button type="button" class="button-with-icon" :disabled="!selectedVersionInfo || selectedVersionInfo.is_current" @click="toggleDeprecated(docStore.currentVersion!, !selectedVersionInfo?.deprecated)">
+              <UiIcon name="archive" />
+              {{ selectedVersionInfo?.deprecated ? 'Restaurar versão' : 'Marcar como deprecated' }}
+            </button>
+            <button type="button" class="button-danger button-with-icon" :disabled="!selectedVersionInfo || selectedVersionInfo.is_current || docStore.availableVersions.length <= 1" @click="deleteVersion(docStore.currentVersion!)">
+              <UiIcon name="trash" />
+              Excluir versão
+            </button>
+          </div>
+        </details>
+      </div>
+
+      <button type="button" class="metadata-save-button button-with-icon" :disabled="!docStore.isEditableDocument || !metadataDirty" @click="saveDocumentMetadata">
+        <UiIcon name="save" />
+        Salvar alterações
       </button>
-      <button type="button" class="button-danger" :disabled="!selectedVersionInfo || selectedVersionInfo.is_current || docStore.availableVersions.length <= 1" @click="deleteVersion(docStore.currentVersion!)">Excluir versão</button>
-      <span class="version-note">{{ versionNote }}</span>
+
+      <div class="submission-controls">
+        <label>
+          <input
+            type="checkbox"
+            :checked="docStore.currentAllowDocumentPageSubmission"
+            :disabled="!docStore.isEditableDocument"
+            @change="toggleDocumentPageSubmission"
+          >
+          Permitir preenchimento pela página do documento
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            :checked="docStore.currentSingleSubmissionPerUser"
+            :disabled="!docStore.isEditableDocument"
+            @change="toggleSingleSubmission"
+          >
+          Preenchimento único por usuário
+        </label>
+      </div>
     </div>
+
     <div class="layout">
-      <PdfPreview ref="preview" @save-text-requested="saveText" />
-      <FieldsSidebar @scroll-to="scrollTo" @open-value="openValue" />
+      <PdfPreview ref="preview" @save-text-requested="saveText" @field-selected="onPreviewFieldSelected" />
+      <FieldsSidebar :active-field-name="activePreviewFieldName" @scroll-to="scrollTo" @open-value="openValue" />
     </div>
   </section>
 </template>

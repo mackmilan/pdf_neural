@@ -28,6 +28,8 @@ export interface Field {
   max?: number
   options?: string[]
   option_boxes?: RadioOptionBox[]
+  group_id?: string
+  group_label?: string
   source?: string
   [key: string]: unknown
 }

@@ -413,65 +413,68 @@ class FieldDetector:
         self._inference_lock = threading.Lock()
 
     def detect(self, pdf_path: Path) -> list[dict[str, Any]]:
-        results = []
         with tempfile.TemporaryDirectory() as temp:
             rendered = render_pdf(pdf_path, Path(temp))
             with pdfplumber.open(pdf_path) as pdf:
-                for page_no, (img_path, page) in enumerate(zip(rendered, pdf.pages), 1):
-                    image = Image.open(img_path).convert("L")
-                    pw, ph = float(page.width), float(page.height)
-                    
-                    with self._inference_lock, self.torch.no_grad():
-                        logits = self.model(image_tensor(image).unsqueeze(0).to(self.device))
-                        probs = self.torch.sigmoid(logits)[0, 0].cpu().tolist()
-                    
-                    components = mask_components(probs, self.threshold)
-                    page_results = []
-                    for i, comp in enumerate(components):
-                        page_results.append({
-                            "page": page_no,
-                            "x": comp["x"] * pw / IMAGE_SIZE,
-                            "y": comp["y"] * ph / IMAGE_SIZE,
-                            "width": comp["width"] * pw / IMAGE_SIZE,
-                            "height": comp["height"] * ph / IMAGE_SIZE,
-                            "confidence": round(comp["confidence"], 4),
-                            "source": "neural_field"
-                        })
-                    # O modelo costuma ativar separadamente dia, mes e ano no
-                    # padrao "Data: ___ de ___ de 20___". Se houver evidencia
-                    # neural sobre esses trechos, consolida-os em um unico campo.
-                    from converter import textual_segmented_fields
-                    words = page.extract_words()
-                    raw_page_results = list(page_results)
-                    matched_detections: set[int] = set()
-                    segmented_results = []
-                    for segmented in textual_segmented_fields(page, words):
-                        x0, y0, x1, y1 = segmented["bbox"]
-                        touching = [
-                            detection for detection in raw_page_results
-                            if not (
-                                detection["x"] + detection["width"] < x0
-                                or x1 < detection["x"]
-                                or detection["y"] + detection["height"] < y0
-                                or y1 < detection["y"]
-                            )
-                        ]
-                        if not touching:
-                            continue
-                        matched_detections.update(id(detection) for detection in touching)
-                        segmented_results.append({
-                            "page": page_no, "x": x0, "y": y0,
-                            "width": x1 - x0, "height": y1 - y0,
-                            "confidence": round(max(d["confidence"] for d in touching), 4),
-                            "label": segmented["label"],
-                            "type": segmented["type"],
-                            "source": "neural_field",
-                        })
-                    page_results = [
-                        detection for detection in raw_page_results
-                        if id(detection) not in matched_detections
-                    ] + segmented_results
-                    results.extend(sorted(page_results, key=lambda box: (box["y"], box["x"])))
+                return self.detect_rendered(rendered, pdf.pages)
+
+    def detect_rendered(self, rendered: Iterable[Path], pages: Iterable[Any]) -> list[dict[str, Any]]:
+        results = []
+        for page_no, (img_path, page) in enumerate(zip(rendered, pages), 1):
+            image = Image.open(img_path).convert("L")
+            pw, ph = float(page.width), float(page.height)
+
+            with self._inference_lock, self.torch.no_grad():
+                logits = self.model(image_tensor(image).unsqueeze(0).to(self.device))
+                probs = self.torch.sigmoid(logits)[0, 0].cpu().tolist()
+
+            components = mask_components(probs, self.threshold)
+            page_results = []
+            for i, comp in enumerate(components):
+                page_results.append({
+                    "page": page_no,
+                    "x": comp["x"] * pw / IMAGE_SIZE,
+                    "y": comp["y"] * ph / IMAGE_SIZE,
+                    "width": comp["width"] * pw / IMAGE_SIZE,
+                    "height": comp["height"] * ph / IMAGE_SIZE,
+                    "confidence": round(comp["confidence"], 4),
+                    "source": "neural_field"
+                })
+            # O modelo costuma ativar separadamente dia, mes e ano no
+            # padrao "Data: ___ de ___ de 20___". Se houver evidencia
+            # neural sobre esses trechos, consolida-os em um unico campo.
+            from converter import textual_segmented_fields
+            words = page.extract_words()
+            raw_page_results = list(page_results)
+            matched_detections: set[int] = set()
+            segmented_results = []
+            for segmented in textual_segmented_fields(page, words):
+                x0, y0, x1, y1 = segmented["bbox"]
+                touching = [
+                    detection for detection in raw_page_results
+                    if not (
+                        detection["x"] + detection["width"] < x0
+                        or x1 < detection["x"]
+                        or detection["y"] + detection["height"] < y0
+                        or y1 < detection["y"]
+                    )
+                ]
+                if not touching:
+                    continue
+                matched_detections.update(id(detection) for detection in touching)
+                segmented_results.append({
+                    "page": page_no, "x": x0, "y": y0,
+                    "width": x1 - x0, "height": y1 - y0,
+                    "confidence": round(max(d["confidence"] for d in touching), 4),
+                    "label": segmented["label"],
+                    "type": segmented["type"],
+                    "source": "neural_field",
+                })
+            page_results = [
+                detection for detection in raw_page_results
+                if id(detection) not in matched_detections
+            ] + segmented_results
+            results.extend(sorted(page_results, key=lambda box: (box["y"], box["x"])))
         return results
 
 def main():

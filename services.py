@@ -7,20 +7,86 @@ import re
 import tempfile
 import threading
 from pathlib import Path
+from typing import Any
+
+import pdfplumber
 
 from converter import ConversionResult, convert
-from neural_field_detector import FieldDetector
+from neural_field_detector import FieldDetector, render_pdf
 from neural_table_detector import TableDetector
 from config import (
-    FIELD_MODEL, LOGGER, NEURAL_ENABLED, NEURAL_MIN_CONFIDENCE,
+    FIELD_MODELS, LOGGER, NEURAL_ENABLED, NEURAL_MIN_CONFIDENCE,
     NEURAL_THRESHOLD, TABLE_MODEL,
 )
 
 _TABLE_DETECTOR: TableDetector | None = None
-_FIELD_DETECTOR: FieldDetector | None = None
+_FIELD_DETECTOR: Any | None = None
 _DETECTOR_LOCK = threading.Lock()
 
-def get_detectors() -> tuple[TableDetector | None, FieldDetector | None]:
+def field_iou(left: dict[str, Any], right: dict[str, Any]) -> float:
+    left_x1 = float(left["x"]) + float(left["width"])
+    left_y1 = float(left["y"]) + float(left["height"])
+    right_x1 = float(right["x"]) + float(right["width"])
+    right_y1 = float(right["y"]) + float(right["height"])
+    ix0 = max(float(left["x"]), float(right["x"]))
+    iy0 = max(float(left["y"]), float(right["y"]))
+    ix1 = min(left_x1, right_x1)
+    iy1 = min(left_y1, right_y1)
+    intersection = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+    left_area = max(0.0, float(left["width"])) * max(0.0, float(left["height"]))
+    right_area = max(0.0, float(right["width"])) * max(0.0, float(right["height"]))
+    union = left_area + right_area - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def merge_field_detections(detections: list[dict[str, Any]], iou_threshold: float = 0.45) -> list[dict[str, Any]]:
+    """Une deteccoes de varios modelos mantendo a caixa mais confiante."""
+    selected: list[dict[str, Any]] = []
+    ordered = sorted(
+        detections,
+        key=lambda item: (
+            -float(item.get("confidence", 0)),
+            int(item.get("page", 0)),
+            float(item.get("y", 0)),
+            float(item.get("x", 0)),
+        ),
+    )
+    for detection in ordered:
+        duplicate_index = next(
+            (
+                index for index, existing in enumerate(selected)
+                if int(existing.get("page", 0)) == int(detection.get("page", 0))
+                and field_iou(existing, detection) >= iou_threshold
+            ),
+            None,
+        )
+        if duplicate_index is None:
+            selected.append(detection)
+        elif float(detection.get("confidence", 0)) > float(selected[duplicate_index].get("confidence", 0)):
+            selected[duplicate_index] = detection
+    return sorted(selected, key=lambda item: (int(item.get("page", 0)), float(item.get("y", 0)), float(item.get("x", 0))))
+
+
+class MultiFieldDetector:
+    def __init__(self, detectors: list[tuple[str, FieldDetector]], iou_threshold: float = 0.45):
+        self.detectors = detectors
+        self.iou_threshold = iou_threshold
+
+    def detect(self, pdf_path: Path) -> list[dict[str, Any]]:
+        detections: list[dict[str, Any]] = []
+        with tempfile.TemporaryDirectory(prefix="pdf-neural-fields-") as temporary:
+            rendered = render_pdf(pdf_path, Path(temporary))
+            with pdfplumber.open(pdf_path) as pdf:
+                pages = list(pdf.pages)
+                for model_name, detector in self.detectors:
+                    for detection in detector.detect_rendered(rendered, pages):
+                        item = dict(detection)
+                        item["model"] = model_name
+                        detections.append(item)
+        return merge_field_detections(detections, self.iou_threshold)
+
+
+def get_detectors() -> tuple[TableDetector | None, Any | None]:
     """Carrega os modelos uma única vez."""
     global _TABLE_DETECTOR, _FIELD_DETECTOR
     if not NEURAL_ENABLED:
@@ -34,12 +100,22 @@ def get_detectors() -> tuple[TableDetector | None, FieldDetector | None]:
                 except Exception:
                     LOGGER.exception("Erro ao carregar detector de tabelas")
 
-            if _FIELD_DETECTOR is None and FIELD_MODEL.is_file():
-                try:
-                    _FIELD_DETECTOR = FieldDetector(FIELD_MODEL)
-                    LOGGER.info("Modelo neural de campos carregado: %s", FIELD_MODEL)
-                except Exception:
-                    LOGGER.exception("Erro ao carregar detector de campos")
+            if _FIELD_DETECTOR is None:
+                field_detectors = []
+                for field_model in FIELD_MODELS:
+                    if not field_model.is_file():
+                        LOGGER.warning("Modelo neural de campos nao encontrado: %s", field_model)
+                        continue
+                    try:
+                        field_detectors.append((field_model.stem, FieldDetector(field_model)))
+                        LOGGER.info("Modelo neural de campos carregado: %s", field_model)
+                    except Exception:
+                        LOGGER.exception("Erro ao carregar detector de campos em %s", field_model)
+                if len(field_detectors) == 1:
+                    _FIELD_DETECTOR = field_detectors[0][1]
+                elif len(field_detectors) > 1:
+                    _FIELD_DETECTOR = MultiFieldDetector(field_detectors)
+                    LOGGER.info("Detector composto de campos carregado com %d modelos", len(field_detectors))
     return _TABLE_DETECTOR, _FIELD_DETECTOR
 
 

@@ -26,6 +26,11 @@ GOTENBERG_URL = os.environ.get(
 WORKERS = int(os.environ.get("PDF_WORKERS", "2"))
 TABLE_MODEL = Path(os.environ.get("TABLE_MODEL", ROOT / "models" / "uepg_table_detector.pt"))
 FIELD_MODEL = Path(os.environ.get("FIELD_MODEL", ROOT / "models" / "field_detector.pt"))
+FIELD_MODELS = [
+    Path(item.strip())
+    for item in os.environ.get("FIELD_MODELS", "").split(",")
+    if item.strip()
+] or [FIELD_MODEL]
 NEURAL_THRESHOLD = float(os.environ.get("NEURAL_THRESHOLD", str(DEFAULT_THRESHOLD)))
 NEURAL_MIN_CONFIDENCE = float(os.environ.get("NEURAL_MIN_CONFIDENCE", "0.65"))
 NEURAL_ENABLED = os.environ.get("NEURAL_ENABLED", "true").lower() not in ("0", "false", "no")

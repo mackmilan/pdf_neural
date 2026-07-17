@@ -45,6 +45,49 @@ export function usePreviewRuntime() {
   const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
   let activeSelection: { fieldName: string; optionIndex: number | null } | null = null
 
+  function emitFieldSelected(doc: Document, fieldIndex: number, optionIndex: number | null) {
+    const field = docStore.currentFields[fieldIndex]
+    if (!field) return
+    doc.dispatchEvent(new CustomEvent('pdf-field-selected', {
+      detail: {
+        fieldName: field.name,
+        fieldIndex,
+        optionIndex,
+        optionValue: optionIndex !== null ? field.option_boxes?.[optionIndex]?.value : undefined,
+      },
+    }))
+  }
+
+  function optionIndexFrom(element: HTMLElement | null): number | null {
+    const value = element?.dataset.optionIndex
+    return value === undefined ? null : Number(value)
+  }
+
+  function previewFieldElement(doc: Document, fieldName: string, optionValue?: string): HTMLElement | null {
+    const fields = Array.from(doc.querySelectorAll<HTMLElement>('.pdf-field'))
+    return fields.find((element) => (
+      element.dataset.name === fieldName
+      && (!optionValue || element.dataset.optionValue === optionValue)
+    )) || null
+  }
+
+  function selectPreviewField(doc: Document | null, fieldName: string, optionValue?: string): HTMLElement | null {
+    if (!doc) return null
+    const element = previewFieldElement(doc, fieldName, optionValue)
+    const fieldIndex = docStore.currentFields.findIndex((field) => field.name === fieldName)
+    if (!element || fieldIndex < 0) return null
+
+    doc.querySelectorAll<HTMLElement>('.pdf-field').forEach((fieldElement) => {
+      if (fieldElement !== element) fieldElement.style.outline = ''
+    })
+    const optionIndex = optionIndexFrom(element)
+    activeSelection = { fieldName, optionIndex }
+    element.style.outline = '2px solid #1677ff'
+    element.focus({ preventScroll: true })
+    emitFieldSelected(doc, fieldIndex, optionIndex)
+    return element
+  }
+
   function valueInputType(field: Field): string {
     return field.mask || field.type === 'select' ? 'text' : field.type
   }
@@ -101,7 +144,7 @@ export function usePreviewRuntime() {
     if (!Object.prototype.hasOwnProperty.call(docStore.formValues, field.name)) return ''
     const value = docStore.formValues[field.name]
     if (field.type === 'checkbox') return value ? '✓' : ''
-    if (field.type === 'radio') return value === radioOption ? 'X' : ''
+    if (field.type === 'radio') return value === radioOption ? '✓' : ''
     return value === null || value === undefined ? '' : String(value)
   }
 
@@ -298,7 +341,7 @@ export function usePreviewRuntime() {
           position: 'absolute', inset: '0', zIndex: '90', display: 'flex',
           alignItems: isMultiline ? 'flex-start' : 'center',
           justifyContent: isMark ? 'center' : 'flex-start', padding: isMark ? '0' : '2px 4px',
-          color: '#111827', font: field.type === 'radio' ? '16px/1 Arial, sans-serif' : '12px/1.2 Arial, sans-serif',
+          color: '#111827', font: '12px/1.2 Arial, sans-serif',
           textAlign: fieldTextAlign(field), whiteSpace: isMultiline ? 'pre-wrap' : 'nowrap',
           overflow: isMultiline ? 'visible' : 'hidden', overflowWrap: isMultiline ? 'anywhere' : 'normal',
           textOverflow: isMultiline ? 'clip' : 'ellipsis', pointerEvents: 'none',
@@ -338,6 +381,9 @@ export function usePreviewRuntime() {
           element.addEventListener('mouseleave', () => handles.forEach((handle) => (handle.style.opacity = '0')))
         }
         if (!readonlyValues) {
+          element.addEventListener('click', () => {
+            emitFieldSelected(doc, docStore.currentFields.findIndex((item) => item.name === field.name), field.type === 'radio' ? optionIndex : null)
+          })
           element.addEventListener('dblclick', (event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -396,11 +442,6 @@ export function usePreviewRuntime() {
       element: HTMLElement
     } | null = null
 
-    const optionIndexFrom = (element: HTMLElement | null): number | null => {
-      const value = element?.dataset.optionIndex
-      return value === undefined ? null : Number(value)
-    }
-
     const editableGeometry = (fieldIndex: number, optionIndex: number | null): Field => {
       const field = docStore.currentFields[fieldIndex]
       if (optionIndex === null || !field.option_boxes?.[optionIndex]) return { ...field }
@@ -437,10 +478,16 @@ export function usePreviewRuntime() {
       activeSelection = { fieldName: docStore.currentFields[fieldIndex].name, optionIndex }
       element.style.outline = '2px solid #1677ff'
       element.focus({ preventScroll: true })
+      emitFieldSelected(doc, fieldIndex, optionIndex)
     }
 
     const currentActiveField = () => {
-      if (activeField?.element.isConnected) return activeField
+      if (
+        activeField?.element.isConnected
+        && activeSelection
+        && activeField.element.dataset.name === activeSelection?.fieldName
+        && activeField.optionIndex === activeSelection.optionIndex
+      ) return activeField
       if (!activeSelection) return null
       const fieldIndex = docStore.currentFields.findIndex((field) => field.name === activeSelection?.fieldName)
       if (fieldIndex < 0) return null
@@ -713,5 +760,6 @@ export function usePreviewRuntime() {
     installDrawingHandlers,
     openFieldValue,
     closeInlineFieldValue,
+    selectPreviewField,
   }
 }

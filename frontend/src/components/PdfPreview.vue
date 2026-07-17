@@ -20,6 +20,13 @@ const props = withDefaults(defineProps<{ fitContentWidth?: boolean; readonlyGeom
 let fitResizeObserver: ResizeObserver | null = null
 let fitContentResizeObserver: ResizeObserver | null = null
 
+interface PreviewFieldSelectedDetail {
+  fieldName: string
+  fieldIndex: number
+  optionIndex: number | null
+  optionValue?: string
+}
+
 onMounted(() => {
   if (iframe.value) iframe.value.srcdoc = docStore.previewHtml
 })
@@ -87,6 +94,7 @@ function prepareRuntime() {
   fitIframeContentWidth(doc)
   observePreviewWidth()
   doc?.documentElement.removeAttribute('data-field-editor-ready')
+  doc?.addEventListener('pdf-field-selected', onPreviewFieldSelected as EventListener)
   runtime.renderPreviewFields(doc, { readonlyGeometry: props.readonlyGeometry, readonlyValues: props.readonlyValues })
   runtime.renderFormValues(doc)
   if (!props.readonlyGeometry) runtime.installDrawingHandlers(doc)
@@ -97,9 +105,16 @@ function requestSave() {
   emitSaveRequest()
 }
 
-const emit = defineEmits<{ saveTextRequested: [] }>()
+const emit = defineEmits<{
+  saveTextRequested: []
+  fieldSelected: [PreviewFieldSelectedDetail]
+}>()
 function emitSaveRequest() {
   emit('saveTextRequested')
+}
+
+function onPreviewFieldSelected(event: Event) {
+  emit('fieldSelected', (event as CustomEvent<PreviewFieldSelectedDetail>).detail)
 }
 
 watch(
@@ -244,6 +259,12 @@ function printDocument() {
 function scrollToElement(id: string) {
   const doc = contentDocument()
   if (!iframe.value || !doc) return
+  const fieldElement = runtime.selectPreviewField(doc, id)
+  if (fieldElement) {
+    if (fieldElement.id) iframe.value.contentWindow!.location.hash = fieldElement.id
+    fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    return
+  }
   iframe.value.contentWindow!.location.hash = id
   const el = doc.getElementById(id)
   el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -252,11 +273,7 @@ function scrollToElement(id: string) {
 function scrollToField(fieldName: string, optionValue?: string) {
   const doc = contentDocument()
   if (!iframe.value || !doc) return
-  const fields = Array.from(doc.querySelectorAll<HTMLElement>('.pdf-field'))
-  const el = fields.find((element) => (
-    element.dataset.name === fieldName
-    && (!optionValue || element.dataset.optionValue === optionValue)
-  )) || doc.getElementById(fieldName)
+  const el = runtime.selectPreviewField(doc, fieldName, optionValue) || doc.getElementById(fieldName)
   if (!el) return
   if (el.id) iframe.value.contentWindow!.location.hash = el.id
   el.scrollIntoView({ behavior: 'smooth', block: 'center' })
