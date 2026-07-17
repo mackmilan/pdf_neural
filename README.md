@@ -491,13 +491,14 @@ arriscaria colidir com outro servico já usando 8000 na mesma VPS. `PUBLIC_BASE_
 deve ser a URL publica sem barra no final, para que callbacks e links de resultados
 usem o dominio correto.
 
-`MONGO_URI` deve apontar para um MongoDB acessivel a partir do container; `localhost`
-dentro do container seria o proprio container da API. `GOTENBERG_URL` tambem deve
-usar um endereco alcancavel na rede do deploy, como o nome do servico Docker
-`gotenberg` quando ele estiver na mesma stack. O compose exige essa variavel para
-evitar um default para `localhost` que falharia em producao. `NEURAL_REQUIRED=false`
-mantem o comportamento padrao da aplicacao: se a etapa neural falhar, a conversao
-geometrica ainda pode continuar.
+`MONGO_URI` ativa a camada ODM baseada em modelos Pydantic sobre MongoDB e deve
+apontar para um MongoDB acessivel a partir do container; `localhost` dentro do
+container seria o proprio container da API. `GOTENBERG_URL` tambem deve usar um
+endereco alcancavel na rede do deploy, como o nome do servico Docker `gotenberg`
+quando ele estiver na mesma stack. O compose exige essa variavel para evitar um
+default para `localhost` que falharia em producao. `NEURAL_REQUIRED=false` mantem o
+comportamento padrao da aplicacao: se a etapa neural falhar, a conversao geometrica
+ainda pode continuar.
 
 A imagem builda o frontend (Vue 3 + TypeScript em `frontend/`) em um estagio
 separado e copia o resultado para `static/`, que o backend serve diretamente —
