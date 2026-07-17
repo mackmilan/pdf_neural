@@ -10,6 +10,8 @@ const auth = useAuthStore()
 const documentStore = useDocumentStore()
 const loading = ref(true)
 const error = ref('')
+const printError = ref('')
+const preview = ref<{ printDocument: () => void } | null>(null)
 const submission = ref<{
   submission_id: string
   values: Record<string, unknown>
@@ -38,6 +40,15 @@ function displayValue(value: unknown): string {
   return String(value)
 }
 
+function printSubmission() {
+  printError.value = ''
+  try {
+    preview.value?.printDocument()
+  } catch (cause) {
+    printError.value = (cause as Error).message
+  }
+}
+
 async function loadSubmission() {
   loading.value = true
   error.value = ''
@@ -62,7 +73,7 @@ onMounted(loadSubmission)
 
 <template>
   <main class="viewer-page">
-    <ViewerTopMenu v-if="!auth.isAdmin" active-route="submissions" />
+    <ViewerTopMenu :active-route="auth.isAdmin ? 'filled' : 'submissions'" />
 
     <header class="viewer-header">
       <div>
@@ -71,7 +82,7 @@ onMounted(loadSubmission)
       </div>
       <div class="viewer-session">
         <span>{{ auth.displayName }}</span>
-        <button v-if="auth.isAdmin" type="button" class="button-secondary" @click="auth.logout()">Sair</button>
+        <button type="button" class="button-secondary" :disabled="loading || !documentStore.previewHtml" @click="printSubmission">Imprimir</button>
       </div>
     </header>
 
@@ -80,10 +91,11 @@ onMounted(loadSubmission)
 
     <div v-else class="viewer-layout">
       <section class="viewer-document card">
-        <PdfPreview fit-content-width readonly-geometry readonly-values />
+        <PdfPreview ref="preview" readonly-geometry readonly-values />
       </section>
       <aside class="viewer-fields card">
         <h2>Dados salvos</h2>
+        <p v-if="printError" class="viewer-error">{{ printError }}</p>
         <p class="status">Protocolo: {{ submission?.submission_id }}</p>
         <p v-if="createdAt" class="status">Enviado em: {{ createdAt }}</p>
         <p v-if="submission?.email" class="status">Responsável: {{ submission.email }}</p>

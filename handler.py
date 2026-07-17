@@ -7,6 +7,7 @@ import re
 import shutil
 import urllib.parse
 import uuid
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -136,6 +137,18 @@ class Handler(BaseHTTPRequestHandler):
             proto = "http"
         return f"{proto}://{self.headers.get('Host', '127.0.0.1:8000')}"
 
+    @staticmethod
+    def _parse_query_date(value: str, label: str) -> datetime | None:
+        value = (value or "").strip()
+        if not value:
+            return None
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise ValueError(f"{label} deve estar no formato YYYY-MM-DD")
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"{label} invalido") from None
+
     def send_file(self, path: Path, disposition: str | None = None) -> None:
         if not path.is_file():
             self.send_error(404); return
@@ -159,6 +172,7 @@ class Handler(BaseHTTPRequestHandler):
             "/documentos-disponiveis", "/documentos-disponiveis/",
             "/usuarios", "/usuarios/",
             "/submissoes", "/submissoes/",
+            "/preenchidos", "/preenchidos/",
         ):
             return self.send_file(STATIC / "index.html")
         if re.fullmatch(r"/documento/(?:[0-9a-f]{32}|[0-9a-f]{64})/?", path):
@@ -206,6 +220,35 @@ class Handler(BaseHTTPRequestHandler):
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
             return self.send_json(200, json_safe(db.list_all_user_access()))
+        if path == "/api/admin/submissions":
+            if not self.require_admin(identity):
+                return
+            if not db or not db.is_available():
+                return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
+            try:
+                tenant_id, group_id = validate_search_context(query)
+                category_id = validate_category_query(query)
+                date_from = self._parse_query_date(query.get("date_from", [""])[0], "date_from")
+                date_to = self._parse_query_date(query.get("date_to", [""])[0], "date_to")
+                if date_to:
+                    date_to = date_to + timedelta(days=1)
+                user = query.get("user", [""])[0].strip()
+                if len(user) > 255:
+                    raise ValueError("user deve ter no maximo 255 caracteres")
+                if category_id and tenant_id and (
+                    not group_id or not db.category_belongs_to_group(tenant_id, group_id, category_id)
+                ):
+                    return self.send_json(400, {"error": "category_id deve pertencer ao group_id informado"})
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            return self.send_json(200, json_safe(db.list_all_document_submissions(
+                tenant_id=tenant_id,
+                group_id=group_id,
+                category_id=category_id,
+                date_from=date_from,
+                date_to=date_to,
+                user=user or None,
+            )))
         user_match = re.fullmatch(r"/api/users/([^/]+)/access", path)
         if user_match:
             if not self.require_admin(identity):

@@ -8,11 +8,12 @@ import ResultPanel from './ResultPanel.vue'
 import ApiKeyManager from './ApiKeyManager.vue'
 
 const UserAccessManager = defineAsyncComponent(() => import('./UserAccessManager.vue'))
+const AdminFilledDocuments = defineAsyncComponent(() => import('./AdminFilledDocuments.vue'))
 
 const auth = useAuthStore()
 const apiKeyManager = ref<InstanceType<typeof ApiKeyManager> | null>(null)
-defineProps<{ activeView: 'documents' | 'users' | 'available' }>()
-const emit = defineEmits<{ navigate: ['documents' | 'users' | 'available'] }>()
+defineProps<{ activeView: 'documents' | 'users' | 'available' | 'filled' }>()
+const emit = defineEmits<{ navigate: ['documents' | 'users' | 'available' | 'filled'] }>()
 </script>
 
 <template>
@@ -23,6 +24,7 @@ const emit = defineEmits<{ navigate: ['documents' | 'users' | 'available'] }>()
       <div class="button-group">
         <button type="button" :class="{ active: activeView === 'documents' }" @click="emit('navigate', 'documents')">Documentos</button>
         <button type="button" :class="{ active: activeView === 'available' }" @click="emit('navigate', 'available')">Disponíveis</button>
+        <button v-if="auth.isAdmin" type="button" :class="{ active: activeView === 'filled' }" @click="emit('navigate', 'filled')">Preenchidos</button>
         <button v-if="auth.isAdmin" type="button" :class="{ active: activeView === 'users' }" @click="emit('navigate', 'users')">Usuários</button>
         <button v-if="auth.isAdmin" type="button" @click="apiKeyManager?.open()">API Key</button>
         <button type="button" @click="auth.logout()">Sair</button>
@@ -38,6 +40,7 @@ const emit = defineEmits<{ navigate: ['documents' | 'users' | 'available'] }>()
       </div>
       <ResultPanel />
     </div>
+    <AdminFilledDocuments v-else-if="activeView === 'filled' && auth.isAdmin" />
     <UserAccessManager v-else-if="auth.isAdmin" />
   </main>
   <ApiKeyManager ref="apiKeyManager" />

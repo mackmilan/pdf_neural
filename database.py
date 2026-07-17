@@ -103,6 +103,7 @@ class Database:
                 self.document_submissions.create_index([("document_id", 1), ("created_at", -1)])
                 self.document_submissions.create_index([("subject", 1), ("created_at", -1)])
                 self.document_submissions.create_index([("document_id", 1), ("subject", 1), ("created_at", -1)])
+                self.document_submissions.create_index([("tenant_id", 1), ("group_id", 1), ("created_at", -1)])
                 self.documents.create_index([("tenant_id", 1), ("group_id", 1), ("updated_at", -1)])
                 self.documents.create_index([("tenant_id", 1), ("category_id", 1), ("updated_at", -1)])
                 LOGGER.info("Conexão com MongoDB estabelecida com sucesso")
@@ -585,6 +586,97 @@ class Database:
                 "tenant_id": submission.get("tenant_id"),
                 "group_id": submission.get("group_id"),
                 "created_at": submission.get("created_at"),
+                "email": submission.get("email"),
+                "document_name": (document or {}).get("name") or metadata.get("filename") or "Documento submetido",
+            })
+        return items
+
+    def list_all_document_submissions(
+        self,
+        tenant_id: str | None = None,
+        group_id: str | None = None,
+        category_id: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        user: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        """Lista preenchimentos de todos os usuarios para a visao administrativa."""
+        if not self.is_available() or self.document_submissions is None:
+            return []
+        query: dict[str, Any] = {}
+        if tenant_id:
+            query["tenant_id"] = tenant_id
+        if group_id:
+            query["group_id"] = group_id
+        if date_from or date_to:
+            created_at: dict[str, datetime] = {}
+            if date_from:
+                created_at["$gte"] = date_from
+            if date_to:
+                created_at["$lt"] = date_to
+            query["created_at"] = created_at
+        if user:
+            pattern = {"$regex": re.escape(user), "$options": "i"}
+            user_filter: list[dict[str, Any]] = [{"subject": pattern}, {"email": pattern}]
+            if self.user_access is not None:
+                matching_subjects = self.user_access.distinct("subject", {"username": pattern})
+                if matching_subjects:
+                    user_filter.append({"subject": {"$in": matching_subjects}})
+            query["$or"] = user_filter
+
+        tenants = {
+            tenant["tenant_id"]: tenant
+            for tenant in self.tenants.find({}, {"_id": 0, "tenant_id": 1, "name": 1})
+        } if self.tenants is not None else {}
+        groups = {
+            (group["tenant_id"], group["group_id"]): group
+            for group in self.groups.find({}, {"_id": 0, "tenant_id": 1, "group_id": 1, "name": 1})
+        } if self.groups is not None else {}
+        categories = {
+            (category.get("tenant_id"), category.get("group_id"), category.get("category_id")): category
+            for category in self.categories.find({}, {"_id": 0, "tenant_id": 1, "group_id": 1, "category_id": 1, "name": 1})
+            if category.get("tenant_id") and category.get("category_id")
+        } if self.categories is not None else {}
+        usernames = {
+            access["subject"]: access.get("username")
+            for access in self.user_access.find({}, {"_id": 0, "subject": 1, "username": 1})
+            if access.get("username")
+        } if self.user_access is not None else {}
+
+        items = []
+        cursor = self.document_submissions.find(query).sort("created_at", -1).limit(max(1, min(limit, 500)))
+        for submission in cursor:
+            document = self.get_document(
+                submission.get("document_id") or submission.get("job_id"),
+                submission.get("version"),
+                submission.get("tenant_id"),
+                submission.get("group_id"),
+            )
+            document_category_id = (document or {}).get("category_id")
+            if category_id and document_category_id != category_id:
+                continue
+            metadata = (document or {}).get("metadata") or {}
+            submission_tenant_id = submission.get("tenant_id")
+            submission_group_id = submission.get("group_id")
+            tenant = tenants.get(submission_tenant_id, {})
+            group = groups.get((submission_tenant_id, submission_group_id), {}) if submission_group_id else {}
+            category = categories.get((submission_tenant_id, submission_group_id, document_category_id), {}) if document_category_id else {}
+            subject = submission.get("subject")
+            items.append({
+                "submission_id": submission.get("submission_id"),
+                "document_id": submission.get("document_id"),
+                "job_id": submission.get("job_id"),
+                "version": submission.get("version"),
+                "tenant_id": submission_tenant_id,
+                "tenant_name": tenant.get("name"),
+                "group_id": submission_group_id,
+                "group_name": group.get("name"),
+                "category_id": document_category_id,
+                "category_name": category.get("name"),
+                "created_at": submission.get("created_at"),
+                "subject": subject,
+                "username": usernames.get(subject),
                 "email": submission.get("email"),
                 "document_name": (document or {}).get("name") or metadata.get("filename") or "Documento submetido",
             })

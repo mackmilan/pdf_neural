@@ -4,8 +4,8 @@ import { useAuthStore } from './stores/auth'
 import ConfirmModal from './components/ConfirmModal.vue'
 import TextInputModal from './components/TextInputModal.vue'
 import FieldEditModal from './components/FieldEditModal.vue'
+import LoginScreen from './components/LoginScreen.vue'
 
-const LoginScreen = defineAsyncComponent(() => import('./components/LoginScreen.vue'))
 const AppShell = defineAsyncComponent(() => import('./components/AppShell.vue'))
 const DocumentViewer = defineAsyncComponent(() => import('./components/DocumentViewer.vue'))
 const SubmissionViewer = defineAsyncComponent(() => import('./components/SubmissionViewer.vue'))
@@ -19,9 +19,10 @@ const viewerDocumentId = computed(() => routePath.value.match(/^\/documento\/([0
 const viewerSubmissionId = computed(() => routePath.value.match(/^\/submissao\/([0-9a-f]{32})\/?$/)?.[1] || '')
 const isAvailableDocumentsRoute = computed(() => routePath.value.replace(/\/+$/, '') === '/documentos-disponiveis')
 const isSubmittedDocumentsRoute = computed(() => routePath.value.replace(/\/+$/, '') === '/submissoes')
-const activeView = computed<'documents' | 'users' | 'available'>(() => {
+const activeView = computed<'documents' | 'users' | 'available' | 'filled'>(() => {
   const normalized = routePath.value.replace(/\/+$/, '')
   if (normalized === '/usuarios' && auth.isAdmin) return 'users'
+  if (normalized === '/preenchidos' && auth.isAdmin) return 'filled'
   if (normalized === '/documentos-disponiveis') return 'available'
   return 'documents'
 })
@@ -41,8 +42,14 @@ function redirectNonAdminHome() {
   }
 }
 
-function navigate(view: 'documents' | 'users' | 'available') {
-  const path = view === 'users' ? '/usuarios' : view === 'available' ? '/documentos-disponiveis' : '/documentos'
+function navigate(view: 'documents' | 'users' | 'available' | 'filled') {
+  const path = view === 'users'
+    ? '/usuarios'
+    : view === 'available'
+      ? '/documentos-disponiveis'
+      : view === 'filled'
+        ? '/preenchidos'
+        : '/documentos'
   if (location.pathname !== path) history.pushState({}, '', path)
   syncRoute()
 }

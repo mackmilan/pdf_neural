@@ -353,6 +353,67 @@ class AsyncApiTest(unittest.TestCase):
         self.assertEqual(items[0]["submission_id"], "s" * 32)
         self.assertEqual(items[0]["document_name"], "Ficha preenchida")
 
+    def test_lists_all_document_submissions_with_admin_filters_and_context_names(self):
+        class FakeCursor(list):
+            def sort(self, *_args):
+                return self
+
+            def limit(self, _limit):
+                return self
+
+        class FakeCollection:
+            def __init__(self, rows):
+                self.rows = rows
+                self.query = None
+
+            def find(self, query=None, *_args, **_kwargs):
+                self.query = query or {}
+                return FakeCursor(self.rows)
+
+            def distinct(self, field, query):
+                self.distinct_call = (field, query)
+                return ["sub-1"]
+
+        database = Database.__new__(Database)
+        database.jobs = MagicMock()
+        database.document_submissions = FakeCollection([{
+            "submission_id": "s" * 32,
+            "document_id": "d" * 64,
+            "job_id": "j" * 32,
+            "version": 1,
+            "tenant_id": "a" * 32,
+            "group_id": "b" * 32,
+            "subject": "sub-1",
+            "email": "ana@example.com",
+        }])
+        database.tenants = FakeCollection([{"tenant_id": "a" * 32, "name": "Tenant A"}])
+        database.groups = FakeCollection([{"tenant_id": "a" * 32, "group_id": "b" * 32, "name": "Grupo B"}])
+        database.categories = FakeCollection([
+            {"tenant_id": "a" * 32, "category_id": "legacy", "name": "Categoria legada"},
+            {
+                "tenant_id": "a" * 32, "group_id": "b" * 32,
+                "category_id": "c" * 32, "name": "Categoria C",
+            },
+        ])
+        database.user_access = FakeCollection([{"subject": "sub-1", "username": "Ana"}])
+        database.get_document = MagicMock(return_value={
+            "metadata": {"filename": "ficha.pdf"}, "category_id": "c" * 32,
+        })
+
+        items = database.list_all_document_submissions(
+            tenant_id="a" * 32, group_id="b" * 32, category_id="c" * 32, user="ana",
+        )
+
+        query = database.document_submissions.query
+        self.assertEqual(query["tenant_id"], "a" * 32)
+        self.assertEqual(query["group_id"], "b" * 32)
+        self.assertIn("$or", query)
+        self.assertEqual(items[0]["tenant_name"], "Tenant A")
+        self.assertEqual(items[0]["group_name"], "Grupo B")
+        self.assertEqual(items[0]["category_name"], "Categoria C")
+        self.assertEqual(items[0]["username"], "Ana")
+        self.assertEqual(items[0]["document_name"], "ficha.pdf")
+
     def test_hides_single_submission_documents_already_submitted_by_user(self):
         class FakeCursor(list):
             def sort(self, *_args):

@@ -65,7 +65,7 @@ onMounted(loadSubmissions)
 
 <template>
   <main class="submitted-page">
-    <ViewerTopMenu v-if="!auth.isAdmin" active-route="submissions" />
+    <ViewerTopMenu :active-route="auth.isAdmin ? 'filled' : 'submissions'" />
 
     <header class="viewer-header">
       <div>
@@ -74,7 +74,6 @@ onMounted(loadSubmissions)
       </div>
       <div class="viewer-session">
         <button type="button" class="button-secondary" @click="loadSubmissions">Atualizar</button>
-        <button v-if="auth.isAdmin" type="button" class="button-secondary" @click="auth.logout()">Sair</button>
       </div>
     </header>
 

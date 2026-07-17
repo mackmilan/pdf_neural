@@ -154,6 +154,14 @@ async function requestFullscreen() {
   }
 }
 
+function printDocument() {
+  const frameWindow = iframe.value?.contentWindow
+  if (!frameWindow) throw new Error('Prévia do documento indisponível para impressão.')
+  runtime.renderFormValues(contentDocument())
+  frameWindow.focus()
+  frameWindow.print()
+}
+
 function scrollToElement(id: string) {
   const doc = contentDocument()
   if (!iframe.value || !doc) return
@@ -179,7 +187,16 @@ function openFieldValue(index: number) {
   runtime.openFieldValue(contentDocument(), index)
 }
 
-defineExpose({ toggleTextEdit, discardTextEdits, serializeForSave, requestFullscreen, scrollToElement, scrollToField, openFieldValue })
+defineExpose({
+  toggleTextEdit,
+  discardTextEdits,
+  serializeForSave,
+  requestFullscreen,
+  printDocument,
+  scrollToElement,
+  scrollToField,
+  openFieldValue,
+})
 
 watch(
   () => docStore.resultVisible,
@@ -190,5 +207,5 @@ watch(
 </script>
 
 <template>
-  <iframe ref="iframe" class="preview" title="Prévia do documento convertido" sandbox="allow-same-origin allow-scripts allow-forms allow-fullscreen" allowfullscreen @load="prepareRuntime"></iframe>
+  <iframe ref="iframe" class="preview" title="Prévia do documento convertido" sandbox="allow-same-origin allow-scripts allow-forms allow-fullscreen allow-modals" allowfullscreen @load="prepareRuntime"></iframe>
 </template>

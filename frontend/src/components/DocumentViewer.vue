@@ -78,7 +78,7 @@ onMounted(loadDocument)
 
 <template>
   <main class="viewer-page">
-    <ViewerTopMenu v-if="!auth.isAdmin" active-route="available" />
+    <ViewerTopMenu :active-route="auth.isAdmin ? 'documents' : 'available'" />
 
     <header class="viewer-header">
       <div>
@@ -87,7 +87,6 @@ onMounted(loadDocument)
       </div>
       <div class="viewer-session">
         <span>{{ auth.displayName }}</span>
-        <button type="button" class="button-secondary" @click="auth.logout()">Sair</button>
       </div>
     </header>
 
@@ -96,7 +95,7 @@ onMounted(loadDocument)
 
     <form v-else class="viewer-layout" @submit.prevent="submitResult">
       <section class="viewer-document card">
-        <PdfPreview ref="preview" fit-content-width readonly-geometry />
+        <PdfPreview ref="preview" readonly-geometry />
       </section>
       <aside class="viewer-fields card">
         <h2>Preenchimento</h2>
