@@ -4,17 +4,32 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       HOST: 0.0.0.0
       PORT: 8000
+      TIMEOUT: ${TIMEOUT:-60}
       PDF_WORKERS: ${PDF_WORKERS:-2}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       TABLE_MODEL: ${TABLE_MODEL:-/app/models/uepg_table_detector.pt}
+      FIELD_MODEL: ${FIELD_MODEL:-/app/models/field_detector.pt}
       NEURAL_THRESHOLD: ${NEURAL_THRESHOLD:-0.7}
       NEURAL_MIN_CONFIDENCE: ${NEURAL_MIN_CONFIDENCE:-0.65}
-      NEURAL_REQUIRED: ${NEURAL_REQUIRED:-true}
-      GOTENBERG_URL: ${GOTENBERG_URL:-http://localhost:3000}
+      NEURAL_ENABLED: ${NEURAL_ENABLED:-true}
+      NEURAL_REQUIRED: ${NEURAL_REQUIRED:-false}
+      MONGO_URI: ${MONGO_URI:?MONGO_URI must point to the MongoDB service}
+      GOTENBERG_URL: ${GOTENBERG_URL:?GOTENBERG_URL must point to the Gotenberg service}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:?KEYCLOAK_ISSUER is required}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-pdf-neural-api}
+      KEYCLOAK_ADMIN_ROLE: ${KEYCLOAK_ADMIN_ROLE:-pdf-admin}
+      KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL:-}
+      KEYCLOAK_TOKEN_URL: ${KEYCLOAK_TOKEN_URL:-}
+      KEYCLOAK_ADMIN_URL: ${KEYCLOAK_ADMIN_URL:-}
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
     expose:
       - "8000"
     volumes:
