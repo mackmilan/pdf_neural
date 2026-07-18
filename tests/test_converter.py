@@ -5,7 +5,7 @@ from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
-from converter import ConversionResult, convert, image_key, textual_empty_parentheses_fields
+from backend.app.services.converter import ConversionResult, convert, image_key, textual_empty_parentheses_fields
 from app import validate_public_url
 
 

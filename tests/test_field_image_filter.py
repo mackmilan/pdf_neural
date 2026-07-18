@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 import pdfplumber
-from converter import convert, Field
+from backend.app.services.converter import convert, Field
 
 class TestNeuralFieldImageOverlap(unittest.TestCase):
     def test_convert_filters_neural_fields_on_images(self):
@@ -31,7 +31,7 @@ class TestNeuralFieldImageOverlap(unittest.TestCase):
         self.assertEqual(neural_fields[0]["x"], 500)
 
     def test_field_boxes_filters_images(self):
-        from neural_field_detector import field_boxes
+        from backend.app.ml.fields import field_boxes
         pdf_path = next(Path("data").glob("*/pdfs/01-Cadastro_participante_externo_banca.pdf"), None)
         if pdf_path is None:
             self.skipTest("PDF de teste não encontrado")

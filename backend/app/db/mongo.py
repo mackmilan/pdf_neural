@@ -8,10 +8,11 @@ import hashlib
 import uuid
 from datetime import datetime
 from typing import Any
-from pymongo import MongoClient, ReturnDocument
+from pymongo import ReturnDocument
 from dotenv import load_dotenv
 
-import formatting
+import backend.app.services.formatting as formatting
+from backend.app.db.odm import MongoOdmStore, OdmBackendUnavailable
 
 load_dotenv()
 
@@ -77,62 +78,69 @@ class Database:
         self.user_access = None
         self.api_keys = None
         self.document_submissions = None
-        
         if self.uri:
-            LOGGER.info("Conectando ao MongoDB...")
-            try:
-                self.client = MongoClient(self.uri, serverSelectionTimeoutMS=2000)
-                # Tenta obter o banco de dados da URI, se não existir usa 'pdf_neural' como padrão
-                try:
-                    self.db = self.client.get_database()
-                except Exception:
-                    LOGGER.warning("Nenhum banco de dados definido na MONGO_URI, usando 'pdf_neural' por padrão")
-                    self.db = self.client.get_database("pdf_neural")
-                
-                self.documents = self.db.get_collection("documents")
-                self.versions = self.db.get_collection("document_versions")
-                self.jobs = self.db.get_collection("jobs")
-                self.tenants = self.db.get_collection("tenants")
-                self.groups = self.db.get_collection("tenant_groups")
-                self.categories = self.db.get_collection("document_categories")
-                self.user_access = self.db.get_collection("user_access")
-                self.api_keys = self.db.get_collection("api_keys")
-                self.document_submissions = self.db.get_collection("document_submissions")
-                self.documents.create_index("document_id", unique=True, sparse=True)
-                self.versions.create_index([("document_id", 1), ("version", 1)], unique=True)
-                self.versions.create_index("job_id", unique=True)
-                self.tenants.create_index("tenant_id", unique=True)
-                self.groups.create_index([("tenant_id", 1), ("group_id", 1)], unique=True)
-                category_indexes = self.categories.index_information()
-                for legacy_name in ("tenant_id_1_category_id_1", "tenant_id_1_name_1"):
-                    if legacy_name in category_indexes:
-                        self.categories.drop_index(legacy_name)
-                self.categories.create_index(
-                    [("tenant_id", 1), ("group_id", 1), ("category_id", 1)], unique=True
-                )
-                self.categories.create_index(
-                    [("tenant_id", 1), ("group_id", 1), ("name", 1)], unique=True
-                )
-                self.user_access.create_index(
-                    [("subject", 1), ("tenant_id", 1), ("group_id", 1)], unique=True
-                )
-                self.user_access.create_index([("subject", 1), ("tenant_id", 1)])
-                self.api_keys.create_index("key_hash", unique=True)
-                self.api_keys.create_index("client_id")
-                self.document_submissions.create_index("submission_id", unique=True)
-                self.document_submissions.create_index([("document_id", 1), ("created_at", -1)])
-                self.document_submissions.create_index([("subject", 1), ("created_at", -1)])
-                self.document_submissions.create_index([("document_id", 1), ("subject", 1), ("created_at", -1)])
-                self.document_submissions.create_index([("tenant_id", 1), ("group_id", 1), ("created_at", -1)])
-                self.documents.create_index([("tenant_id", 1), ("group_id", 1), ("updated_at", -1)])
-                self.documents.create_index([("tenant_id", 1), ("category_id", 1), ("updated_at", -1)])
-                LOGGER.info("Conexão com MongoDB estabelecida com sucesso")
-            except Exception as exc:
-                LOGGER.error("Falha ao conectar no MongoDB: %s", str(exc))
-                self.client = None
-                self.db = self.documents = self.versions = self.jobs = self.tenants = self.groups = self.categories = self.user_access = self.api_keys = self.document_submissions = None
+            self._connect_odm()
         else:
             LOGGER.warning("MONGO_URI não configurada. Operações de banco de dados serão ignoradas.")
+
+    def _assign_collections(self, db) -> None:
+        self.documents = db.get_collection("documents")
+        self.versions = db.get_collection("document_versions")
+        self.jobs = db.get_collection("jobs")
+        self.tenants = db.get_collection("tenants")
+        self.groups = db.get_collection("tenant_groups")
+        self.categories = db.get_collection("document_categories")
+        self.user_access = db.get_collection("user_access")
+        self.api_keys = db.get_collection("api_keys")
+        self.document_submissions = db.get_collection("document_submissions")
+
+    def _configure_indexes(self) -> None:
+        self.documents.create_index("document_id", unique=True, sparse=True)
+        self.versions.create_index([("document_id", 1), ("version", 1)], unique=True)
+        self.versions.create_index("job_id", unique=True)
+        self.tenants.create_index("tenant_id", unique=True)
+        self.groups.create_index([("tenant_id", 1), ("group_id", 1)], unique=True)
+        category_indexes = self.categories.index_information()
+        for legacy_name in ("tenant_id_1_category_id_1", "tenant_id_1_name_1"):
+            if legacy_name in category_indexes:
+                self.categories.drop_index(legacy_name)
+        self.categories.create_index(
+            [("tenant_id", 1), ("group_id", 1), ("category_id", 1)], unique=True
+        )
+        self.categories.create_index(
+            [("tenant_id", 1), ("group_id", 1), ("name", 1)], unique=True
+        )
+        self.user_access.create_index(
+            [("subject", 1), ("tenant_id", 1), ("group_id", 1)], unique=True
+        )
+        self.user_access.create_index([("subject", 1), ("tenant_id", 1)])
+        self.api_keys.create_index("key_hash", unique=True)
+        self.api_keys.create_index("client_id")
+        self.document_submissions.create_index("submission_id", unique=True)
+        self.document_submissions.create_index([("document_id", 1), ("created_at", -1)])
+        self.document_submissions.create_index([("subject", 1), ("created_at", -1)])
+        self.document_submissions.create_index([("document_id", 1), ("subject", 1), ("created_at", -1)])
+        self.document_submissions.create_index([("tenant_id", 1), ("group_id", 1), ("created_at", -1)])
+        self.documents.create_index([("tenant_id", 1), ("group_id", 1), ("updated_at", -1)])
+        self.documents.create_index([("tenant_id", 1), ("category_id", 1), ("updated_at", -1)])
+
+    def _connect_odm(self) -> None:
+        LOGGER.info("Conectando ao MongoDB via ODM...")
+        try:
+            store = MongoOdmStore(self.uri)
+            self.client = store.client
+            self.db = store
+            self._assign_collections(self.db)
+            self._configure_indexes()
+            LOGGER.info("Conexão ODM com MongoDB estabelecida com sucesso")
+        except OdmBackendUnavailable as exc:
+            LOGGER.error("Backend ODM indisponível: %s", str(exc))
+            self.client = None
+            self.db = self.documents = self.versions = self.jobs = self.tenants = self.groups = self.categories = self.user_access = self.api_keys = self.document_submissions = None
+        except Exception as exc:
+            LOGGER.error("Falha ao conectar no MongoDB via ODM: %s", str(exc))
+            self.client = None
+            self.db = self.documents = self.versions = self.jobs = self.tenants = self.groups = self.categories = self.user_access = self.api_keys = self.document_submissions = None
 
     def is_available(self) -> bool:
         return self.jobs is not None

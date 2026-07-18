@@ -4,7 +4,7 @@ from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
-from neural_table_detector import DEFAULT_THRESHOLD, consolidate_detections, mask_components, pdf_color, table_structures
+from backend.app.ml.tables import DEFAULT_THRESHOLD, consolidate_detections, mask_components, pdf_color, table_structures
 
 
 class NeuralTableDetectorTest(unittest.TestCase):

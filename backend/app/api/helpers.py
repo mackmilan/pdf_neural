@@ -9,8 +9,8 @@ from json import JSONDecodeError
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
-from config import GOTENBERG_URL, MAX_JSON_SIZE, MAX_PDF_SIZE, STATIC
-from validators import validate_context_id, validate_resource_name
+from backend.app.core.config import GOTENBERG_URL, MAX_JSON_SIZE, MAX_PDF_SIZE, STATIC
+from backend.app.utils.validation import validate_context_id, validate_resource_name
 
 
 SECURITY_HEADERS = {

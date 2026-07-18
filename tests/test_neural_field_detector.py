@@ -4,8 +4,8 @@ import unittest
 from PIL import Image
 from unittest.mock import MagicMock
 
-from converter import inferred_fields, textual_segmented_fields
-from neural_field_detector import IMAGE_SIZE, augment_date_field, mask_components
+from backend.app.services.converter import inferred_fields, textual_segmented_fields
+from backend.app.ml.fields import IMAGE_SIZE, augment_date_field, mask_components
 
 
 class TestDateFieldTraining(unittest.TestCase):

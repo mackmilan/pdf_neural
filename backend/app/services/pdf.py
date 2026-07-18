@@ -11,10 +11,10 @@ from typing import Any
 
 import pdfplumber
 
-from converter import ConversionResult, convert
-from neural_field_detector import FieldDetector, render_pdf
-from neural_table_detector import TableDetector
-from config import (
+from backend.app.services.converter import ConversionResult, convert
+from backend.app.ml.fields import FieldDetector, render_pdf
+from backend.app.ml.tables import TableDetector
+from backend.app.core.config import (
     FIELD_MODELS, LOGGER, NEURAL_ENABLED, NEURAL_MIN_CONFIDENCE,
     NEURAL_THRESHOLD, TABLE_MODEL,
 )

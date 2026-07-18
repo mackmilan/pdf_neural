@@ -12,7 +12,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from config import LOGGER, MAX_PDF_SIZE, PUBLIC_BASE_URL
+from backend.app.core.config import LOGGER, MAX_PDF_SIZE, PUBLIC_BASE_URL
 
 def json_safe(value: object) -> object:
     """Converte valores MongoDB/datetime recursivamente para JSON."""

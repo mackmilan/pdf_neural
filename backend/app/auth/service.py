@@ -313,7 +313,7 @@ class KeycloakAuthenticator:
         if not api_key:
             raise AuthenticationError("API Key ausente")
         
-        from database import db
+        from backend.app.db.mongo import db
         if not db or not db.is_available():
             raise AuthenticationError("Servico de banco de dados indisponivel")
         

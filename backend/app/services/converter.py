@@ -511,7 +511,7 @@ def image_key(name: str) -> str:
 
 
 def extract_images(pdf_path: Path, output: Path = None, job_id: str = None) -> dict[int, dict[str, dict[str, Any]]]:
-    from database import db
+    from backend.app.db.mongo import db
     LOGGER.info("Extraindo imagens de %s", pdf_path.name)
     reader = PdfReader(str(pdf_path))
     extracted: dict[int, dict[str, dict[str, Any]]] = {}
@@ -904,7 +904,7 @@ if __name__ == "__main__":
 
     table_detector = None
     if args.model:
-        from neural_table_detector import TableDetector
+        from backend.app.ml.tables import TableDetector
         table_detector = TableDetector(Path(args.model))
 
     result = convert(args.pdf, args.output, table_detector=table_detector)

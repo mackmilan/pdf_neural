@@ -96,7 +96,7 @@ def render_pdf(pdf_path: Path, output_dir: Path, dpi: int = 150) -> list[Path]:
 
 def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, float, float, float]]]]:
     """Extrai campos (AcroForms e detectados pelo converter) para usar como rotulo."""
-    from converter import acro_fields, inferred_fields, textual_empty_parentheses_fields
+    from backend.app.services.converter import acro_fields, inferred_fields, textual_empty_parentheses_fields
     from pypdf import PdfReader
     
     pages_data = []
@@ -443,7 +443,7 @@ class FieldDetector:
             # O modelo costuma ativar separadamente dia, mes e ano no
             # padrao "Data: ___ de ___ de 20___". Se houver evidencia
             # neural sobre esses trechos, consolida-os em um unico campo.
-            from converter import textual_segmented_fields
+            from backend.app.services.converter import textual_segmented_fields
             words = page.extract_words()
             raw_page_results = list(page_results)
             matched_detections: set[int] = set()

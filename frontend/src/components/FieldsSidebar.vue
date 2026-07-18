@@ -10,33 +10,8 @@ import {
 } from '../stores/document'
 import { useFieldEditorStore } from '../stores/fieldEditor'
 import { useModalsStore } from '../stores/modals'
-import type { Field, FieldAlign, FieldType } from '../types'
-
-interface FieldEntry {
-  field: Field
-  index: number
-  label?: string
-  optionIndex?: number
-  optionValue?: string
-}
-
-interface FieldTreeGroup {
-  kind: 'group'
-  groupType: 'checkbox' | 'radio'
-  groupId: string
-  label: string
-  index?: number
-  field?: Field
-  fields: FieldEntry[]
-}
-
-interface FieldTreeField {
-  kind: 'field'
-  field: Field
-  index: number
-}
-
-type FieldTreeNode = FieldTreeGroup | FieldTreeField
+import { buildEditorFieldTree } from '../composables/fieldTree'
+import type { EditorFieldEntry, EditorFieldTreeGroup, EditorFieldTreeNode, Field, FieldAlign, FieldType } from '../types'
 
 const docStore = useDocumentStore()
 const fieldEditor = useFieldEditorStore()
@@ -75,44 +50,7 @@ const allCheckboxesSelected = computed(() => (
 ))
 const canGroupSelectedCheckboxes = computed(() => selectedCheckboxFields.value.length >= 2)
 const canUngroupSelectedCheckboxes = computed(() => selectedGroupedCheckboxFields.value.length > 0)
-const fieldTreeNodes = computed<FieldTreeNode[]>(() => {
-  const nodes: FieldTreeNode[] = []
-  const groups = new Map<string, FieldTreeGroup>()
-  docStore.currentFields.forEach((field, index) => {
-    if (field.type === 'radio') {
-      nodes.push({
-        kind: 'group',
-        groupType: 'radio',
-        groupId: `radio:${field.name}`,
-        label: field.label,
-        index,
-        field,
-        fields: (field.options || []).map((option, optionIndex) => ({
-          field,
-          index,
-          label: option,
-          optionIndex,
-          optionValue: option,
-        })),
-      })
-      return
-    }
-
-    const groupId = field.type === 'checkbox' ? String(field.group_id || '').trim() : ''
-    if (!groupId) {
-      nodes.push({ kind: 'field', field, index })
-      return
-    }
-    let group = groups.get(groupId)
-    if (!group) {
-      group = { kind: 'group', groupType: 'checkbox', groupId, label: String(field.group_label || 'Grupo de checkboxes'), fields: [] }
-      groups.set(groupId, group)
-      nodes.push(group)
-    }
-    group.fields.push({ field, index })
-  })
-  return nodes
-})
+const fieldTreeNodes = computed<EditorFieldTreeNode[]>(() => buildEditorFieldTree(docStore.currentFields))
 const radioDrawingHint = computed(() => {
   if (!isRadio.value) return fieldEditor.hint
   const options = fieldEditor.form.options.split(/\r?\n/).map((option) => option.trim()).filter(Boolean)
@@ -122,21 +60,21 @@ const radioDrawingHint = computed(() => {
     : 'Informe as opções antes de desenhar as áreas.'
 })
 
-function groupFieldNames(group: FieldTreeGroup): string[] {
+function groupFieldNames(group: EditorFieldTreeGroup): string[] {
   return Array.from(new Set(group.fields.map(({ field }) => field.name)))
 }
 
-function groupSummary(group: FieldTreeGroup): string {
+function groupSummary(group: EditorFieldTreeGroup): string {
   return group.groupType === 'radio'
     ? `${group.fields.length} opção(ões)`
     : `${group.fields.length} checkbox(es)`
 }
 
-function groupChildLabel(entry: FieldEntry): string {
+function groupChildLabel(entry: EditorFieldEntry): string {
   return entry.label || entry.field.label
 }
 
-function groupChildSummary(entry: FieldEntry): string {
+function groupChildSummary(entry: EditorFieldEntry): string {
   const box = entry.optionIndex !== undefined ? entry.field.option_boxes?.[entry.optionIndex] : null
   const page = Number(box?.page) || entry.field.page
   const parts = [entry.field.type, `pagina ${page}`, entry.field.source, fieldTextAlign(entry.field)]
@@ -155,12 +93,12 @@ function toggleGroup(groupId: string) {
   collapsedGroupIds.value = Array.from(collapsed)
 }
 
-function isGroupSelected(group: FieldTreeGroup): boolean {
+function isGroupSelected(group: EditorFieldTreeGroup): boolean {
   const selected = new Set(selectedFieldNames.value)
   return group.fields.length > 0 && group.fields.every(({ field }) => selected.has(field.name))
 }
 
-function setGroupSelected(group: FieldTreeGroup, checked: boolean) {
+function setGroupSelected(group: EditorFieldTreeGroup, checked: boolean) {
   const selected = new Set(selectedFieldNames.value)
   group.fields.forEach(({ field }) => {
     if (checked) selected.add(field.name)
@@ -211,7 +149,7 @@ async function groupSelectedCheckboxes() {
   docStore.status = `${selected.size} checkbox(es) agrupado(s). Clique em Salvar alterações.`
 }
 
-async function renameGroup(group: FieldTreeGroup) {
+async function renameGroup(group: EditorFieldTreeGroup) {
   const label = await modals.showTextInput({
     title: 'Renomear grupo',
     label: 'Nome do grupo',
@@ -258,26 +196,26 @@ function ungroupSelectedCheckboxes() {
   docStore.status = `${count} checkbox(es) removido(s) do grupo. Clique em Salvar alterações.`
 }
 
-function ungroupTreeGroup(group: FieldTreeGroup) {
+function ungroupTreeGroup(group: EditorFieldTreeGroup) {
   if (group.groupType === 'radio') return
   ungroupFieldNames(groupFieldNames(group))
   collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
   docStore.status = `Grupo "${group.label}" desfeito. Clique em Salvar alterações.`
 }
 
-function addRadioOptionToGroup(group: FieldTreeGroup) {
+function addRadioOptionToGroup(group: EditorFieldTreeGroup) {
   if (group.index === undefined) return
   editField(group.index)
   collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
   docStore.status = `Edite as opções do grupo radio "${group.label}".`
 }
 
-function addGroupItem(group: FieldTreeGroup) {
+function addGroupItem(group: EditorFieldTreeGroup) {
   if (group.groupType === 'radio') addRadioOptionToGroup(group)
   else addCheckboxToGroup(group)
 }
 
-function deleteGroup(group: FieldTreeGroup) {
+function deleteGroup(group: EditorFieldTreeGroup) {
   if (group.groupType === 'radio' && group.index !== undefined) {
     deleteField(group.index)
     collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
@@ -286,7 +224,7 @@ function deleteGroup(group: FieldTreeGroup) {
   ungroupTreeGroup(group)
 }
 
-function addCheckboxToGroup(group: FieldTreeGroup) {
+function addCheckboxToGroup(group: EditorFieldTreeGroup) {
   if (!docStore.currentJobId) return
   fieldEditor.startAddCheckboxInGroup(group.groupId, group.label)
   collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
@@ -302,7 +240,7 @@ function removeFieldFromGroup(field: Field) {
   docStore.status = `"${field.label}" removido de "${groupLabel}". Clique em Salvar alterações.`
 }
 
-function removeRadioOption(entry: FieldEntry) {
+function removeRadioOption(entry: EditorFieldEntry) {
   if (entry.field.type !== 'radio' || entry.optionIndex === undefined) return
   const options = [...(entry.field.options || [])]
   if (options.length <= 2) {
@@ -327,12 +265,12 @@ function removeRadioOption(entry: FieldEntry) {
   docStore.status = `Opção "${removed}" removida do grupo radio. Clique em Salvar alterações.`
 }
 
-function deleteGroupChild(group: FieldTreeGroup, entry: FieldEntry) {
+function deleteGroupChild(group: EditorFieldTreeGroup, entry: EditorFieldEntry) {
   if (group.groupType === 'radio') removeRadioOption(entry)
   else deleteField(entry.index)
 }
 
-function groupDropCandidates(sourceName: string | undefined, group: FieldTreeGroup): Field[] {
+function groupDropCandidates(sourceName: string | undefined, group: EditorFieldTreeGroup): Field[] {
   if (!sourceName) return []
   const selected = new Set(selectedFieldNames.value)
   const sourceIsSelected = selected.has(sourceName) && selected.size > 1
@@ -345,7 +283,7 @@ function groupDropCandidates(sourceName: string | undefined, group: FieldTreeGro
   ))
 }
 
-function addCheckboxesToRadioGroup(group: FieldTreeGroup, checkboxes: Field[]) {
+function addCheckboxesToRadioGroup(group: EditorFieldTreeGroup, checkboxes: Field[]) {
   if (group.groupType !== 'radio' || !group.field || !checkboxes.length) return
   const usedOptions = new Set(group.field.options || [])
   const nextOptions = [...(group.field.options || [])]
@@ -379,7 +317,7 @@ function addCheckboxesToRadioGroup(group: FieldTreeGroup, checkboxes: Field[]) {
   docStore.status = `${checkboxes.length} checkbox(es) convertido(s) em opção(ões) do grupo radio "${group.label}". Clique em Salvar alterações.`
 }
 
-function dragOverGroup(event: DragEvent, group: FieldTreeGroup) {
+function dragOverGroup(event: DragEvent, group: EditorFieldTreeGroup) {
   const sourceName = draggedFieldName.value || event.dataTransfer?.getData('text/plain')
   if (!groupDropCandidates(sourceName, group).length) return
   event.preventDefault()
@@ -387,7 +325,7 @@ function dragOverGroup(event: DragEvent, group: FieldTreeGroup) {
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
 }
 
-function dropFieldOnGroup(event: DragEvent, group: FieldTreeGroup) {
+function dropFieldOnGroup(event: DragEvent, group: EditorFieldTreeGroup) {
   event.preventDefault()
   const sourceName = draggedFieldName.value || event.dataTransfer?.getData('text/plain')
   const candidates = groupDropCandidates(sourceName, group)

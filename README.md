@@ -23,18 +23,41 @@ em `fields.json` para permitir o preenchimento posterior do PDF.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python fastapi_app.py
+python -m backend.app.main
 ```
 
 ### API FastAPI em migracao
 
 A migracao para FastAPI ja cobre os fluxos principais da API e o Docker usa
-`fastapi_app.py` como entrada. O servidor legado em `app.py` permanece no
-repositorio como referencia durante a estabilizacao:
+`backend.app.main` como entrada. O servidor HTTP legado foi movido para
+`backend.app.legacy.server` e permanece apenas como referencia durante a
+estabilizacao:
 
 ```bash
-python fastapi_app.py
+python -m backend.app.main
 ```
+
+Novos modulos de backend devem ficar abaixo de `backend/app/`, seguindo esta
+divisao:
+
+```text
+backend/app/
+  main.py              # app FastAPI, middlewares e registro de rotas
+  api/                 # routers, dependencias HTTP e handlers
+  auth/                # autenticacao e autorizacao
+  core/                # configuracao, logging e infraestrutura compartilhada
+  db/                  # conexao, ODM e repositories
+  ml/                  # detectores neurais e renderizacao auxiliar
+  services/            # regras de negocio
+  utils/               # utilitarios compartilhados
+  workers/             # jobs em background
+  legacy/              # codigo do servidor HTTP legado durante a migracao
+```
+
+Os modulos historicos da raiz (`database.py`, `services.py`, `utils.py`,
+`validators.py`, `converter.py`, detectores neurais e similares) foram removidos.
+A implementacao real fica em `backend/app/`, separada por responsabilidade, e os
+imports devem usar diretamente o pacote do backend.
 
 Rotas ja presentes na camada FastAPI:
 
@@ -95,10 +118,10 @@ Vite dev server juntos com:
 ./scripts/dev.sh
 ```
 
-Isso inicia `python fastapi_app.py` (porta 8000) e `npm run dev` (porta 5173, com proxy
+Isso inicia `python -m backend.app.main` (porta 8000) e `npm run dev` (porta 5173, com proxy
 para `/api`, `/auth`, `/jobs`, `/docs` e `/openapi.json` apontando para o
 backend). Para gerar os estaticos de producao (servidos pelo proprio
-`fastapi_app.py` a partir de `static/`), rode:
+`backend.app.main` a partir de `static/`), rode:
 
 ```bash
 npm --prefix frontend run build
@@ -120,9 +143,9 @@ e em documentos digitalizados estima ambas diretamente dos pixels.
 pip install -r requirements-ml.txt
 
 # Aceita arquivos e/ou pastas; procura PDFs recursivamente nas pastas.
-python neural_table_detector.py prepare tmp/pdfs -o data/tables
-python neural_table_detector.py train data/tables -o models/table_detector.pt --epochs 30
-python neural_table_detector.py detect documento.pdf \
+python -m backend.app.ml.tables prepare tmp/pdfs -o data/tables
+python -m backend.app.ml.tables train data/tables -o models/table_detector.pt --epochs 30
+python -m backend.app.ml.tables detect documento.pdf \
   --model models/table_detector.pt -o output/neural-tables.json
 ```
 
@@ -131,7 +154,7 @@ use ajuste fino. O treino pondera como negativos os pixels imediatamente externo
 cada tabela, evitando incluir campos proximos como `Data` e `Assinatura`:
 
 ```bash
-python neural_table_detector.py train data/tables \
+python -m backend.app.ml.tables train data/tables \
   --resume models/table_detector.pt \
   -o models/table_detector.pt --epochs 10 --learning-rate 0.0002
 ```
@@ -141,7 +164,7 @@ esta disponivel em `models/table_detector.pt`. O corpus correspondente deve fica
 em `data/tables/`:
 
 ```bash
-python neural_table_detector.py detect documento.pdf \
+python -m backend.app.ml.tables detect documento.pdf \
   --model models/table_detector.pt -o output/neural-tables.json
 ```
 
@@ -160,8 +183,8 @@ o que cobre documentos digitalizados sem camada de texto. Para ajustar o modelo
 existente sem perder o aprendizado anterior:
 
 ```bash
-python neural_field_detector.py prepare data/pdfs -o data/fields
-python neural_field_detector.py train data/fields \
+python -m backend.app.ml.fields prepare data/pdfs -o data/fields
+python -m backend.app.ml.fields train data/fields \
   --resume models/field_detector.pt \
   -o models/field_detector.pt --epochs 10 --learning-rate 0.0002
 ```
@@ -173,7 +196,7 @@ com maior confianca quando dois modelos apontam para o mesmo campo:
 
 ```bash
 FIELD_MODELS=models/field_detector.pt,models/field_detector_mongo.pt,models/field_detector_pesquisa_aplicada.pt \
-python fastapi_app.py
+python -m backend.app.main
 ```
 
 `FIELD_MODEL` continua aceito para compatibilidade e e usado como fallback quando
@@ -194,15 +217,16 @@ ajustar a sensibilidade:
 TABLE_MODEL=models/table_detector.pt \
 NEURAL_THRESHOLD=0.7 \
 NEURAL_MIN_CONFIDENCE=0.65 \
-python fastapi_app.py
+python -m backend.app.main
 ```
 
 Por padrao, uma falha neural e registrada e a conversao geometrica continua. Use
 `NEURAL_REQUIRED=true` quando a requisicao inteira deva falhar caso o modelo nao
 possa ser executado.
 
-A documentacao interativa Swagger fica em `http://127.0.0.1:8000/docs` e a
-especificacao OpenAPI 3.1 em `http://127.0.0.1:8000/openapi.json`.
+A documentacao interativa Swagger e a especificacao OpenAPI 3.1 sao geradas
+pelo FastAPI em `http://127.0.0.1:8000/docs` e
+`http://127.0.0.1:8000/openapi.json`.
 
 ## Autenticação e autorização
 
@@ -303,7 +327,7 @@ Crie um client confidencial específico para integrações, por exemplo `pdf-neu
 Gere a chave usando o mesmo `client_id` do client confidencial:
 
 ```bash
-python3 -c "from database import Database; print(Database().create_api_key('pdf-neural-api-key', 'Chave de Integracao', 'TENANT_ID', 'GROUP_ID'))"
+python3 -c "from backend.app.db.mongo import Database; print(Database().create_api_key('pdf-neural-api-key', 'Chave de Integracao', 'TENANT_ID', 'GROUP_ID'))"
 ```
 
 Exemplo de validação:
@@ -345,7 +369,7 @@ com `--app-url https://dominio-da-aplicacao` para autorizar callback e logout.
 Uso direto pela linha de comando:
 
 ```bash
-python converter.py documento.pdf -o output/documento
+python -m backend.app.services.converter documento.pdf -o output/documento
 ```
 
 O resultado fica autocontido na pasta escolhida. O PDF original nao e incorporado ao HTML.
@@ -464,7 +488,7 @@ Em producao, configure a URL externa usada nos links e a quantidade de conversoe
 simultaneas:
 
 ```bash
-PUBLIC_BASE_URL=https://pdf.exemplo.com PDF_WORKERS=4 python fastapi_app.py
+PUBLIC_BASE_URL=https://pdf.exemplo.com PDF_WORKERS=4 python -m backend.app.main
 ```
 
 ## Deploy com Coolify
@@ -491,13 +515,14 @@ arriscaria colidir com outro servico já usando 8000 na mesma VPS. `PUBLIC_BASE_
 deve ser a URL publica sem barra no final, para que callbacks e links de resultados
 usem o dominio correto.
 
-`MONGO_URI` deve apontar para um MongoDB acessivel a partir do container; `localhost`
-dentro do container seria o proprio container da API. `GOTENBERG_URL` tambem deve
-usar um endereco alcancavel na rede do deploy, como o nome do servico Docker
-`gotenberg` quando ele estiver na mesma stack. O compose exige essa variavel para
-evitar um default para `localhost` que falharia em producao. `NEURAL_REQUIRED=false`
-mantem o comportamento padrao da aplicacao: se a etapa neural falhar, a conversao
-geometrica ainda pode continuar.
+`MONGO_URI` ativa a camada ODM baseada em modelos Pydantic sobre MongoDB e deve
+apontar para um MongoDB acessivel a partir do container; `localhost` dentro do
+container seria o proprio container da API. `GOTENBERG_URL` tambem deve usar um
+endereco alcancavel na rede do deploy, como o nome do servico Docker `gotenberg`
+quando ele estiver na mesma stack. O compose exige essa variavel para evitar um
+default para `localhost` que falharia em producao. `NEURAL_REQUIRED=false` mantem o
+comportamento padrao da aplicacao: se a etapa neural falhar, a conversao geometrica
+ainda pode continuar.
 
 A imagem builda o frontend (Vue 3 + TypeScript em `frontend/`) em um estagio
 separado e copia o resultado para `static/`, que o backend serve diretamente —

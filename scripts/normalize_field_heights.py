@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from database import Database, normalize_field_heights
+from backend.app.db.mongo import Database, normalize_field_heights
 
 
 def normalize_collection_fields(collection, field_path: str) -> tuple[int, int]:

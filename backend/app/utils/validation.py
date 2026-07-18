@@ -3,9 +3,9 @@ from __future__ import annotations
 import math
 import re
 
-from auth import Identity
-from config import MAX_HTML_JSON_SIZE
-from formatting import NORMS
+from backend.app.auth.service import Identity
+from backend.app.core.config import MAX_HTML_JSON_SIZE
+from backend.app.services.formatting import NORMS
 
 def validate_context_id(value: object, label: str) -> str:
     identifier = str(value or "").strip()

@@ -13,13 +13,13 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-from auth import AuthenticationError, Identity, authenticator
-from config import EXECUTOR, GOTENBERG_URL, LOGGER, MAX_HTML_JSON_SIZE, MAX_JSON_SIZE, MAX_PDF_SIZE, STATIC
-from database import db
-from jobs import run_api_job
-from services import convert_pdf_bytes
-from utils import download_pdf, json_safe, multipart_data, validate_public_url
-from validators import (
+from backend.app.auth.service import AuthenticationError, Identity, authenticator
+from backend.app.core.config import EXECUTOR, GOTENBERG_URL, LOGGER, MAX_HTML_JSON_SIZE, MAX_JSON_SIZE, MAX_PDF_SIZE, STATIC
+from backend.app.db.mongo import db
+from backend.app.workers.jobs import run_api_job
+from backend.app.services.pdf import convert_pdf_bytes
+from backend.app.utils.common import download_pdf, json_safe, multipart_data, validate_public_url
+from backend.app.utils.validation import (
     validate_category_query, validate_context_id, validate_fields_payload,
     validate_format_norm, validate_html_payload, validate_resource_name, validate_search_context,
     validate_submission_values, validate_boolean,
@@ -287,10 +287,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(STATIC / "index.html")
         if re.fullmatch(r"/submissao/[0-9a-f]{32}/?", path):
             return self.send_file(STATIC / "index.html")
-        if path in ("/docs", "/docs/"):
-            return self.send_file(STATIC / "swagger.html")
-        if path == "/openapi.json":
-            return self.send_file(STATIC / "openapi.json")
         if path == "/favicon.svg" or path == "/icons.svg" or path.startswith("/assets/"):
             candidate = (STATIC / path.lstrip("/")).resolve()
             if STATIC.resolve() in candidate.parents:

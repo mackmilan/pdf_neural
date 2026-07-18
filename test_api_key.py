@@ -1,7 +1,7 @@
 import hashlib
 import uuid
 from datetime import datetime
-from database import Database
+from backend.app.db.mongo import Database
 
 def test_api_key():
     db = Database()

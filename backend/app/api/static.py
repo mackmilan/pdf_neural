@@ -5,7 +5,7 @@ import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from fastapi_helpers import safe_static_response
+from backend.app.api.helpers import safe_static_response
 
 
 router = APIRouter()

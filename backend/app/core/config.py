@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from neural_table_detector import DEFAULT_THRESHOLD
+from backend.app.ml.tables import DEFAULT_THRESHOLD
 
 load_dotenv()
 

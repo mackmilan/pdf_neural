@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 
-from config import LOGGER, NEURAL_REQUIRED
-from database import db
-from services import convert_pdf_bytes, get_detectors
-from utils import deliver_callback, download_pdf, job_urls
+from backend.app.core.config import LOGGER, NEURAL_REQUIRED
+from backend.app.db.mongo import db
+from backend.app.services.pdf import convert_pdf_bytes, get_detectors
+from backend.app.utils.common import deliver_callback, download_pdf, job_urls
 
 def run_api_job(
     job: str,

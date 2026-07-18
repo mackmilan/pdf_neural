@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
-from converter import convert
+from backend.app.services.converter import convert
 
 class TestUnderlineExclusion(unittest.TestCase):
     def test_convert_filters_neural_fields_on_underlines(self):

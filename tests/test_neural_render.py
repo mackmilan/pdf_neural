@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from converter import convert
+from backend.app.services.converter import convert
 
 class MockDetector:
     def detect(self, pdf_path):

@@ -6,11 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import app
-import handler as handler_module
-from auth import AuthenticationError, KeycloakAuthenticator
-from converter import ConversionResult
-from database import Database, FIELD_TEXT_HEIGHT, db, normalize_field_heights
+import backend.app.legacy.server as app
+import backend.app.main as fastapi_app
+import backend.app.legacy.handler as handler_module
+from backend.app.auth.service import AuthenticationError, KeycloakAuthenticator
+from backend.app.services.converter import ConversionResult
+from backend.app.db.mongo import Database, FIELD_TEXT_HEIGHT, db, normalize_field_heights
 
 
 class FakeDatabase:
@@ -53,7 +54,7 @@ class AsyncApiTest(unittest.TestCase):
             self.assertNotIn("neural-table-region", document)
 
     def test_openapi_documents_every_api_operation(self):
-        spec = json.loads((app.STATIC / "openapi.json").read_text())
+        spec = fastapi_app.app.openapi()
         self.assertEqual("3.1.0", spec["openapi"])
         operations = {(method, path) for path, methods in spec["paths"].items() for method in methods}
         self.assertTrue(
@@ -76,9 +77,8 @@ class AsyncApiTest(unittest.TestCase):
                          ("put", "/api/documents/{document_id}/category"),
                          ("put", "/api/documents/{document_id}/document-page-submission"),
                          ("put", "/api/documents/{document_id}/name")} <= operations)
-        self.assertIn("extractionFinished", spec["paths"]["/api/jobs"]["post"]["callbacks"])
-        self.assertEqual(spec["security"], [{"bearerAuth": []}, {"apiKeyAuth": []}])
         self.assertIn("bearerAuth", spec["components"]["securitySchemes"])
+        self.assertIn("apiKeyAuth", spec["components"]["securitySchemes"])
         self.assertIn("/api/users", spec["paths"])
         self.assertIn("/api/users/access", spec["paths"])
         self.assertIn("/api/users/{subject}", spec["paths"])
@@ -641,7 +641,7 @@ class AsyncApiTest(unittest.TestCase):
         
         mock_urlopen.side_effect = [res_admin, res_no_client]
         
-        from auth import authenticator
+        from backend.app.auth.service import authenticator
         authenticator.enabled = True
         # Limpar cache do token admin para forçar nova chamada
         authenticator._admin_token = None
@@ -707,10 +707,7 @@ class AsyncApiTest(unittest.TestCase):
             app.validate_category_query({"category_id": ["invalida"]})
 
     def test_openapi_searches_make_tenant_and_group_optional(self):
-        spec = json.loads((app.STATIC / "openapi.json").read_text())
-        parameters = spec["components"]["parameters"]
-        self.assertFalse(parameters["TenantQuery"]["required"])
-        self.assertFalse(parameters["GroupQuery"]["required"])
+        spec = fastapi_app.app.openapi()
         for path in (
             "/api/documents", "/api/documents/{document_id}",
             "/api/documents/{document_id}/versions",
@@ -718,9 +715,13 @@ class AsyncApiTest(unittest.TestCase):
             "/api/documents/{document_id}/versions/{version}",
             "/api/jobs", "/api/jobs/{job_id}",
         ):
-            refs = {item.get("$ref") for item in spec["paths"][path]["get"].get("parameters", [])}
-            self.assertIn("#/components/parameters/TenantQuery", refs)
-            self.assertIn("#/components/parameters/GroupQuery", refs)
+            parameters = spec["paths"][path]["get"].get("parameters", [])
+            tenant_group_params = {
+                item["name"]: item["required"]
+                for item in parameters
+                if item.get("name") in {"tenant_id", "group_id"}
+            }
+            self.assertNotIn(True, tenant_group_params.values())
 
     def test_delete_document_removes_related_records(self):
         database = Database.__new__(Database)

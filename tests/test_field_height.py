@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
-from converter import convert
+from backend.app.services.converter import convert
 
 class TestNeuralFieldHeight(unittest.TestCase):
     def test_neural_fields_have_fixed_height(self):

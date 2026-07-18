@@ -5,7 +5,7 @@ import urllib.error
 def test_api_auth():
     # Nota: Este teste assume que o servidor está rodando em localhost:8000
     # e que acabamos de gerar uma chave válida (podemos gerar uma nova aqui para garantir)
-    from database import Database
+    from backend.app.db.mongo import Database
     db = Database()
     key = db.create_api_key("integration_test", "Integration Test Key")
     print(f"Testando com chave: {key}")
@@ -25,7 +25,7 @@ def test_api_auth():
                 print("Autenticação via API Key: FALHA (client_id incorreto)")
     except urllib.error.URLError as e:
         print(f"Erro ao conectar ao servidor: {e}")
-        print("Certifique-se de que o app.py está rodando.")
+        print("Certifique-se de que `python -m backend.app.main` está rodando.")
 
 if __name__ == "__main__":
     test_api_auth()
