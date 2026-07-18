@@ -5,6 +5,14 @@ O conversor recria texto, linhas, retangulos e imagens como elementos HTML/SVG. 
 campos detectados nao viram formularios HTML: seu mapeamento e gravado separadamente
 em `fields.json` para permitir o preenchimento posterior do PDF.
 
+## Documentacao tecnica
+
+A documentacao tecnica da arquitetura, processos, diagramas de sequencia, diagrama
+de classes e diagrama de banco de dados esta em
+[`docs/arquitetura-tecnica.md`](docs/arquitetura-tecnica.md). Todos os diagramas
+foram escritos em Mermaid para renderizacao visual em ferramentas compativeis com
+Markdown.
+
 ## O que ele faz
 
 - le campos AcroForm nativos;
