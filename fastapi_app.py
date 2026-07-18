@@ -10,9 +10,10 @@ from datetime import timedelta
 from typing import Annotated
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 from auth import AuthenticationError, Identity, authenticator
 from config import EXECUTOR, LOGGER, MAX_HTML_JSON_SIZE, MAX_PDF_SIZE
@@ -49,6 +50,8 @@ from validators import (
 TENANT_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 DOCUMENT_ID_PATTERN = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{64})$")
 JOB_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+bearer_scheme = HTTPBearer(auto_error=False, scheme_name="bearerAuth")
+api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False, scheme_name="apiKeyAuth")
 
 
 def create_app() -> FastAPI:
@@ -56,6 +59,8 @@ def create_app() -> FastAPI:
         title="PDF Neural",
         version="0.1.0",
         description="API FastAPI em migracao incremental a partir do handler legado.",
+        docs_url="/docs",
+        openapi_url="/openapi.json",
     )
     api.add_middleware(
         CORSMiddleware,
@@ -101,9 +106,10 @@ def auth_error_response(exc: AuthenticationError, api_key: str | None) -> HTTPEx
 
 
 def current_identity(
-    authorization: Annotated[str | None, Header()] = None,
-    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Security(bearer_scheme)] = None,
+    x_api_key: Annotated[str | None, Security(api_key_scheme)] = None,
 ) -> Identity:
+    authorization = f"Bearer {bearer.credentials}" if bearer else None
     try:
         if x_api_key:
             return authenticator.authenticate_api_key(x_api_key)

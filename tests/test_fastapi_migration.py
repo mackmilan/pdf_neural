@@ -23,6 +23,16 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual(fastapi_app.authenticator.audience, response.json()["client_id"])
         self.assertEqual("nosniff", response.headers["x-content-type-options"])
 
+    def test_fastapi_serves_swagger_and_openapi(self):
+        docs = self.client.get("/docs")
+        spec = self.client.get("/openapi.json")
+
+        self.assertEqual(200, docs.status_code)
+        self.assertIn("text/html", docs.headers["content-type"])
+        self.assertIn("Swagger UI", docs.text)
+        self.assertEqual(200, spec.status_code)
+        self.assertEqual("3.1.0", spec.json()["openapi"])
+
     @patch("fastapi_app.authenticator.authenticate")
     @patch("fastapi_app.db")
     def test_me_returns_identity_and_access(self, fake_db, authenticate):

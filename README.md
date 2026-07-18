@@ -201,8 +201,9 @@ Por padrao, uma falha neural e registrada e a conversao geometrica continua. Use
 `NEURAL_REQUIRED=true` quando a requisicao inteira deva falhar caso o modelo nao
 possa ser executado.
 
-A documentacao interativa Swagger fica em `http://127.0.0.1:8000/docs` e a
-especificacao OpenAPI 3.1 em `http://127.0.0.1:8000/openapi.json`.
+A documentacao interativa Swagger e a especificacao OpenAPI 3.1 sao geradas
+pelo FastAPI em `http://127.0.0.1:8000/docs` e
+`http://127.0.0.1:8000/openapi.json`.
 
 ## Autenticação e autorização
 

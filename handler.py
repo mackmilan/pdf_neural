@@ -287,10 +287,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(STATIC / "index.html")
         if re.fullmatch(r"/submissao/[0-9a-f]{32}/?", path):
             return self.send_file(STATIC / "index.html")
-        if path in ("/docs", "/docs/"):
-            return self.send_file(STATIC / "swagger.html")
-        if path == "/openapi.json":
-            return self.send_file(STATIC / "openapi.json")
         if path == "/favicon.svg" or path == "/icons.svg" or path.startswith("/assets/"):
             candidate = (STATIC / path.lstrip("/")).resolve()
             if STATIC.resolve() in candidate.parents:
