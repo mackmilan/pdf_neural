@@ -15,10 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
-from auth import AuthenticationError, Identity, authenticator
-from config import EXECUTOR, LOGGER, MAX_HTML_JSON_SIZE, MAX_PDF_SIZE
-from database import db
-from fastapi_helpers import (
+from backend.app.auth.service import AuthenticationError, Identity, authenticator
+from backend.app.core.config import EXECUTOR, LOGGER, MAX_HTML_JSON_SIZE, MAX_PDF_SIZE
+from backend.app.db.mongo import db
+from backend.app.api.helpers import (
     SECURITY_HEADERS,
     base_url,
     body_context_id,
@@ -30,12 +30,12 @@ from fastapi_helpers import (
     pdf_filename,
     preview_html_response,
 )
-from fastapi_static import router as static_router
-from jobs import run_api_job
-from services import convert_pdf_bytes
-from utils import json_safe
-from utils import download_pdf, multipart_data, validate_public_url
-from validators import (
+from backend.app.api.static import router as static_router
+from backend.app.workers.jobs import run_api_job
+from backend.app.services.pdf import convert_pdf_bytes
+from backend.app.utils.common import json_safe
+from backend.app.utils.common import download_pdf, multipart_data, validate_public_url
+from backend.app.utils.validation import (
     validate_boolean,
     validate_category_query,
     validate_context_id,

@@ -54,9 +54,10 @@ backend/app/
   legacy/              # codigo do servidor HTTP legado durante a migracao
 ```
 
-Nesta etapa, varios modulos dentro de `backend/app/` ainda sao fachadas para os
-arquivos historicos da raiz. Isso permite migrar imports e separar dominios aos
-poucos, sem alterar o comportamento da API em uma unica mudanca grande.
+Os modulos historicos da raiz (`database.py`, `services.py`, `utils.py`,
+`validators.py`, `converter.py`, detectores neurais e similares) permanecem como
+aliases de compatibilidade. A implementacao real fica em `backend/app/`, separada
+por responsabilidade, para que novos imports usem diretamente o pacote do backend.
 
 Rotas ja presentes na camada FastAPI:
 
