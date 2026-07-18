@@ -6,12 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import app
-import fastapi_app
-import handler as handler_module
-from auth import AuthenticationError, KeycloakAuthenticator
-from converter import ConversionResult
-from database import Database, FIELD_TEXT_HEIGHT, db, normalize_field_heights
+import backend.app.legacy.server as app
+import backend.app.main as fastapi_app
+import backend.app.legacy.handler as handler_module
+from backend.app.auth.service import AuthenticationError, KeycloakAuthenticator
+from backend.app.services.converter import ConversionResult
+from backend.app.db.mongo import Database, FIELD_TEXT_HEIGHT, db, normalize_field_heights
 
 
 class FakeDatabase:
@@ -641,7 +641,7 @@ class AsyncApiTest(unittest.TestCase):
         
         mock_urlopen.side_effect = [res_admin, res_no_client]
         
-        from auth import authenticator
+        from backend.app.auth.service import authenticator
         authenticator.enabled = True
         # Limpar cache do token admin para forçar nova chamada
         authenticator._admin_token = None

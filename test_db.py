@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 from pathlib import Path
-from database import db
+from backend.app.db.mongo import db
 
 def test_mongodb_connection():
     print("Testando conexão com MongoDB...")

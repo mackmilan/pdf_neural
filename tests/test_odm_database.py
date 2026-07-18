@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from odm_database import OdmCollection, TenantDocument
+from backend.app.db.odm import OdmCollection, TenantDocument
 
 
 class FakeCollection:

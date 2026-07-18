@@ -16,8 +16,8 @@ import pdfplumber
 from PIL import Image, ImageDraw
 from pymongo import MongoClient
 
-from neural_field_detector import IMAGE_SIZE, render_pdf
-from utils import download_pdf
+from backend.app.ml.fields import IMAGE_SIZE, render_pdf
+from backend.app.utils.common import download_pdf
 
 
 LOGGER = logging.getLogger("pdf-neural.prepare-fields-from-mongo")

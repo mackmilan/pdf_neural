@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 import pdfplumber
-from converter import convert, Field
+from backend.app.services.converter import convert, Field
 
 class TestNeuralFieldExclusion(unittest.TestCase):
     def test_convert_filters_neural_fields_on_text_and_headers(self):

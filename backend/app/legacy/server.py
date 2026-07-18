@@ -3,21 +3,21 @@ from __future__ import annotations
 import os
 from http.server import ThreadingHTTPServer
 
-from auth import Identity, authenticator
-from config import (
+from backend.app.auth.service import Identity, authenticator
+from backend.app.core.config import (
     EXECUTOR, FIELD_MODEL, FIELD_MODELS, JOBS, LOGGER, MAX_HTML_JSON_SIZE, MAX_JSON_SIZE,
     MAX_PDF_SIZE, NEURAL_ENABLED, NEURAL_MIN_CONFIDENCE, NEURAL_REQUIRED,
     NEURAL_THRESHOLD, PUBLIC_BASE_URL, ROOT, STATIC, TABLE_MODEL, TIMEOUT, WORKERS,
 )
-from database import db
-from handler import Handler
-import jobs as _jobs
-from services import convert_pdf_bytes, get_detectors, render_neural_tables, run_neural_detection
-from utils import (
+from backend.app.db.mongo import db
+from backend.app.legacy.handler import Handler
+import backend.app.workers.jobs as _jobs
+from backend.app.services.pdf import convert_pdf_bytes, get_detectors, render_neural_tables, run_neural_detection
+from backend.app.utils.common import (
     NoRedirect, deliver_callback, download_pdf, job_urls, json_safe, multipart_data,
     validate_public_url, write_json,
 )
-from validators import (
+from backend.app.utils.validation import (
     FIELD_ALIGNS, FIELD_TYPES, optional_number, validate_category_query,
     validate_context_id, validate_fields_payload, validate_html_payload,
     validate_resource_name, validate_search_context, validate_submission_values, validate_boolean,

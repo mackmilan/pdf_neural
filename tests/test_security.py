@@ -1,7 +1,7 @@
 import unittest
 
-from validators import validate_html_payload
-from utils import validate_public_url, _resolve_public_url
+from backend.app.utils.validation import validate_html_payload
+from backend.app.utils.common import validate_public_url, _resolve_public_url
 
 
 LEGIT_HTML = (

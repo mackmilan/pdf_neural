@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from services import MultiFieldDetector, merge_field_detections
+from backend.app.services.pdf import MultiFieldDetector, merge_field_detections
 
 
 class FakeFieldDetector:
@@ -50,7 +50,7 @@ class MultiFieldDetectorTest(unittest.TestCase):
         pdf.pages = pages
         pdf.__enter__.return_value = pdf
 
-        with patch("services.render_pdf", return_value=rendered) as render_pdf, patch("services.pdfplumber.open", return_value=pdf):
+        with patch("backend.app.services.pdf.render_pdf", return_value=rendered) as render_pdf, patch("backend.app.services.pdf.pdfplumber.open", return_value=pdf):
             detections = detector.detect(Path("document.pdf"))
 
         self.assertEqual(2, len(detections))

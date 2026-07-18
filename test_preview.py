@@ -7,7 +7,7 @@ def test_preview_from_db():
     base_url = "http://localhost:8000"
     
     # Simular o salvamento de um documento no MongoDB diretamente
-    from database import db
+    from backend.app.db.mongo import db
     import uuid
     
     job_id = uuid.uuid4().hex

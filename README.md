@@ -29,16 +29,16 @@ python -m backend.app.main
 ### API FastAPI em migracao
 
 A migracao para FastAPI ja cobre os fluxos principais da API e o Docker usa
-`backend.app.main` como entrada. O servidor legado em `app.py` permanece no
-repositorio como referencia durante a estabilizacao:
+`backend.app.main` como entrada. O servidor HTTP legado foi movido para
+`backend.app.legacy.server` e permanece apenas como referencia durante a
+estabilizacao:
 
 ```bash
 python -m backend.app.main
 ```
 
-`fastapi_app.py` permanece como alias de compatibilidade para testes, imports
-antigos e comandos locais existentes. Novos modulos de backend devem ficar abaixo
-de `backend/app/`, seguindo esta divisao:
+Novos modulos de backend devem ficar abaixo de `backend/app/`, seguindo esta
+divisao:
 
 ```text
 backend/app/
@@ -55,9 +55,9 @@ backend/app/
 ```
 
 Os modulos historicos da raiz (`database.py`, `services.py`, `utils.py`,
-`validators.py`, `converter.py`, detectores neurais e similares) permanecem como
-aliases de compatibilidade. A implementacao real fica em `backend/app/`, separada
-por responsabilidade, para que novos imports usem diretamente o pacote do backend.
+`validators.py`, `converter.py`, detectores neurais e similares) foram removidos.
+A implementacao real fica em `backend/app/`, separada por responsabilidade, e os
+imports devem usar diretamente o pacote do backend.
 
 Rotas ja presentes na camada FastAPI:
 
@@ -143,9 +143,9 @@ e em documentos digitalizados estima ambas diretamente dos pixels.
 pip install -r requirements-ml.txt
 
 # Aceita arquivos e/ou pastas; procura PDFs recursivamente nas pastas.
-python neural_table_detector.py prepare tmp/pdfs -o data/tables
-python neural_table_detector.py train data/tables -o models/table_detector.pt --epochs 30
-python neural_table_detector.py detect documento.pdf \
+python -m backend.app.ml.tables prepare tmp/pdfs -o data/tables
+python -m backend.app.ml.tables train data/tables -o models/table_detector.pt --epochs 30
+python -m backend.app.ml.tables detect documento.pdf \
   --model models/table_detector.pt -o output/neural-tables.json
 ```
 
@@ -154,7 +154,7 @@ use ajuste fino. O treino pondera como negativos os pixels imediatamente externo
 cada tabela, evitando incluir campos proximos como `Data` e `Assinatura`:
 
 ```bash
-python neural_table_detector.py train data/tables \
+python -m backend.app.ml.tables train data/tables \
   --resume models/table_detector.pt \
   -o models/table_detector.pt --epochs 10 --learning-rate 0.0002
 ```
@@ -164,7 +164,7 @@ esta disponivel em `models/table_detector.pt`. O corpus correspondente deve fica
 em `data/tables/`:
 
 ```bash
-python neural_table_detector.py detect documento.pdf \
+python -m backend.app.ml.tables detect documento.pdf \
   --model models/table_detector.pt -o output/neural-tables.json
 ```
 
@@ -183,8 +183,8 @@ o que cobre documentos digitalizados sem camada de texto. Para ajustar o modelo
 existente sem perder o aprendizado anterior:
 
 ```bash
-python neural_field_detector.py prepare data/pdfs -o data/fields
-python neural_field_detector.py train data/fields \
+python -m backend.app.ml.fields prepare data/pdfs -o data/fields
+python -m backend.app.ml.fields train data/fields \
   --resume models/field_detector.pt \
   -o models/field_detector.pt --epochs 10 --learning-rate 0.0002
 ```
@@ -327,7 +327,7 @@ Crie um client confidencial específico para integrações, por exemplo `pdf-neu
 Gere a chave usando o mesmo `client_id` do client confidencial:
 
 ```bash
-python3 -c "from database import Database; print(Database().create_api_key('pdf-neural-api-key', 'Chave de Integracao', 'TENANT_ID', 'GROUP_ID'))"
+python3 -c "from backend.app.db.mongo import Database; print(Database().create_api_key('pdf-neural-api-key', 'Chave de Integracao', 'TENANT_ID', 'GROUP_ID'))"
 ```
 
 Exemplo de validação:
@@ -369,7 +369,7 @@ com `--app-url https://dominio-da-aplicacao` para autorizar callback e logout.
 Uso direto pela linha de comando:
 
 ```bash
-python converter.py documento.pdf -o output/documento
+python -m backend.app.services.converter documento.pdf -o output/documento
 ```
 
 O resultado fica autocontido na pasta escolhida. O PDF original nao e incorporado ao HTML.

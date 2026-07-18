@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-import fastapi_app
-from auth import Identity
+import backend.app.main as fastapi_app
+from backend.app.auth.service import Identity
 
 
 ADMIN = Identity("admin-sub", "admin", frozenset({"pdf-admin"}), {})
@@ -33,8 +33,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual(200, spec.status_code)
         self.assertEqual("3.1.0", spec.json()["openapi"])
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_me_returns_identity_and_access(self, fake_db, authenticate):
         authenticate.return_value = READER
         fake_db.is_available.return_value = True
@@ -50,7 +50,7 @@ class FastApiMigrationTest(unittest.TestCase):
             "access": [{"tenant_id": "a" * 32, "group_id": None}],
         }, response.json())
 
-    @patch("fastapi_app.authenticator.authenticate")
+    @patch("backend.app.main.authenticator.authenticate")
     def test_me_rejects_missing_bearer_token(self, authenticate):
         authenticate.side_effect = fastapi_app.AuthenticationError("Token Bearer ausente")
 
@@ -60,8 +60,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual({"error": "Token Bearer ausente"}, response.json())
         self.assertEqual('Bearer realm="pdf-neural"', response.headers["www-authenticate"])
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_admin_lists_all_tenants(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -73,8 +73,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual([{"tenant_id": "a" * 32, "name": "Tenant A"}], response.json())
         fake_db.list_tenants.assert_called_once_with()
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_reader_lists_only_allowed_tenants(self, fake_db, authenticate):
         authenticate.return_value = READER
         fake_db.is_available.return_value = True
@@ -86,8 +86,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual([{"tenant_id": "b" * 32, "name": "Tenant B"}], response.json())
         fake_db.list_tenants_for_user.assert_called_once_with("reader-sub")
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_reader_must_have_tenant_access_for_groups(self, fake_db, authenticate):
         authenticate.return_value = READER
         fake_db.is_available.return_value = True
@@ -98,8 +98,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual(403, response.status_code)
         self.assertEqual({"error": "Acesso negado ao tenant"}, response.json())
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_lists_categories_when_group_belongs_to_tenant(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -114,8 +114,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual([{"category_id": "c" * 32, "name": "Categoria"}], response.json())
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_lists_documents_with_legacy_pagination_validation(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -143,8 +143,8 @@ class FastApiMigrationTest(unittest.TestCase):
             name="a",
         )
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_rejects_invalid_document_pagination_like_legacy_handler(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -157,8 +157,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertEqual({"error": "page e page_size devem ser numeros inteiros"}, response.json())
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_lists_jobs_with_api_key_context(self, fake_db, authenticate):
         authenticate.return_value = Identity(
             "client:robot",
@@ -181,8 +181,8 @@ class FastApiMigrationTest(unittest.TestCase):
             category_id=None,
         )
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_gets_job_detail(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -197,8 +197,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual({"job_id": "c" * 32, "status": "done"}, response.json())
         fake_db.get_job.assert_called_once_with("c" * 32, "a" * 32, None)
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_gets_document_versions(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -213,8 +213,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual([{"document_id": "d" * 64, "version": 2}], response.json())
         fake_db.list_document_versions.assert_called_once_with("d" * 64, "a" * 32, None)
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_admin_creates_tenant(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -230,8 +230,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual({"tenant_id": "a" * 32, "name": "Tenant A"}, response.json())
         fake_db.create_tenant.assert_called_once_with("Tenant A", {"uf": "PR"})
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_admin_grants_and_revokes_user_access(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -259,9 +259,9 @@ class FastApiMigrationTest(unittest.TestCase):
         fake_db.grant_user_access.assert_called_once_with("sub-1", "a" * 32, None, "editor", "Maria")
         fake_db.revoke_user_access.assert_called_once_with("sub-1", "a" * 32, None)
 
-    @patch("fastapi_app.authenticator.delete_user")
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.delete_user")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_admin_deletes_user_from_keycloak_and_local_access(self, fake_db, authenticate, delete_user):
         authenticate.return_value = ADMIN
         delete_user.return_value = True
@@ -279,8 +279,8 @@ class FastApiMigrationTest(unittest.TestCase):
         delete_user.assert_called_once_with("sub-1")
         fake_db.delete_user_access.assert_called_once_with("sub-1")
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_editor_renames_document_with_context_permission(self, fake_db, authenticate):
         authenticate.return_value = READER
         fake_db.is_available.return_value = True
@@ -298,8 +298,8 @@ class FastApiMigrationTest(unittest.TestCase):
         fake_db.user_has_access.assert_called_once_with("reader-sub", "a" * 32, "b" * 32, "editor")
         fake_db.rename_document.assert_called_once_with("d" * 64, "Novo nome.pdf", "a" * 32, "b" * 32)
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_sets_current_version_and_maps_deprecated_conflict(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -313,9 +313,9 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual(409, response.status_code)
         self.assertEqual({"error": "Uma versao deprecated nao pode ser definida como padrao"}, response.json())
 
-    @patch("fastapi_app.authenticator.validate_client")
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.validate_client")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_admin_creates_api_key(self, fake_db, authenticate, validate_client):
         authenticate.return_value = ADMIN
         validate_client.return_value = True
@@ -338,8 +338,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual({"api_key": "ak_secret"}, response.json())
         fake_db.create_api_key.assert_called_once_with("client-app", "Client App", "a" * 32, "b" * 32)
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_serves_viewer_document_html_with_preview_csp(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -359,8 +359,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertIn("connect-src 'none'", response.headers["content-security-policy"])
         self.assertIn("ok", response.text)
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_creates_viewer_submission(self, fake_db, authenticate):
         authenticate.return_value = Identity("reader-sub", "reader", frozenset(), {"email": "r@example.com"})
         fake_db.is_available.return_value = True
@@ -387,8 +387,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual("s" * 32, response.json()["submission_id"])
         fake_db.save_document_submission.assert_called_once()
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_updates_document_html_and_saves_completed_job(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -416,8 +416,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual("/jobs/" + "j" * 32 + "/html/index.html", response.json()["preview"])
         fake_db.save_job.assert_called_once()
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_updates_document_fields_and_syncs_job_result(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -444,8 +444,8 @@ class FastApiMigrationTest(unittest.TestCase):
         fake_db.update_document_fields.assert_called_once()
         fake_db.save_job.assert_called_once()
 
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_applies_format_norm_and_saves_completed_job(self, fake_db, authenticate):
         authenticate.return_value = ADMIN
         fake_db.is_available.return_value = True
@@ -473,8 +473,8 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual("f" * 32, response.json()["job_id"])
         fake_db.save_job.assert_called_once()
 
-    @patch("fastapi_app.convert_html_with_gotenberg")
-    @patch("fastapi_app.authenticator.authenticate")
+    @patch("backend.app.main.convert_html_with_gotenberg")
+    @patch("backend.app.main.authenticator.authenticate")
     def test_generates_pdf_from_html(self, authenticate, convert_html):
         authenticate.return_value = ADMIN
         convert_html.return_value = b"%PDF-1.4\nfake"
@@ -490,10 +490,10 @@ class FastApiMigrationTest(unittest.TestCase):
         self.assertEqual(b"%PDF-1.4\nfake", response.content)
         convert_html.assert_called_once_with("<html><body>ok</body></html>", "saida.pdf")
 
-    @patch("fastapi_app.EXECUTOR.submit")
-    @patch("fastapi_app.validate_public_url")
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.EXECUTOR.submit")
+    @patch("backend.app.main.validate_public_url")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_creates_background_job(self, fake_db, authenticate, validate_url, submit):
         authenticate.return_value = ADMIN
         validate_url.side_effect = lambda value: value
@@ -518,10 +518,10 @@ class FastApiMigrationTest(unittest.TestCase):
         fake_db.save_job.assert_called_once()
         submit.assert_called_once()
 
-    @patch("fastapi_app.uuid.uuid4")
-    @patch("fastapi_app.convert_pdf_bytes")
-    @patch("fastapi_app.authenticator.authenticate")
-    @patch("fastapi_app.db")
+    @patch("backend.app.main.uuid.uuid4")
+    @patch("backend.app.main.convert_pdf_bytes")
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_converts_pdf_synchronously(self, fake_db, authenticate, convert_pdf, uuid4):
         class Conversion:
             html_content = "<html><body>pdf</body></html>"
