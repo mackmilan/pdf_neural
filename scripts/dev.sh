@@ -54,7 +54,7 @@ trap 'exit 143' SIGTERM
 echo "Backend: $BACKEND_URL"
 echo "Frontend: http://$VITE_HOST:5173"
 
-python fastapi_app.py &
+python -m backend.app.main &
 backend_pid=$!
 
 npm --prefix frontend run dev -- --host "$VITE_HOST" &

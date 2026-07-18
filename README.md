@@ -23,18 +23,40 @@ em `fields.json` para permitir o preenchimento posterior do PDF.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python fastapi_app.py
+python -m backend.app.main
 ```
 
 ### API FastAPI em migracao
 
 A migracao para FastAPI ja cobre os fluxos principais da API e o Docker usa
-`fastapi_app.py` como entrada. O servidor legado em `app.py` permanece no
+`backend.app.main` como entrada. O servidor legado em `app.py` permanece no
 repositorio como referencia durante a estabilizacao:
 
 ```bash
-python fastapi_app.py
+python -m backend.app.main
 ```
+
+`fastapi_app.py` permanece como alias de compatibilidade para testes, imports
+antigos e comandos locais existentes. Novos modulos de backend devem ficar abaixo
+de `backend/app/`, seguindo esta divisao:
+
+```text
+backend/app/
+  main.py              # app FastAPI, middlewares e registro de rotas
+  api/                 # routers, dependencias HTTP e handlers
+  auth/                # autenticacao e autorizacao
+  core/                # configuracao, logging e infraestrutura compartilhada
+  db/                  # conexao, ODM e repositories
+  ml/                  # detectores neurais e renderizacao auxiliar
+  services/            # regras de negocio
+  utils/               # utilitarios compartilhados
+  workers/             # jobs em background
+  legacy/              # codigo do servidor HTTP legado durante a migracao
+```
+
+Nesta etapa, varios modulos dentro de `backend/app/` ainda sao fachadas para os
+arquivos historicos da raiz. Isso permite migrar imports e separar dominios aos
+poucos, sem alterar o comportamento da API em uma unica mudanca grande.
 
 Rotas ja presentes na camada FastAPI:
 
@@ -95,10 +117,10 @@ Vite dev server juntos com:
 ./scripts/dev.sh
 ```
 
-Isso inicia `python fastapi_app.py` (porta 8000) e `npm run dev` (porta 5173, com proxy
+Isso inicia `python -m backend.app.main` (porta 8000) e `npm run dev` (porta 5173, com proxy
 para `/api`, `/auth`, `/jobs`, `/docs` e `/openapi.json` apontando para o
 backend). Para gerar os estaticos de producao (servidos pelo proprio
-`fastapi_app.py` a partir de `static/`), rode:
+`backend.app.main` a partir de `static/`), rode:
 
 ```bash
 npm --prefix frontend run build
@@ -173,7 +195,7 @@ com maior confianca quando dois modelos apontam para o mesmo campo:
 
 ```bash
 FIELD_MODELS=models/field_detector.pt,models/field_detector_mongo.pt,models/field_detector_pesquisa_aplicada.pt \
-python fastapi_app.py
+python -m backend.app.main
 ```
 
 `FIELD_MODEL` continua aceito para compatibilidade e e usado como fallback quando
@@ -194,7 +216,7 @@ ajustar a sensibilidade:
 TABLE_MODEL=models/table_detector.pt \
 NEURAL_THRESHOLD=0.7 \
 NEURAL_MIN_CONFIDENCE=0.65 \
-python fastapi_app.py
+python -m backend.app.main
 ```
 
 Por padrao, uma falha neural e registrada e a conversao geometrica continua. Use
@@ -465,7 +487,7 @@ Em producao, configure a URL externa usada nos links e a quantidade de conversoe
 simultaneas:
 
 ```bash
-PUBLIC_BASE_URL=https://pdf.exemplo.com PDF_WORKERS=4 python fastapi_app.py
+PUBLIC_BASE_URL=https://pdf.exemplo.com PDF_WORKERS=4 python -m backend.app.main
 ```
 
 ## Deploy com Coolify
