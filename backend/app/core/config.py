@@ -11,7 +11,7 @@ from backend.app.ml.tables import DEFAULT_THRESHOLD
 
 load_dotenv()
 
-ROOT = Path(__file__).parent.resolve()
+ROOT = Path(os.environ.get("APP_ROOT", Path(__file__).resolve().parents[3])).resolve()
 JOBS = ROOT / "output" / "jobs"
 STATIC = ROOT / "static"
 MAX_PDF_SIZE = 30 * 1024 * 1024

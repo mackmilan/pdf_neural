@@ -253,6 +253,10 @@ def save_completed_version_job(updated: dict, *, flag: str | None = None) -> Non
 
 
 def register_routes(api: FastAPI) -> None:
+    @api.get("/healthz")
+    def healthz() -> dict:
+        return {"status": "ok"}
+
     @api.get("/auth/config")
     def auth_config() -> dict:
         return {
