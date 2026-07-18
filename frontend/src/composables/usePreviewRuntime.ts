@@ -43,7 +43,42 @@ export function usePreviewRuntime() {
   const docStore = useDocumentStore()
   const fieldEditor = useFieldEditorStore()
   const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+  const TEXTAREA_DISPLAY_MAX_FONT_SIZE = 12
+  const TEXTAREA_DISPLAY_MIN_FONT_SIZE = 6
+  const TEXTAREA_DISPLAY_LINE_HEIGHT = 1.2
   let activeSelection: { fieldName: string; optionIndex: number | null } | null = null
+
+  function textareaDisplayFits(display: HTMLElement): boolean {
+    return display.scrollHeight <= display.clientHeight + 1 && display.scrollWidth <= display.clientWidth + 1
+  }
+
+  function fitTextareaDisplay(display: HTMLElement) {
+    display.style.fontSize = `${TEXTAREA_DISPLAY_MAX_FONT_SIZE}px`
+    display.style.lineHeight = String(TEXTAREA_DISPLAY_LINE_HEIGHT)
+    display.style.overflow = 'hidden'
+    if (!display.textContent?.trim() || display.clientWidth <= 0 || display.clientHeight <= 0) return
+    if (textareaDisplayFits(display)) return
+
+    let low = TEXTAREA_DISPLAY_MIN_FONT_SIZE
+    let high = TEXTAREA_DISPLAY_MAX_FONT_SIZE
+    let best = TEXTAREA_DISPLAY_MIN_FONT_SIZE
+    for (let i = 0; i < 8; i++) {
+      const candidate = (low + high) / 2
+      display.style.fontSize = `${candidate}px`
+      if (textareaDisplayFits(display)) {
+        best = candidate
+        low = candidate
+      } else {
+        high = candidate
+      }
+    }
+    display.style.fontSize = `${best}px`
+  }
+
+  function fitTextareaDisplays(doc: Document | null) {
+    if (!doc) return
+    doc.querySelectorAll<HTMLElement>('.pdf-field[data-type="textarea"] .pdf-field-display').forEach(fitTextareaDisplay)
+  }
 
   function emitFieldSelected(doc: Document, fieldIndex: number, optionIndex: number | null) {
     const field = docStore.currentFields[fieldIndex]
@@ -155,6 +190,7 @@ export function usePreviewRuntime() {
       if (!field) return
       display.textContent = visibleFieldValue(field, display.dataset.fieldOption)
     })
+    fitTextareaDisplays(doc)
   }
 
   function syncInlineFieldValues(doc: Document | null) {
@@ -338,12 +374,12 @@ export function usePreviewRuntime() {
         const isMark = field.type === 'checkbox' || field.type === 'radio'
         const isMultiline = field.type === 'textarea'
         Object.assign(display.style, {
-          position: 'absolute', inset: '0', zIndex: '90', display: 'flex',
+          position: 'absolute', inset: '0', zIndex: '90', display: isMultiline ? 'block' : 'flex',
           alignItems: isMultiline ? 'flex-start' : 'center',
           justifyContent: isMark ? 'center' : 'flex-start', padding: isMark ? '0' : '2px 4px',
           color: '#111827', font: '12px/1.2 Arial, sans-serif',
           textAlign: fieldTextAlign(field), whiteSpace: isMultiline ? 'pre-wrap' : 'nowrap',
-          overflow: isMultiline ? 'visible' : 'hidden', overflowWrap: isMultiline ? 'anywhere' : 'normal',
+          overflow: 'hidden', overflowWrap: isMultiline ? 'anywhere' : 'normal',
           textOverflow: isMultiline ? 'clip' : 'ellipsis', pointerEvents: 'none',
         } as Partial<CSSStyleDeclaration>)
         if (!isMark && field.align === 'center') display.style.justifyContent = 'center'
@@ -393,6 +429,7 @@ export function usePreviewRuntime() {
         page.appendChild(element)
       })
     })
+    fitTextareaDisplays(doc)
     if (readonlyGeometry) return
     ;(fieldEditor.pendingRadioBoxes || []).forEach((box) => {
       const page = doc.querySelector<HTMLElement>(`.pdf-page[data-page="${box.page}"]`)
