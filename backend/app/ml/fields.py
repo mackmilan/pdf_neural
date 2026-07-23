@@ -33,6 +33,14 @@ def require_torch():
         ) from exc
     return torch, nn
 
+def select_device(torch):
+    """Escolhe o melhor dispositivo disponivel: CUDA, MPS (GPU do Mac) ou CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
 def build_model():
     """Cria uma U-Net para segmentacao de campos."""
     torch, nn = require_torch()
@@ -335,7 +343,8 @@ def train(
     if not samples:
         raise ValueError("O conjunto de treino esta vazio")
         
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device(torch)
+    LOGGER.info("Treinando no dispositivo: %s", device)
     model = build_model().to(device)
     
     if resume_path:
@@ -404,7 +413,7 @@ def mask_components(probabilities, threshold: float = DEFAULT_THRESHOLD, min_are
 class FieldDetector:
     def __init__(self, model_path: Path, threshold: float = DEFAULT_THRESHOLD):
         self.torch, _ = require_torch()
-        self.device = self.torch.device("cuda" if self.torch.cuda.is_available() else "cpu")
+        self.device = select_device(self.torch)
         checkpoint = self.torch.load(model_path, map_location=self.device, weights_only=True)
         self.model = build_model().to(self.device)
         self.model.load_state_dict(checkpoint["state_dict"])
@@ -478,6 +487,7 @@ class FieldDetector:
         return results
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     

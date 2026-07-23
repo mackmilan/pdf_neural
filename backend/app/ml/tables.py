@@ -37,6 +37,15 @@ def require_torch():
     return torch, nn
 
 
+def select_device(torch):
+    """Escolhe o melhor dispositivo disponivel: CUDA, MPS (GPU do Mac) ou CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 def build_model():
     """Cria uma U-Net compacta, apropriada para treino local em CPU ou GPU."""
     torch, nn = require_torch()
@@ -352,7 +361,8 @@ def train(
     samples = manifest["samples"]
     if not samples:
         raise ValueError("O conjunto de treino esta vazio")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device(torch)
+    LOGGER.info("Treinando no dispositivo: %s", device)
     model = build_model().to(device)
     if resume_path is not None:
         checkpoint = torch.load(resume_path, map_location=device, weights_only=True)
@@ -553,7 +563,7 @@ class TableDetector:
 
     def __init__(self, model_path: Path, threshold: float = DEFAULT_THRESHOLD, min_confidence: float = .65):
         self.torch, _ = require_torch()
-        self.device = self.torch.device("cuda" if self.torch.cuda.is_available() else "cpu")
+        self.device = select_device(self.torch)
         LOGGER.info("Carregando detector neural (%s) no dispositivo: %s", model_path.name, self.device)
         try:
             checkpoint = self.torch.load(model_path, map_location=self.device, weights_only=True)
@@ -629,6 +639,7 @@ def pdf_files(inputs: list[str]) -> list[Path]:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Detector neural de tabelas em PDF")
     commands = parser.add_subparsers(dest="command", required=True)
     prepare = commands.add_parser("prepare", help="cria imagens e rotulos de treino")
