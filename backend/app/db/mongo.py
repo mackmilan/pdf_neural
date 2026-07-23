@@ -12,6 +12,7 @@ from pymongo import ReturnDocument
 from dotenv import load_dotenv
 
 import backend.app.services.formatting as formatting
+from backend.app.services.field_anchors import sync_field_anchors
 from backend.app.db.odm import MongoOdmStore, OdmBackendUnavailable
 
 load_dotenv()
@@ -962,8 +963,15 @@ class Database:
             scope["group_id"] = group_id
         version = self.versions.find_one({"job_id": job_id, **scope})
         if not version:
-            return self.documents.update_one({"job_id": job_id, **scope}, {"$set": {"fields": fields, "fields_updated_at": now}})
-        result = self.versions.update_one({"job_id": job_id, **scope}, {"$set": {"fields": fields, "fields_updated_at": now}})
+            document = self.documents.find_one({"job_id": job_id, **scope})
+            update = {"fields": fields, "fields_updated_at": now}
+            if document and isinstance(document.get("html_content"), str):
+                update["html_content"] = sync_field_anchors(document["html_content"], fields)
+            return self.documents.update_one({"job_id": job_id, **scope}, {"$set": update})
+        update = {"fields": fields, "fields_updated_at": now}
+        if isinstance(version.get("html_content"), str):
+            update["html_content"] = sync_field_anchors(version["html_content"], fields)
+        result = self.versions.update_one({"job_id": job_id, **scope}, {"$set": update})
         if version.get("is_current"):
             self.documents.update_one({"document_id": version["document_id"], **scope}, {"$set": {"fields": fields, "fields_updated_at": now}})
         return result
