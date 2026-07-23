@@ -113,6 +113,42 @@ def pdf_color(value: Any) -> str:
     return "#000000"
 
 
+def merge_parallel_lines(
+    lines: list[dict[str, Any]],
+    tolerance: float = 1.6,
+    overlap_ratio: float = .7,
+) -> list[dict[str, Any]]:
+    """Une tracos paralelos quase coincidentes num unico traco.
+
+    PDFs costumam sobrepor um fio fino ao traco grosso (bordas de rects, linhas
+    duplicadas do editor). No PDF eles se fundem visualmente; renderizados como
+    elementos HTML separados viram linhas duplas. O traco mais grosso absorve os
+    vizinhos cuja extensao coincide em pelo menos `overlap_ratio` do menor.
+    """
+    merged: list[dict[str, Any]] = []
+    for orientation, position_key, start_key, length_key in (("h", "y", "x", "width"), ("v", "x", "y", "height")):
+        group = [dict(line) for line in lines if line["orientation"] == orientation]
+        group.sort(key=lambda line: -line["line_width"])
+        anchors: list[dict[str, Any]] = []
+        for line in group:
+            start, end = line[start_key], line[start_key] + line[length_key]
+            absorbed = False
+            for anchor in anchors:
+                a_start, a_end = anchor[start_key], anchor[start_key] + anchor[length_key]
+                overlap = min(end, a_end) - max(start, a_start)
+                shorter = min(end - start, a_end - a_start)
+                if abs(line[position_key] - anchor[position_key]) <= tolerance and overlap >= shorter * overlap_ratio:
+                    union_start = min(start, a_start)
+                    anchor[start_key] = union_start
+                    anchor[length_key] = max(end, a_end) - union_start
+                    absorbed = True
+                    break
+            if not absorbed:
+                anchors.append(line)
+        merged.extend(anchors)
+    return merged
+
+
 def table_structures(pdf_path: Path) -> list[tuple[float, float, list[dict[str, Any]]]]:
     """Extrai os rotulos estruturais usados no treino e na cabeca de grade."""
     pages = []
@@ -182,6 +218,7 @@ def table_structures(pdf_path: Path) -> list[tuple[float, float, list[dict[str, 
                                 seen.add(key)
                                 lines.append(rl)
 
+                lines = merge_parallel_lines(lines)
                 horizontal = {round(line["y"], 1) for line in lines if line["orientation"] == "h"}
                 vertical = {round(line["x"], 1) for line in lines if line["orientation"] == "v"}
                 structures.append({
@@ -191,6 +228,45 @@ def table_structures(pdf_path: Path) -> list[tuple[float, float, list[dict[str, 
                 })
             pages.append((float(page.width), float(page.height), structures))
     return pages
+
+
+def page_word_boxes(pdf_path: Path) -> list[list[tuple[float, float, float, float]]]:
+    """Caixas de texto por pagina, usadas para gerar variantes de treino sem texto."""
+    with pdfplumber.open(pdf_path) as pdf:
+        return [
+            [
+                (float(word["x0"]), float(word["top"]), float(word["x1"]), float(word["bottom"]))
+                for word in page.extract_words()
+            ]
+            for page in pdf.pages
+        ]
+
+
+def erase_words(image: Image.Image, words: list[tuple[float, float, float, float]], sx: float, sy: float) -> Image.Image:
+    """Apaga o texto da pagina renderizada, preservando apenas o desenho.
+
+    Cada caixa recebe a cor do fundo local (amostrada nas bordas da caixa), para
+    nao abrir buracos brancos em cabecalhos com fundo colorido.
+    """
+    erased = image.copy()
+    draw = ImageDraw.Draw(erased)
+    pixels = image.load()
+    for x0, top, x1, bottom in words:
+        left, upper = max(0, round(x0 * sx) - 1), max(0, round(top * sy) - 1)
+        right = min(image.width - 1, round(x1 * sx) + 1)
+        lower = min(image.height - 1, round(bottom * sy) + 1)
+        if right <= left or lower <= upper:
+            continue
+        samples = [
+            pixels[x, y]
+            for x in range(left, right + 1, max(1, (right - left) // 8))
+            for y in (upper, lower)
+            if 0 <= x < image.width and 0 <= y < image.height
+        ]
+        samples.sort()
+        background = samples[len(samples) // 2] if samples else 255
+        draw.rectangle((left, upper, right, lower), fill=background)
+    return erased
 
 
 def table_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, float, float, float]]]]:
@@ -211,6 +287,7 @@ def create_dataset(pdf_paths: Iterable[Path], output_dir: Path) -> dict[str, Any
         for pdf_index, pdf_path in enumerate(pdf_paths, 1):
             rendered = render_pdf(pdf_path, render_dir)
             geometry = table_structures(pdf_path)
+            words_by_page = page_word_boxes(pdf_path)
             if len(rendered) != len(geometry):
                 raise RuntimeError(f"Numero de paginas inconsistente em {pdf_path}")
             for page_index, (image_path, (page_w, page_h, structures)) in enumerate(zip(rendered, geometry), 1):
@@ -237,6 +314,16 @@ def create_dataset(pdf_paths: Iterable[Path], output_dir: Path) -> dict[str, Any
                     "image": f"images/{name}", "mask": f"masks/{name}",
                     "grid_mask": f"grid-masks/{name}", "tables": len(structures),
                 })
+                # Variante com o texto apagado e as mesmas mascaras: ensina a rede
+                # a reconhecer o desenho da tabela sem depender do conteudo escrito.
+                words = words_by_page[page_index - 1]
+                if words:
+                    notext_name = f"pdf-{pdf_index:03d}-page-{page_index:04d}-notext.png"
+                    erase_words(image, words, sx, sy).save(images_dir / notext_name)
+                    samples.append({
+                        "image": f"images/{notext_name}", "mask": f"masks/{name}",
+                        "grid_mask": f"grid-masks/{name}", "tables": len(structures),
+                    })
     manifest = {"image_size": IMAGE_SIZE, "samples": samples}
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest

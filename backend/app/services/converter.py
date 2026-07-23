@@ -780,8 +780,12 @@ def convert(
 
             for word in words:
                 font = html.escape(str(word.get("fontname", "Arial")).split("+")[-1])
+                # data-w guarda a largura original da palavra no PDF; o script
+                # aplica scaleX para a fonte substituta ocupar exatamente esse
+                # espaco, evitando que palavras vizinhas se sobreponham.
+                word_width = max(0.0, float(word.get("x1", 0)) - float(word.get("x0", 0)))
                 style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif"
-                elements.append(f'<span class="pdf-text" style="{style}">{html.escape(word["text"])}</span>')
+                elements.append(f'<span class="pdf-text" data-w="{n(word_width)}" style="{style}">{html.escape(word["text"])}</span>')
             pages_html.append(
                 f'<div class="pdf-page-shell" id="page-{page_no}" data-page="{page_no}" '
                 f'data-page-width="{n(page_width)}" data-page-height="{n(page_height)}" '
@@ -832,11 +836,15 @@ def convert(
                     color = str(line.get("color", "#000000"))
                     if not re.fullmatch(r"#[0-9a-fA-F]{6}", color) or not all(math.isfinite(v) for v in (lx, ly, lw, lh, line_thickness)):
                         continue
+                    # No PDF a espessura cresce a partir do centro do traco; o div
+                    # cresce a partir do topo/esquerda, entao recua metade da espessura.
                     css_w = lw if lw > 0 else line_thickness
                     css_h = lh if lh > 0 else line_thickness
+                    css_x = lx if lw > 0 else lx - line_thickness / 2
+                    css_y = ly if lh > 0 else ly - line_thickness / 2
                     rendered_lines.append(
                         f'<div class="neural-table-line" data-neural-line="{line_index}" '
-                        f'style="left:{lx:.2f}px;top:{ly:.2f}px;width:{css_w:.2f}px;'
+                        f'style="left:{css_x:.2f}px;top:{css_y:.2f}px;width:{css_w:.2f}px;'
                         f'height:{css_h:.2f}px;background:{color}"></div>'
                     )
                 overlays.append(
@@ -879,6 +887,24 @@ const resizePages=()=>document.querySelectorAll('.pdf-page-shell').forEach(shell
 }});
 new ResizeObserver(resizePages).observe(document.querySelector('.document'));
 resizePages();
+// Comprime/expande cada palavra para a largura que ela tinha no PDF: a fonte
+// substituta raramente tem as mesmas metricas e, sem isso, palavras vizinhas
+// se encostam. A razao e independente do zoom, entao roda uma unica vez.
+const fitText=()=>document.querySelectorAll('.pdf-page-shell').forEach(shell=>{{
+  const pageWidth=Number(shell.dataset.pageWidth);
+  const page=shell.querySelector('.pdf-page');
+  const scale=page.getBoundingClientRect().width/pageWidth;
+  if(!scale)return;
+  shell.querySelectorAll('.pdf-text[data-w]').forEach(el=>{{
+    el.style.transform='';
+    const target=Number(el.dataset.w);
+    const actual=el.getBoundingClientRect().width/scale;
+    if(!(target>0&&actual>0))return;
+    const ratio=target/actual;
+    if(Math.abs(ratio-1)>0.02)el.style.transform=`scaleX(${{ratio.toFixed(4)}})`;
+  }});
+}});
+document.fonts.ready.then(fitText);
 </script></body></html>'''
     fields = [asdict(field) for field in all_fields]
     result = ConversionResult(document, fields, all_tables, page_sizes, neural_tables)

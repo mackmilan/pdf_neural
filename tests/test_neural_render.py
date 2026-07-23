@@ -35,9 +35,9 @@ class NeuralRenderingTest(unittest.TestCase):
             
             from unittest import mock
             with mock.patch('pdfplumber.open') as mock_pdf_open, \
-                 mock.patch('converter.PdfReader') as mock_pdf_reader, \
-                 mock.patch('converter.extract_images') as mock_extract_images, \
-                 mock.patch('converter.acro_fields') as mock_acro_fields:
+                 mock.patch('backend.app.services.converter.PdfReader') as mock_pdf_reader, \
+                 mock.patch('backend.app.services.converter.extract_images') as mock_extract_images, \
+                 mock.patch('backend.app.services.converter.acro_fields') as mock_acro_fields:
                 
                 # Setup mock page
                 mock_page = mock.MagicMock()

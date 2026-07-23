@@ -8,7 +8,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-001-page-0001-notext.png",
+      "mask": "masks/pdf-001-page-0001.png",
+      "grid_mask": "grid-masks/pdf-001-page-0001.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-002-page-0001.png",
+      "mask": "masks/pdf-002-page-0001.png",
+      "grid_mask": "grid-masks/pdf-002-page-0001.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-002-page-0001-notext.png",
       "mask": "masks/pdf-002-page-0001.png",
       "grid_mask": "grid-masks/pdf-002-page-0001.png",
       "tables": 1
@@ -20,7 +32,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-003-page-0001-notext.png",
+      "mask": "masks/pdf-003-page-0001.png",
+      "grid_mask": "grid-masks/pdf-003-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-004-page-0001.png",
+      "mask": "masks/pdf-004-page-0001.png",
+      "grid_mask": "grid-masks/pdf-004-page-0001.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-004-page-0001-notext.png",
       "mask": "masks/pdf-004-page-0001.png",
       "grid_mask": "grid-masks/pdf-004-page-0001.png",
       "tables": 0
@@ -32,7 +56,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-005-page-0001-notext.png",
+      "mask": "masks/pdf-005-page-0001.png",
+      "grid_mask": "grid-masks/pdf-005-page-0001.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-006-page-0001.png",
+      "mask": "masks/pdf-006-page-0001.png",
+      "grid_mask": "grid-masks/pdf-006-page-0001.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-006-page-0001-notext.png",
       "mask": "masks/pdf-006-page-0001.png",
       "grid_mask": "grid-masks/pdf-006-page-0001.png",
       "tables": 0
@@ -44,7 +80,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-007-page-0001-notext.png",
+      "mask": "masks/pdf-007-page-0001.png",
+      "grid_mask": "grid-masks/pdf-007-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-008-page-0001.png",
+      "mask": "masks/pdf-008-page-0001.png",
+      "grid_mask": "grid-masks/pdf-008-page-0001.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-008-page-0001-notext.png",
       "mask": "masks/pdf-008-page-0001.png",
       "grid_mask": "grid-masks/pdf-008-page-0001.png",
       "tables": 1
@@ -56,7 +104,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-009-page-0001-notext.png",
+      "mask": "masks/pdf-009-page-0001.png",
+      "grid_mask": "grid-masks/pdf-009-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-009-page-0002.png",
+      "mask": "masks/pdf-009-page-0002.png",
+      "grid_mask": "grid-masks/pdf-009-page-0002.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-009-page-0002-notext.png",
       "mask": "masks/pdf-009-page-0002.png",
       "grid_mask": "grid-masks/pdf-009-page-0002.png",
       "tables": 0
@@ -68,7 +128,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-009-page-0003-notext.png",
+      "mask": "masks/pdf-009-page-0003.png",
+      "grid_mask": "grid-masks/pdf-009-page-0003.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-009-page-0004.png",
+      "mask": "masks/pdf-009-page-0004.png",
+      "grid_mask": "grid-masks/pdf-009-page-0004.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-009-page-0004-notext.png",
       "mask": "masks/pdf-009-page-0004.png",
       "grid_mask": "grid-masks/pdf-009-page-0004.png",
       "tables": 0
@@ -80,7 +152,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-009-page-0005-notext.png",
+      "mask": "masks/pdf-009-page-0005.png",
+      "grid_mask": "grid-masks/pdf-009-page-0005.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-009-page-0006.png",
+      "mask": "masks/pdf-009-page-0006.png",
+      "grid_mask": "grid-masks/pdf-009-page-0006.png",
+      "tables": 2
+    },
+    {
+      "image": "images/pdf-009-page-0006-notext.png",
       "mask": "masks/pdf-009-page-0006.png",
       "grid_mask": "grid-masks/pdf-009-page-0006.png",
       "tables": 2
@@ -92,7 +176,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-009-page-0007-notext.png",
+      "mask": "masks/pdf-009-page-0007.png",
+      "grid_mask": "grid-masks/pdf-009-page-0007.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-009-page-0008.png",
+      "mask": "masks/pdf-009-page-0008.png",
+      "grid_mask": "grid-masks/pdf-009-page-0008.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-009-page-0008-notext.png",
       "mask": "masks/pdf-009-page-0008.png",
       "grid_mask": "grid-masks/pdf-009-page-0008.png",
       "tables": 1
@@ -104,7 +200,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-009-page-0009-notext.png",
+      "mask": "masks/pdf-009-page-0009.png",
+      "grid_mask": "grid-masks/pdf-009-page-0009.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-009-page-0010.png",
+      "mask": "masks/pdf-009-page-0010.png",
+      "grid_mask": "grid-masks/pdf-009-page-0010.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-009-page-0010-notext.png",
       "mask": "masks/pdf-009-page-0010.png",
       "grid_mask": "grid-masks/pdf-009-page-0010.png",
       "tables": 0
@@ -116,7 +224,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-009-page-0011-notext.png",
+      "mask": "masks/pdf-009-page-0011.png",
+      "grid_mask": "grid-masks/pdf-009-page-0011.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-009-page-0012.png",
+      "mask": "masks/pdf-009-page-0012.png",
+      "grid_mask": "grid-masks/pdf-009-page-0012.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-009-page-0012-notext.png",
       "mask": "masks/pdf-009-page-0012.png",
       "grid_mask": "grid-masks/pdf-009-page-0012.png",
       "tables": 0
@@ -128,7 +248,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-009-page-0013-notext.png",
+      "mask": "masks/pdf-009-page-0013.png",
+      "grid_mask": "grid-masks/pdf-009-page-0013.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-009-page-0014.png",
+      "mask": "masks/pdf-009-page-0014.png",
+      "grid_mask": "grid-masks/pdf-009-page-0014.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-009-page-0014-notext.png",
       "mask": "masks/pdf-009-page-0014.png",
       "grid_mask": "grid-masks/pdf-009-page-0014.png",
       "tables": 1
@@ -140,7 +272,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-009-page-0015-notext.png",
+      "mask": "masks/pdf-009-page-0015.png",
+      "grid_mask": "grid-masks/pdf-009-page-0015.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-009-page-0016.png",
+      "mask": "masks/pdf-009-page-0016.png",
+      "grid_mask": "grid-masks/pdf-009-page-0016.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-009-page-0016-notext.png",
       "mask": "masks/pdf-009-page-0016.png",
       "grid_mask": "grid-masks/pdf-009-page-0016.png",
       "tables": 1
@@ -152,7 +296,19 @@
       "tables": 2
     },
     {
+      "image": "images/pdf-010-page-0001-notext.png",
+      "mask": "masks/pdf-010-page-0001.png",
+      "grid_mask": "grid-masks/pdf-010-page-0001.png",
+      "tables": 2
+    },
+    {
       "image": "images/pdf-010-page-0002.png",
+      "mask": "masks/pdf-010-page-0002.png",
+      "grid_mask": "grid-masks/pdf-010-page-0002.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-010-page-0002-notext.png",
       "mask": "masks/pdf-010-page-0002.png",
       "grid_mask": "grid-masks/pdf-010-page-0002.png",
       "tables": 1
@@ -164,13 +320,31 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-010-page-0003-notext.png",
+      "mask": "masks/pdf-010-page-0003.png",
+      "grid_mask": "grid-masks/pdf-010-page-0003.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-010-page-0004.png",
       "mask": "masks/pdf-010-page-0004.png",
       "grid_mask": "grid-masks/pdf-010-page-0004.png",
       "tables": 1
     },
     {
+      "image": "images/pdf-010-page-0004-notext.png",
+      "mask": "masks/pdf-010-page-0004.png",
+      "grid_mask": "grid-masks/pdf-010-page-0004.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-010-page-0005.png",
+      "mask": "masks/pdf-010-page-0005.png",
+      "grid_mask": "grid-masks/pdf-010-page-0005.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-010-page-0005-notext.png",
       "mask": "masks/pdf-010-page-0005.png",
       "grid_mask": "grid-masks/pdf-010-page-0005.png",
       "tables": 1
@@ -188,6 +362,12 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-011-page-0001-notext.png",
+      "mask": "masks/pdf-011-page-0001.png",
+      "grid_mask": "grid-masks/pdf-011-page-0001.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-011-page-0002.png",
       "mask": "masks/pdf-011-page-0002.png",
       "grid_mask": "grid-masks/pdf-011-page-0002.png",
@@ -200,13 +380,31 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-012-page-0001-notext.png",
+      "mask": "masks/pdf-012-page-0001.png",
+      "grid_mask": "grid-masks/pdf-012-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-013-page-0001.png",
       "mask": "masks/pdf-013-page-0001.png",
       "grid_mask": "grid-masks/pdf-013-page-0001.png",
       "tables": 0
     },
     {
+      "image": "images/pdf-013-page-0001-notext.png",
+      "mask": "masks/pdf-013-page-0001.png",
+      "grid_mask": "grid-masks/pdf-013-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-013-page-0002.png",
+      "mask": "masks/pdf-013-page-0002.png",
+      "grid_mask": "grid-masks/pdf-013-page-0002.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-013-page-0002-notext.png",
       "mask": "masks/pdf-013-page-0002.png",
       "grid_mask": "grid-masks/pdf-013-page-0002.png",
       "tables": 0
@@ -224,7 +422,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-014-page-0001-notext.png",
+      "mask": "masks/pdf-014-page-0001.png",
+      "grid_mask": "grid-masks/pdf-014-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-014-page-0002.png",
+      "mask": "masks/pdf-014-page-0002.png",
+      "grid_mask": "grid-masks/pdf-014-page-0002.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-014-page-0002-notext.png",
       "mask": "masks/pdf-014-page-0002.png",
       "grid_mask": "grid-masks/pdf-014-page-0002.png",
       "tables": 0
@@ -236,7 +446,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-014-page-0003-notext.png",
+      "mask": "masks/pdf-014-page-0003.png",
+      "grid_mask": "grid-masks/pdf-014-page-0003.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-014-page-0004.png",
+      "mask": "masks/pdf-014-page-0004.png",
+      "grid_mask": "grid-masks/pdf-014-page-0004.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-014-page-0004-notext.png",
       "mask": "masks/pdf-014-page-0004.png",
       "grid_mask": "grid-masks/pdf-014-page-0004.png",
       "tables": 0
@@ -254,7 +476,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-015-page-0001-notext.png",
+      "mask": "masks/pdf-015-page-0001.png",
+      "grid_mask": "grid-masks/pdf-015-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-015-page-0002.png",
+      "mask": "masks/pdf-015-page-0002.png",
+      "grid_mask": "grid-masks/pdf-015-page-0002.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-015-page-0002-notext.png",
       "mask": "masks/pdf-015-page-0002.png",
       "grid_mask": "grid-masks/pdf-015-page-0002.png",
       "tables": 0
@@ -272,7 +506,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-016-page-0001-notext.png",
+      "mask": "masks/pdf-016-page-0001.png",
+      "grid_mask": "grid-masks/pdf-016-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-017-page-0001.png",
+      "mask": "masks/pdf-017-page-0001.png",
+      "grid_mask": "grid-masks/pdf-017-page-0001.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-017-page-0001-notext.png",
       "mask": "masks/pdf-017-page-0001.png",
       "grid_mask": "grid-masks/pdf-017-page-0001.png",
       "tables": 0
@@ -284,7 +530,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-018-page-0001-notext.png",
+      "mask": "masks/pdf-018-page-0001.png",
+      "grid_mask": "grid-masks/pdf-018-page-0001.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-018-page-0002.png",
+      "mask": "masks/pdf-018-page-0002.png",
+      "grid_mask": "grid-masks/pdf-018-page-0002.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-018-page-0002-notext.png",
       "mask": "masks/pdf-018-page-0002.png",
       "grid_mask": "grid-masks/pdf-018-page-0002.png",
       "tables": 0
@@ -296,7 +554,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-018-page-0003-notext.png",
+      "mask": "masks/pdf-018-page-0003.png",
+      "grid_mask": "grid-masks/pdf-018-page-0003.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-018-page-0004.png",
+      "mask": "masks/pdf-018-page-0004.png",
+      "grid_mask": "grid-masks/pdf-018-page-0004.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-018-page-0004-notext.png",
       "mask": "masks/pdf-018-page-0004.png",
       "grid_mask": "grid-masks/pdf-018-page-0004.png",
       "tables": 0
@@ -308,7 +578,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-018-page-0005-notext.png",
+      "mask": "masks/pdf-018-page-0005.png",
+      "grid_mask": "grid-masks/pdf-018-page-0005.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-018-page-0006.png",
+      "mask": "masks/pdf-018-page-0006.png",
+      "grid_mask": "grid-masks/pdf-018-page-0006.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-018-page-0006-notext.png",
       "mask": "masks/pdf-018-page-0006.png",
       "grid_mask": "grid-masks/pdf-018-page-0006.png",
       "tables": 1
@@ -320,7 +602,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-018-page-0007-notext.png",
+      "mask": "masks/pdf-018-page-0007.png",
+      "grid_mask": "grid-masks/pdf-018-page-0007.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-018-page-0008.png",
+      "mask": "masks/pdf-018-page-0008.png",
+      "grid_mask": "grid-masks/pdf-018-page-0008.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-018-page-0008-notext.png",
       "mask": "masks/pdf-018-page-0008.png",
       "grid_mask": "grid-masks/pdf-018-page-0008.png",
       "tables": 0
@@ -332,7 +626,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-018-page-0009-notext.png",
+      "mask": "masks/pdf-018-page-0009.png",
+      "grid_mask": "grid-masks/pdf-018-page-0009.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-018-page-0010.png",
+      "mask": "masks/pdf-018-page-0010.png",
+      "grid_mask": "grid-masks/pdf-018-page-0010.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-018-page-0010-notext.png",
       "mask": "masks/pdf-018-page-0010.png",
       "grid_mask": "grid-masks/pdf-018-page-0010.png",
       "tables": 1
@@ -344,7 +650,19 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-018-page-0011-notext.png",
+      "mask": "masks/pdf-018-page-0011.png",
+      "grid_mask": "grid-masks/pdf-018-page-0011.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-019-page-0001.png",
+      "mask": "masks/pdf-019-page-0001.png",
+      "grid_mask": "grid-masks/pdf-019-page-0001.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-019-page-0001-notext.png",
       "mask": "masks/pdf-019-page-0001.png",
       "grid_mask": "grid-masks/pdf-019-page-0001.png",
       "tables": 1
@@ -356,7 +674,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-019-page-0002-notext.png",
+      "mask": "masks/pdf-019-page-0002.png",
+      "grid_mask": "grid-masks/pdf-019-page-0002.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-019-page-0003.png",
+      "mask": "masks/pdf-019-page-0003.png",
+      "grid_mask": "grid-masks/pdf-019-page-0003.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-019-page-0003-notext.png",
       "mask": "masks/pdf-019-page-0003.png",
       "grid_mask": "grid-masks/pdf-019-page-0003.png",
       "tables": 0
@@ -368,7 +698,19 @@
       "tables": 1
     },
     {
+      "image": "images/pdf-020-page-0001-notext.png",
+      "mask": "masks/pdf-020-page-0001.png",
+      "grid_mask": "grid-masks/pdf-020-page-0001.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-020-page-0002.png",
+      "mask": "masks/pdf-020-page-0002.png",
+      "grid_mask": "grid-masks/pdf-020-page-0002.png",
+      "tables": 1
+    },
+    {
+      "image": "images/pdf-020-page-0002-notext.png",
       "mask": "masks/pdf-020-page-0002.png",
       "grid_mask": "grid-masks/pdf-020-page-0002.png",
       "tables": 1
@@ -380,13 +722,31 @@
       "tables": 0
     },
     {
+      "image": "images/pdf-020-page-0003-notext.png",
+      "mask": "masks/pdf-020-page-0003.png",
+      "grid_mask": "grid-masks/pdf-020-page-0003.png",
+      "tables": 0
+    },
+    {
       "image": "images/pdf-020-page-0004.png",
       "mask": "masks/pdf-020-page-0004.png",
       "grid_mask": "grid-masks/pdf-020-page-0004.png",
       "tables": 1
     },
     {
+      "image": "images/pdf-020-page-0004-notext.png",
+      "mask": "masks/pdf-020-page-0004.png",
+      "grid_mask": "grid-masks/pdf-020-page-0004.png",
+      "tables": 1
+    },
+    {
       "image": "images/pdf-020-page-0005.png",
+      "mask": "masks/pdf-020-page-0005.png",
+      "grid_mask": "grid-masks/pdf-020-page-0005.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-020-page-0005-notext.png",
       "mask": "masks/pdf-020-page-0005.png",
       "grid_mask": "grid-masks/pdf-020-page-0005.png",
       "tables": 0
