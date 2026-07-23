@@ -104,7 +104,12 @@ def render_pdf(pdf_path: Path, output_dir: Path, dpi: int = 150) -> list[Path]:
 
 def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, float, float, float]]]]:
     """Extrai campos (AcroForms e detectados pelo converter) para usar como rotulo."""
-    from backend.app.services.converter import acro_fields, inferred_fields, textual_empty_parentheses_fields
+    from backend.app.services.converter import (
+        acro_fields,
+        hyperlink_text_bboxes,
+        inferred_fields,
+        textual_empty_parentheses_fields,
+    )
     from pypdf import PdfReader
     
     pages_data = []
@@ -140,6 +145,10 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
                 if any(char.isalnum() for char in str(word.get("text", ""))):
                     text_bboxes.append((float(word["x0"]), float(word["top"]), float(word["x1"]), float(word["bottom"])))
 
+            # Emails e URLs impressos nunca sao campos, mesmo para tipos que
+            # escapam do filtro de texto (date/time).
+            hyperlink_bboxes = hyperlink_text_bboxes(words)
+
             header_bboxes = []
             for table in tables:
                 for row in table.rows:
@@ -165,6 +174,7 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
                 f for f in all_fields[len(current_acros):]
                 if not is_overlap(f.x, f.y, f.width, f.height, image_bboxes)
                 and (f.type in {"date", "time"} or not is_overlap(f.x, f.y, f.width, f.height, text_bboxes))
+                and not is_overlap(f.x, f.y, f.width, f.height, hyperlink_bboxes)
                 and not is_overlap(f.x, f.y, f.width, f.height, header_bboxes)
             ]
 
@@ -175,7 +185,10 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
                 # Formulários costumam ter texto e o campo logo acima da linha.
                 # Se fixarmos em 20 e o original era 2, expandimos para cima.
                 target_h = 20.0
-                if height < target_h:
+                if height < 12:
+                    # So expande caixas finas (linhas/tracos). Campos textuais de
+                    # ~12pt ja cobrem a linha; expandi-los fundiria as mascaras
+                    # de linhas vizinhas em formularios compactos.
                     y0 = y1 - target_h
                 elif height > target_h:
                     # Se for muito grande (área de texto), talvez devêssemos manter,
@@ -187,6 +200,28 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
 
             bboxes = [normalize_bbox((f.x, f.y, f.x + f.width, f.y + f.height)) for f in filtered_fields]
             bboxes.extend(option["bbox"] for option in empty_parentheses)
+
+            # Celulas vazias de tabelas sao areas de preenchimento; rotula-las
+            # com a geometria da celula ensina a rede a alinhar o campo ao
+            # desenho da tabela.
+            for table in tables:
+                try:
+                    extracted = table.extract()
+                except Exception:
+                    continue
+                for row_index, row in enumerate(table.rows):
+                    values = extracted[row_index] if row_index < len(extracted) else []
+                    for column_index, cell in enumerate(row.cells):
+                        if cell is None:
+                            continue
+                        text = values[column_index] if column_index < len(values) else None
+                        if text and str(text).strip():
+                            continue
+                        cx0, ctop, cx1, cbottom = (float(v) for v in cell)
+                        if cx1 - cx0 < 20 or cbottom - ctop < 10:
+                            continue
+                        padding = 2.0
+                        bboxes.append((cx0 + padding, ctop + padding, cx1 - padding, cbottom - padding))
             pages_data.append((float(page.width), float(page.height), bboxes))
             
     return pages_data
@@ -290,6 +325,50 @@ def augment_date_field(image: Image.Image, mask: Image.Image, rng: random.Random
     return image, mask
 
 
+def augment_label_colon_field(
+    image: Image.Image,
+    mask: Image.Image,
+    rng: random.Random = random,
+) -> tuple[Image.Image, Image.Image]:
+    """Insere ``Rotulo:`` seguido de area em branco ou pontilhada rotulada.
+
+    Cobre dois padroes comuns em formularios sem AcroForm: o rotulo com
+    dois-pontos e nada a direita ("Titulo:") e as linhas pontilhadas de
+    preenchimento ("Aos ....... dias").
+    """
+    image = image.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE)).copy()
+    mask = mask.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE)).copy()
+    draw, mask_draw = ImageDraw.Draw(image), ImageDraw.Draw(mask)
+    font = ImageFont.load_default()
+    tone = rng.randint(0, 55)
+    y = rng.randint(24, IMAGE_SIZE - 36)
+    x = rng.randint(12, round(IMAGE_SIZE * .30))
+    label = rng.choice((
+        "Titulo:",
+        "Mestrando:",
+        "Local:",
+        "Nome:",
+        "Linha de Pesquisa:",
+        "Palavras-chave:",
+        "Instituicao:",
+        "Titulo do trabalho:",
+    ))
+    draw.text((x, y), label, fill=tone, font=font)
+    label_box = draw.textbbox((x, y), label, font=font)
+    field_x = label_box[2] + rng.randint(4, 10)
+    field_right = min(IMAGE_SIZE - 10, field_x + rng.randint(round(IMAGE_SIZE * .25), round(IMAGE_SIZE * .60)))
+    if rng.random() < .5:
+        # Variante pontilhada: "Rotulo: ..............".
+        dots = "." * max(6, (field_right - field_x) // 4)
+        draw.text((field_x, y), dots, fill=tone, font=font)
+        field_right = min(field_right, draw.textbbox((field_x, y), dots, font=font)[2])
+    mask_draw.rectangle(
+        (field_x, max(0, label_box[3] - 18), field_right, min(IMAGE_SIZE - 1, label_box[3] + 2)),
+        fill=255,
+    )
+    return image, mask
+
+
 def augment_empty_parentheses_field(
     image: Image.Image,
     mask: Image.Image,
@@ -319,12 +398,45 @@ def augment_empty_parentheses_field(
         x = rng.randint(8, IMAGE_SIZE - 90)
         label_box = draw.textbbox((0, 0), " " + label, font=font)
         draw.text((x + 22, y), " " + label, fill=tone, font=font)
-    # A sequencia abaixo e deliberadamente fixa: abre-parentese, espaco, fecha-parentese.
-    token = "( )"
+    # Editores variam entre um e dois espacos dentro dos parenteses.
+    token = rng.choice(("( )", "(  )"))
     draw.text((x, y), token, fill=tone, font=font)
     token_box = draw.textbbox((x, y), token, font=font)
     mask_draw.rectangle(token_box, fill=255)
     return image, mask
+
+def augment_hyperlink_negative(
+    image: Image.Image,
+    mask: Image.Image,
+    rng: random.Random = random,
+) -> tuple[Image.Image, Image.Image]:
+    """Insere email/URL sublinhado SEM rotulo na mascara (exemplo negativo).
+
+    Ensina a rede que enderecos impressos, mesmo sublinhados, nao sao campos.
+    """
+    image = image.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE)).copy()
+    mask = mask.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE)).copy()
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default()
+    tone = rng.randint(0, 55)
+    y = rng.randint(24, IMAGE_SIZE - 36)
+    x = rng.randint(12, round(IMAGE_SIZE * .35))
+    text = rng.choice((
+        "processostecnicos@uepg.br",
+        "secretaria@uepg.br",
+        "contato@exemplo.com.br",
+        "https://bicenficha.apps.uepg.br/login",
+        "https://uepg.br",
+        "www.exemplo.gov.br/formularios",
+    ))
+    draw.text((x, y), text, fill=tone, font=font)
+    box = draw.textbbox((x, y), text, font=font)
+    if rng.random() < .7:
+        # Sublinhado tipico de hyperlink.
+        draw.line((box[0], box[3] + 1, box[2], box[3] + 1), fill=tone, width=1)
+    # A mascara permanece intacta: nada a detectar aqui.
+    return image, mask
+
 
 def train(
     dataset_dir: Path,
@@ -334,6 +446,8 @@ def train(
     resume_path: Path | None = None,
     date_augmentation: bool = True,
     empty_parentheses_augmentation: bool = True,
+    label_colon_augmentation: bool = True,
+    hyperlink_negative_augmentation: bool = True,
 ) -> None:
     torch, nn = require_torch()
     import torch.nn.functional as functional
@@ -370,6 +484,10 @@ def train(
                 source_image, source_mask = augment_date_field(source_image, source_mask)
             if empty_parentheses_augmentation and random.random() < .65:
                 source_image, source_mask = augment_empty_parentheses_field(source_image, source_mask)
+            if label_colon_augmentation and random.random() < .65:
+                source_image, source_mask = augment_label_colon_field(source_image, source_mask)
+            if hyperlink_negative_augmentation and random.random() < .5:
+                source_image, source_mask = augment_hyperlink_negative(source_image, source_mask)
             img = image_tensor(source_image, augment=True).unsqueeze(0).to(device)
             mask = image_tensor(source_mask).unsqueeze(0).to(device)
             
@@ -503,6 +621,8 @@ def main():
     t.add_argument("--resume", type=Path)
     t.add_argument("--no-date-augmentation", action="store_true")
     t.add_argument("--no-empty-parentheses-augmentation", action="store_true")
+    t.add_argument("--no-label-colon-augmentation", action="store_true")
+    t.add_argument("--no-hyperlink-negative-augmentation", action="store_true")
     
     args = parser.parse_args()
     
@@ -518,6 +638,8 @@ def main():
             learning_rate=args.learning_rate, resume_path=args.resume,
             date_augmentation=not args.no_date_augmentation,
             empty_parentheses_augmentation=not args.no_empty_parentheses_augmentation,
+            label_colon_augmentation=not args.no_label_colon_augmentation,
+            hyperlink_negative_augmentation=not args.no_hyperlink_negative_augmentation,
         )
 
 if __name__ == "__main__":

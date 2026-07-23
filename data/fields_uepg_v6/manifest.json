@@ -1,0 +1,330 @@
+{
+  "image_size": 512,
+  "samples": [
+    {
+      "image": "images/field-001-page-0001.png",
+      "mask": "masks/field-001-page-0001.png",
+      "fields": 55
+    },
+    {
+      "image": "images/field-002-page-0001.png",
+      "mask": "masks/field-002-page-0001.png",
+      "fields": 2
+    },
+    {
+      "image": "images/field-003-page-0001.png",
+      "mask": "masks/field-003-page-0001.png",
+      "fields": 16
+    },
+    {
+      "image": "images/field-004-page-0001.png",
+      "mask": "masks/field-004-page-0001.png",
+      "fields": 2
+    },
+    {
+      "image": "images/field-005-page-0001.png",
+      "mask": "masks/field-005-page-0001.png",
+      "fields": 39
+    },
+    {
+      "image": "images/field-006-page-0001.png",
+      "mask": "masks/field-006-page-0001.png",
+      "fields": 9
+    },
+    {
+      "image": "images/field-007-page-0001.png",
+      "mask": "masks/field-007-page-0001.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-007-page-0002.png",
+      "mask": "masks/field-007-page-0002.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-007-page-0003.png",
+      "mask": "masks/field-007-page-0003.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-008-page-0001.png",
+      "mask": "masks/field-008-page-0001.png",
+      "fields": 20
+    },
+    {
+      "image": "images/field-008-page-0002.png",
+      "mask": "masks/field-008-page-0002.png",
+      "fields": 50
+    },
+    {
+      "image": "images/field-008-page-0003.png",
+      "mask": "masks/field-008-page-0003.png",
+      "fields": 13
+    },
+    {
+      "image": "images/field-008-page-0004.png",
+      "mask": "masks/field-008-page-0004.png",
+      "fields": 50
+    },
+    {
+      "image": "images/field-008-page-0005.png",
+      "mask": "masks/field-008-page-0005.png",
+      "fields": 15
+    },
+    {
+      "image": "images/field-009-page-0001.png",
+      "mask": "masks/field-009-page-0001.png",
+      "fields": 1
+    },
+    {
+      "image": "images/field-009-page-0002.png",
+      "mask": "masks/field-009-page-0002.png",
+      "fields": 1
+    },
+    {
+      "image": "images/field-009-page-0003.png",
+      "mask": "masks/field-009-page-0003.png",
+      "fields": 1
+    },
+    {
+      "image": "images/field-009-page-0004.png",
+      "mask": "masks/field-009-page-0004.png",
+      "fields": 1
+    },
+    {
+      "image": "images/field-009-page-0005.png",
+      "mask": "masks/field-009-page-0005.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-009-page-0006.png",
+      "mask": "masks/field-009-page-0006.png",
+      "fields": 14
+    },
+    {
+      "image": "images/field-009-page-0007.png",
+      "mask": "masks/field-009-page-0007.png",
+      "fields": 50
+    },
+    {
+      "image": "images/field-009-page-0008.png",
+      "mask": "masks/field-009-page-0008.png",
+      "fields": 6
+    },
+    {
+      "image": "images/field-009-page-0009.png",
+      "mask": "masks/field-009-page-0009.png",
+      "fields": 14
+    },
+    {
+      "image": "images/field-009-page-0010.png",
+      "mask": "masks/field-009-page-0010.png",
+      "fields": 50
+    },
+    {
+      "image": "images/field-009-page-0011.png",
+      "mask": "masks/field-009-page-0011.png",
+      "fields": 6
+    },
+    {
+      "image": "images/field-010-page-0001.png",
+      "mask": "masks/field-010-page-0001.png",
+      "fields": 20
+    },
+    {
+      "image": "images/field-010-page-0002.png",
+      "mask": "masks/field-010-page-0002.png",
+      "fields": 50
+    },
+    {
+      "image": "images/field-010-page-0003.png",
+      "mask": "masks/field-010-page-0003.png",
+      "fields": 15
+    },
+    {
+      "image": "images/field-011-page-0001.png",
+      "mask": "masks/field-011-page-0001.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-011-page-0002.png",
+      "mask": "masks/field-011-page-0002.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-011-page-0003.png",
+      "mask": "masks/field-011-page-0003.png",
+      "fields": 7
+    },
+    {
+      "image": "images/field-011-page-0004.png",
+      "mask": "masks/field-011-page-0004.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-011-page-0005.png",
+      "mask": "masks/field-011-page-0005.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-012-page-0001.png",
+      "mask": "masks/field-012-page-0001.png",
+      "fields": 10
+    },
+    {
+      "image": "images/field-012-page-0002.png",
+      "mask": "masks/field-012-page-0002.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-013-page-0001.png",
+      "mask": "masks/field-013-page-0001.png",
+      "fields": 19
+    },
+    {
+      "image": "images/field-014-page-0001.png",
+      "mask": "masks/field-014-page-0001.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-014-page-0002.png",
+      "mask": "masks/field-014-page-0002.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-014-page-0003.png",
+      "mask": "masks/field-014-page-0003.png",
+      "fields": 3
+    },
+    {
+      "image": "images/field-014-page-0004.png",
+      "mask": "masks/field-014-page-0004.png",
+      "fields": 3
+    },
+    {
+      "image": "images/field-014-page-0005.png",
+      "mask": "masks/field-014-page-0005.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-014-page-0006.png",
+      "mask": "masks/field-014-page-0006.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-015-page-0001.png",
+      "mask": "masks/field-015-page-0001.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0001.png",
+      "mask": "masks/field-016-page-0001.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0002.png",
+      "mask": "masks/field-016-page-0002.png",
+      "fields": 1
+    },
+    {
+      "image": "images/field-016-page-0003.png",
+      "mask": "masks/field-016-page-0003.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0004.png",
+      "mask": "masks/field-016-page-0004.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0005.png",
+      "mask": "masks/field-016-page-0005.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0006.png",
+      "mask": "masks/field-016-page-0006.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0007.png",
+      "mask": "masks/field-016-page-0007.png",
+      "fields": 2
+    },
+    {
+      "image": "images/field-016-page-0008.png",
+      "mask": "masks/field-016-page-0008.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0009.png",
+      "mask": "masks/field-016-page-0009.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0010.png",
+      "mask": "masks/field-016-page-0010.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0011.png",
+      "mask": "masks/field-016-page-0011.png",
+      "fields": 1
+    },
+    {
+      "image": "images/field-016-page-0012.png",
+      "mask": "masks/field-016-page-0012.png",
+      "fields": 1
+    },
+    {
+      "image": "images/field-016-page-0013.png",
+      "mask": "masks/field-016-page-0013.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-016-page-0014.png",
+      "mask": "masks/field-016-page-0014.png",
+      "fields": 10
+    },
+    {
+      "image": "images/field-016-page-0015.png",
+      "mask": "masks/field-016-page-0015.png",
+      "fields": 9
+    },
+    {
+      "image": "images/field-016-page-0016.png",
+      "mask": "masks/field-016-page-0016.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-017-page-0001.png",
+      "mask": "masks/field-017-page-0001.png",
+      "fields": 2
+    },
+    {
+      "image": "images/field-018-page-0001.png",
+      "mask": "masks/field-018-page-0001.png",
+      "fields": 14
+    },
+    {
+      "image": "images/field-019-page-0001.png",
+      "mask": "masks/field-019-page-0001.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-019-page-0002.png",
+      "mask": "masks/field-019-page-0002.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-019-page-0003.png",
+      "mask": "masks/field-019-page-0003.png",
+      "fields": 0
+    },
+    {
+      "image": "images/field-020-page-0001.png",
+      "mask": "masks/field-020-page-0001.png",
+      "fields": 11
+    }
+  ]
+}

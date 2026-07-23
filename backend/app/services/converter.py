@@ -26,6 +26,10 @@ EMAIL_TEXT_RE = re.compile(
     r"(?<![\w.+-])[\w.!#$%&'*+/=?^_`{|}~-]+@[\w-]+(?:\.[\w-]+)+(?![\w.-])",
     re.IGNORECASE,
 )
+URL_TEXT_RE = re.compile(
+    r"(?:https?://|www\.)[\w-]+(?:\.[\w-]+)+(?:/[\w./?#&%=~-]*)?",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -106,6 +110,19 @@ def infer_type(label: str, width: float, height: float) -> str:
 
 def is_email_text(value: str) -> bool:
     return bool(EMAIL_TEXT_RE.search(value.strip(" <>[](){}.,;:")))
+
+
+def is_url_text(value: str) -> bool:
+    return bool(URL_TEXT_RE.search(value.strip(" <>[](){}.,;")))
+
+
+def hyperlink_text_bboxes(words: list[dict[str, Any]]) -> list[tuple[float, float, float, float]]:
+    """Areas de emails e URLs impressos: nunca devem virar campos editaveis."""
+    return [
+        (float(word["x0"]), float(word["top"]), float(word["x1"]), float(word["bottom"]))
+        for word in words
+        if is_email_text(str(word.get("text", ""))) or is_url_text(str(word.get("text", "")))
+    ]
 
 
 def underlined_email_bboxes(
@@ -246,13 +263,22 @@ def textual_empty_parentheses_fields(
 
     for row in rows:
         for index in range(len(row) - 2):
-            first, middle, last = row[index], row[index + 1], row[index + 2]
-            if [str(first.get("text", "")), str(middle.get("text", "")), str(last.get("text", ""))] != ["(", " ", ")"]:
+            first = row[index]
+            if str(first.get("text", "")) != "(":
                 continue
+            # Um ou mais espacos entre os parenteses: PDFs variam entre
+            # "( )" e "(  )" dependendo do editor que gerou o formulario.
+            cursor = index + 1
+            while cursor < len(row) and str(row[cursor].get("text", "")) == " ":
+                cursor += 1
+            if cursor == index + 1 or cursor >= len(row) or str(row[cursor].get("text", "")) != ")":
+                continue
+            last = row[cursor]
+            group = row[index:cursor + 1]
             x0 = float(first["x0"])
             x1 = float(last["x1"])
-            top = min(char_top(char) for char in (first, middle, last))
-            bottom = max(float(char["bottom"]) for char in (first, middle, last))
+            top = min(char_top(char) for char in group)
+            bottom = max(float(char["bottom"]) for char in group)
             label = (
                 nearby_label(words, x1, bottom, allow_right=True)
                 or nearby_label(words, x0, bottom)
@@ -262,6 +288,104 @@ def textual_empty_parentheses_fields(
                 "bbox": (x0, top, x1, bottom),
                 "label": label,
                 "type": "checkbox",
+            })
+    return fields
+
+
+def textual_label_colon_fields(
+    page: pdfplumber.page.Page,
+    words: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Rotulos terminados em ``:`` seguidos de espaco em branco indicam campo.
+
+    Formularios como "Titulo:", "Mestrando:" ou "Local:" frequentemente nao tem
+    linha, underscore ou retangulo; o proprio rotulo delimita a area de escrita
+    ate a proxima palavra ou a margem direita do texto.
+    """
+    fields: list[dict[str, Any]] = []
+    if not words:
+        return fields
+    right_margin = max(float(word["x1"]) for word in words)
+    lines: list[list[dict[str, Any]]] = []
+    for word in sorted(words, key=lambda item: (float(item["top"]), float(item["x0"]))):
+        if not lines or abs(float(word["top"]) - float(lines[-1][0]["top"])) > 3:
+            lines.append([word])
+        else:
+            lines[-1].append(word)
+
+    for line_words in lines:
+        label_start = 0
+        for index, word in enumerate(line_words):
+            text = str(word.get("text", ""))
+            if not text.endswith(":") or not any(char.isalpha() for char in text):
+                continue
+            label = " ".join(str(w.get("text", "")) for w in line_words[label_start:index + 1]).rstrip(" :")
+            label_start = index + 1
+            if is_email_text(label) or is_url_text(label):
+                continue
+            field_x = float(word["x1"]) + 6
+            next_x = (
+                float(line_words[index + 1]["x0"]) - 6
+                if index + 1 < len(line_words)
+                else max(right_margin, field_x)
+            )
+            width = next_x - field_x
+            if width < 45:
+                continue
+            # A caixa acompanha a altura da propria linha do rotulo: com 20pt
+            # fixos, formularios de linhas proximas gerariam campos sobrepostos.
+            top = float(word["top"])
+            bottom = float(word["bottom"])
+            fields.append({
+                "bbox": (field_x, max(0.0, top), next_x, bottom),
+                "label": label or f"Campo {len(fields) + 1}",
+                "type": infer_type(label, width, bottom - top),
+            })
+    return fields
+
+
+def textual_dotted_fields(
+    page: pdfplumber.page.Page,
+    words: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Linhas pontilhadas de preenchimento (``....``) sao campos de escrita.
+
+    Documentos como atas usam pontos no lugar de underscores: "Aos .........
+    dias do mes de ...............". Agrupamos sequencias de pontos da mesma
+    linha, como ja fazemos com underscores em ``textual_segmented_fields``.
+    """
+    fields: list[dict[str, Any]] = []
+    rows: dict[float, list[dict[str, Any]]] = {}
+    for char in page.chars:
+        if str(char.get("text", "")) != ".":
+            continue
+        row_key = round(float(char["bottom"]), 1)
+        matched = next((key for key in rows if abs(key - row_key) <= 2), None)
+        rows.setdefault(matched if matched is not None else row_key, []).append(char)
+
+    for row_chars in rows.values():
+        row_chars.sort(key=lambda char: float(char["x0"]))
+        groups: list[list[dict[str, Any]]] = []
+        for char in row_chars:
+            if groups and float(char["x0"]) - float(groups[-1][-1]["x1"]) <= 3:
+                groups[-1].append(char)
+            else:
+                groups.append([char])
+        for group in groups:
+            if len(group) < 4:
+                continue
+            x0 = min(float(char["x0"]) for char in group)
+            x1 = max(float(char["x1"]) for char in group)
+            bottom = max(float(char["bottom"]) for char in group)
+            if x1 - x0 < 12:
+                continue
+            label = nearby_label(words, x0, bottom) or f"Campo {len(fields) + 1}"
+            # Altura de linha tipica (12pt) evita invadir a linha de cima em
+            # paragrafos compactos como os de atas.
+            fields.append({
+                "bbox": (x0, max(0.0, bottom - 12.0), x1, bottom),
+                "label": label,
+                "type": infer_type(label, x1 - x0, 12),
             })
     return fields
 
@@ -276,7 +400,7 @@ def inferred_fields(
     fields: list[Field] = []
     seen: set[tuple[int, int]] = set()
     table_bboxes = table_bboxes or []
-    email_underline_bboxes = underlined_email_bboxes(words, page.lines)
+    email_underline_bboxes = underlined_email_bboxes(words, page.lines) + hyperlink_text_bboxes(words)
 
     def overlaps(x: float, y: float, w: float, h: float) -> bool:
         return any(not (x+w < f.x or f.x+f.width < x or y+h < f.y or f.y+f.height < y) for f in existing + fields)
@@ -293,6 +417,20 @@ def inferred_fields(
             for ex0, ey0, ex1, ey1 in email_underline_bboxes
         )
 
+    # Palavras impressas: um campo de escrita nao pode cobrir conteudo ja
+    # existente (ex.: reguas de tabelas estaticas com valores como "R$ 10,00").
+    printed_bboxes = [
+        (float(word["x0"]), float(word["top"]), float(word["x1"]), float(word["bottom"]))
+        for word in words
+        if any(char.isalnum() for char in str(word.get("text", "")))
+    ]
+
+    def overlaps_printed_text(x: float, y: float, w: float, h: float) -> bool:
+        return any(
+            not (x + w < tx0 or tx1 < x or y + h < ty0 or ty1 < y)
+            for tx0, ty0, tx1, ty1 in printed_bboxes
+        )
+
     # Horizontal writing lines are the most common non-AcroForm field representation.
     for line in page.lines:
         x0, x1 = sorted((float(line["x0"]), float(line["x1"])))
@@ -307,11 +445,16 @@ def inferred_fields(
         ):
             continue
         label = nearby_label(words, x0, top) or f"Campo {len(existing)+len(fields)+1}"
+        kind = infer_type(label, width, 20)
+        # Linha coberta por texto impresso e sublinhado ou regua de tabela
+        # estatica, nao area de preenchimento (mesmo filtro usado no treino).
+        if kind not in {"date", "time"} and overlaps_printed_text(x0, top-18, width, 18):
+            continue
         key = (round(x0), round(top))
         if key in seen:
             continue
         seen.add(key)
-        fields.append(Field(slug(label), label, infer_type(label, width, 20), page_no, x0, max(0, top-20), width, 20))
+        fields.append(Field(slug(label), label, kind, page_no, x0, max(0, top-20), width, 20))
 
     # Datas produzidas por editores como o LibreOffice podem ser texto puro, por
     # exemplo: "Data: ___ de __________ de 20___.". Nesse caso nao existe uma
@@ -326,6 +469,24 @@ def inferred_fields(
         seen.add(key)
         label = segmented["label"]
         fields.append(Field(slug(label), label, segmented["type"], page_no, x0, top, width, 20))
+
+    # Rotulos "Titulo:" / "Mestrando:" com espaco em branco a direita e linhas
+    # pontilhadas "......." tambem representam areas de escrita sem borda.
+    for textual in textual_label_colon_fields(page, words) + textual_dotted_fields(page, words):
+        x0, top, x1, bottom = textual["bbox"]
+        width, height = x1 - x0, bottom - top
+        key = (round(x0), round(bottom))
+        if (
+            width < 12
+            or key in seen
+            or inside_table(x0, top, width, height)
+            or overlaps(x0, top, width, height)
+            or overlaps_underlined_email(x0, top, width, height)
+        ):
+            continue
+        seen.add(key)
+        label = textual["label"]
+        fields.append(Field(slug(label), label, textual["type"], page_no, x0, top, width, height))
 
     for option in textual_empty_parentheses_fields(page, words):
         x0, top, x1, bottom = option["bbox"]
@@ -457,6 +618,10 @@ def table_layouts(
                         open_index, close_index = tokens.index("("), tokens.index(")")
                         if close_index > open_index:
                             label = " ".join(tokens[:open_index]).strip(" :-")
+                            if not label:
+                                # Opcoes como "( ) Não." tem o rotulo depois
+                                # do fecha-parentese.
+                                label = " ".join(tokens[close_index + 1:]).strip(" :-.")
                             if label:
                                 left = float(line_words[open_index]["x0"])
                                 right = float(line_words[close_index]["x1"])
@@ -490,6 +655,42 @@ def table_layouts(
                         "table",
                     ))
             rows.append({"index": row_index + 1, "cells": cells})
+
+        # Linhas totalmente vazias sob um cabecalho (ex.: "Data | Carga | Descricao"
+        # ou "NOME | R.A. | E-MAIL") sao areas de preenchimento: um campo por
+        # celula, alinhado ao desenho da tabela e rotulado pela coluna.
+        header_values: list[str] | None = None
+        if len(boundaries) > 2:  # tabelas com pelo menos duas colunas
+            for row_values in extracted:
+                if row_values and any(str(v or "").strip() for v in row_values):
+                    header_values = [str(v or "").strip() for v in row_values]
+                    break
+        if header_values:
+            for row_index, row in enumerate(table.rows):
+                values = extracted[row_index] if row_index < len(extracted) else []
+                if any(str(v or "").strip() for v in values):
+                    continue
+                for column_index, cell_bbox in enumerate(row.cells):
+                    if cell_bbox is None:
+                        continue
+                    cx0, ctop, cx1, cbottom = (float(v) for v in cell_bbox)
+                    if cx1 - cx0 < 20 or cbottom - ctop < 10:
+                        continue
+                    header = (
+                        header_values[column_index]
+                        if column_index < len(header_values) and header_values[column_index]
+                        else f"Coluna {column_index + 1}"
+                    )
+                    label = f"{header} {row_index + 1}"
+                    padding = 2.0
+                    fields.append(Field(
+                        slug(label), label,
+                        infer_type(header, cx1 - cx0, cbottom - ctop),
+                        page_no, cx0 + padding, ctop + padding,
+                        max(1, cx1 - cx0 - 2 * padding), max(1, cbottom - ctop - 2 * padding),
+                        "table",
+                    ))
+
         x0, top, x1, bottom = (float(value) for value in table.bbox)
         layouts.append({
             "id": f"page-{page_no}-table-{table_index}",
@@ -603,7 +804,9 @@ def convert(
                 "aspect_ratio": page_width / page_height,
                 "orientation": "landscape" if page_width > page_height else "portrait",
             })
-            words = page.extract_words(extra_attrs=["fontname", "size"], keep_blank_chars=False)
+            # non_stroking_color permite reproduzir no HTML a cor original do
+            # texto (ex.: instrucoes em vermelho em modelos de ata).
+            words = page.extract_words(extra_attrs=["fontname", "size", "non_stroking_color"], keep_blank_chars=False)
             fields = native.get(page_no, [])
             layouts, table_fields = table_layouts(page, page_no, words)
             all_tables.extend(layouts)
@@ -643,14 +846,63 @@ def convert(
                     lx0, ly0, lx1, ly1 = float(line["x0"]), float(line["top"]), float(line["x1"]), float(line["bottom"])
                     # Sublinhados costumam ser linhas horizontais finas
                     line_bboxes.append((lx0, ly0, lx1, ly1))
-                email_underline_bboxes = underlined_email_bboxes(words, page.lines)
+                # Emails e URLs impressos (com ou sem sublinhado) nao sao campos.
+                email_underline_bboxes = underlined_email_bboxes(words, page.lines) + hyperlink_text_bboxes(words)
+
+                # Geometria das celulas para validar deteccoes dentro de tabelas.
+                table_rects = [
+                    (table["x"], table["y"], table["x"] + table["width"], table["y"] + table["height"])
+                    for table in layouts
+                ]
+                cell_infos = []
+                for table in layouts:
+                    for row in table.get("rows", []):
+                        for cell in row.get("cells", []):
+                            cell_infos.append((
+                                cell["x"], cell["y"],
+                                cell["x"] + cell["width"], cell["y"] + cell["height"],
+                                bool((cell.get("text") or "").strip()),
+                            ))
 
                 for nf in neural_fields_by_page[page_no]:
                     nx, ny, nw, nh = nf["x"], nf["y"], nf["width"], nf["height"]
-                    nx1, ny1 = nx + nw, ny + nh
+                    # Ativacoes minusculas sao ruido do modelo, nao campos uteis.
+                    if nw < 25 or nh < 4:
+                        continue
                     label = nf.get("label") or nearby_label(words, nx, ny + nh) or f"Campo Neural {len(all_fields) + len(fields) + 1}"
                     if infer_type(label, nw, nh) == "date" and "_" in label:
                         label = "Data"
+
+                    # Padroniza a altura ANTES das checagens de sobreposicao:
+                    # a caixa final (base preservada, topo estendido) e a que
+                    # nao pode invadir texto ou outros campos.
+                    target_h = 20.0
+                    if nh != target_h and nf.get("type") not in {"textarea"}:
+                        ny = ny + nh - target_h
+                        nh = target_h
+                    nx1, ny1 = nx + nw, ny + nh
+
+                    # Dentro de tabelas, so aceitamos deteccoes contidas em uma
+                    # celula vazia; caixas sobre bordas, cabecalhos ou celulas
+                    # preenchidas sao falsos positivos (inicio de tabela, tracos).
+                    if any(not (nx1 <= tx0 or tx1 <= nx or ny1 <= ty0 or ty1 <= ny) for (tx0, ty0, tx1, ty1) in table_rects):
+                        center_x, center_y = nx + nw / 2, ny + nh / 2
+                        containing = next(
+                            (cell for cell in cell_infos
+                             if cell[0] <= center_x <= cell[2] and cell[1] <= center_y <= cell[3]),
+                            None,
+                        )
+                        if containing is None or containing[4]:
+                            continue
+                        # Encaixa o campo na celula inteira: a deteccao neural
+                        # so indica ONDE ha um campo; a geometria vem do
+                        # desenho da tabela, como nos campos de table_layouts.
+                        padding = 2.0
+                        nx, ny = containing[0] + padding, containing[1] + padding
+                        nx1, ny1 = containing[2] - padding, containing[3] - padding
+                        nw, nh = nx1 - nx, ny1 - ny
+                        if nw < 8 or nh < 6:
+                            continue
 
                     # Evitar sobreposição com imagens
                     if any(not (nx1 <= ix0 or ix1 <= nx or ny1 <= iy0 or iy1 <= ny) for (ix0, iy0, ix1, iy1) in image_bboxes):
@@ -709,13 +961,6 @@ def convert(
                     if replace_inferred_date is not None:
                         fields.pop(replace_inferred_date)
 
-                    # Padronizar a altura do campo detectado neuralmente para 20 pixels
-                    # Isso garante consistência visual mesmo que a rede tenha variações pequenas
-                    target_h = 20.0
-                    if nh != target_h:
-                        # Ajustamos ny para que a base do campo (ny + nh) permaneça a mesma
-                        ny = ny + nh - target_h
-                        nh = target_h
                     fields.append(Field(slug(label), label, infer_type(label, nw, nh), page_no, nx, ny, nw, nh, source="neural_field"))
             # Keep names unique across repeated labels.
             used = {f.name for f in all_fields}
@@ -784,7 +1029,8 @@ def convert(
                 # aplica scaleX para a fonte substituta ocupar exatamente esse
                 # espaco, evitando que palavras vizinhas se sobreponham.
                 word_width = max(0.0, float(word.get("x1", 0)) - float(word.get("x0", 0)))
-                style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif"
+                color = css_color(word.get("non_stroking_color"), "#111")
+                style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif;color:{color}"
                 elements.append(f'<span class="pdf-text" data-w="{n(word_width)}" style="{style}">{html.escape(word["text"])}</span>')
             pages_html.append(
                 f'<div class="pdf-page-shell" id="page-{page_no}" data-page="{page_no}" '
