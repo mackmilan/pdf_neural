@@ -82,7 +82,6 @@ function openDocumentRender() {
     </header>
 
     <div v-if="activeView === 'documents'" class="page-layout">
-      <p v-if="docStore.status" class="status page-layout-status">{{ docStore.status }}</p>
       <div class="left-column" v-show="!docStore.resultVisible">
         <DocumentHistory />
       </div>

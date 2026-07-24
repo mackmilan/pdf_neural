@@ -108,7 +108,7 @@ button:disabled { opacity: .5 }
 .result { display: none }
 .result.show { display: block }
 .page-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; margin-top: 16px; overflow: hidden }
-.page-layout-status { flex: 0 0 auto; margin: 0 0 16px }
+
 .left-column { flex: 1; display: grid; gap: 18px; min-width: 0; min-height: 0; overflow-y: auto; align-content: start; padding-right: 2px }
 .left-column .history-list { grid-template-columns: 1fr }
 .page-layout > .card, .left-column > .card { margin-top: 0 }
@@ -240,6 +240,8 @@ button:disabled { opacity: .5 }
 .result-heading > div { min-width: 0; margin-right: auto }
 .result-heading small { color: var(--text-muted) }
 .result-heading h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.metadata-toggle-button { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--button-secondary-bg); color: var(--text); cursor: pointer; border: none; flex-shrink: 0 }
+.metadata-toggle-button:hover { background: var(--button-secondary-hover-bg, var(--border)) }
 .result-actions-menu, .version-actions-menu { position: relative }
 .result-actions-menu summary, .version-actions-menu summary { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--button-secondary-bg); color: var(--text); cursor: pointer; list-style: none }
 .result-actions-menu summary::-webkit-details-marker, .version-actions-menu summary::-webkit-details-marker { display: none }

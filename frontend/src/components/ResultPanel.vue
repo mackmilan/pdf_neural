@@ -17,6 +17,7 @@ const fullscreenLabel = ref('Tela cheia')
 const documentName = ref('')
 const categoryValue = ref('')
 const formatNormValue = ref<FormatNorm | ''>('')
+const metadataPanelOpen = ref(false)
 
 
 watch(
@@ -206,9 +207,12 @@ function onPreviewFieldSelected(detail: { fieldName: string }) {
           </button>
         </div>
       </details>
+      <button type="button" class="metadata-toggle-button" :aria-expanded="metadataPanelOpen" aria-label="Expandir/recolher detalhes do documento" @click="metadataPanelOpen = !metadataPanelOpen">
+        <UiIcon :name="metadataPanelOpen ? 'chevron-up' : 'chevron-down'" />
+      </button>
     </div>
 
-    <div class="metadata-panel">
+    <div v-show="metadataPanelOpen" class="metadata-panel">
       <label>Nome do documento
         <input v-model="documentName" maxlength="255" aria-label="Nome do documento" :disabled="!docStore.isEditableDocument" @keydown.enter.prevent="saveDocumentMetadata">
       </label>
