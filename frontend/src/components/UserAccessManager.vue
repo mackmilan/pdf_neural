@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, nextTick, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useModalsStore } from '../stores/modals'
 import ViewerTopMenu from './ViewerTopMenu.vue'
@@ -13,7 +13,11 @@ const groups = ref<Group[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const status = ref('')
+const formStatus = ref('')
 const filter = ref('')
+const showForm = ref(false)
+const editing = ref(false)
+const firstFieldRef = ref<HTMLInputElement | null>(null)
 const form = ref({
   subject: '',
   username: '',
@@ -95,7 +99,21 @@ async function loadGroups() {
   }
 }
 
+function openCreate() {
+  resetForm()
+  editing.value = false
+  formStatus.value = ''
+  showForm.value = true
+}
+
+function closeForm() {
+  showForm.value = false
+}
+
 function editAccess(user: UserAccessSummary, access: UserAccessEntry) {
+  editing.value = true
+  formStatus.value = ''
+  showForm.value = true
   form.value = {
     subject: user.subject,
     username: access.username || user.username || '',
@@ -127,13 +145,14 @@ function resetForm() {
 
 async function saveAccess() {
   if (!form.value.tenant_id) {
-    status.value = 'Informe o tenant.'
+    formStatus.value = 'Informe o tenant.'
     return
   }
   if (!form.value.subject.trim() && (!form.value.username.trim() || form.value.password.length < 8)) {
-    status.value = 'Para criar no Keycloak, informe username e senha com pelo menos 8 caracteres.'
+    formStatus.value = 'Para criar no Keycloak, informe username e senha com pelo menos 8 caracteres.'
     return
   }
+  formStatus.value = ''
   saving.value = true
   try {
     const payload = {
@@ -170,9 +189,10 @@ async function saveAccess() {
       form.value.password = ''
       status.value = 'Usuário criado no Keycloak e acesso salvo.'
     }
+    closeForm()
     await loadUsers()
   } catch (error) {
-    status.value = 'Erro ao salvar usuário: ' + (error as Error).message
+    formStatus.value = 'Erro ao salvar usuário: ' + (error as Error).message
   } finally {
     saving.value = false
   }
@@ -207,12 +227,30 @@ async function deleteUser(user: UserAccessSummary) {
     status.value = data.keycloak_deleted
       ? 'Usuário excluído do Keycloak e da aplicação.'
       : 'Usuário removido da aplicação. Ele não foi encontrado no Keycloak.'
-    if (form.value.subject === user.subject) resetForm()
+    if (form.value.subject === user.subject) {
+      resetForm()
+      closeForm()
+    }
     await loadUsers()
   } catch (error) {
     status.value = 'Erro ao excluir usuário: ' + (error as Error).message
   }
 }
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeForm()
+}
+
+watch(showForm, (visible) => {
+  if (visible) {
+    document.addEventListener('keydown', onKeydown)
+    nextTick(() => firstFieldRef.value?.focus())
+  } else {
+    document.removeEventListener('keydown', onKeydown)
+  }
+})
+
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 onMounted(async () => {
   await Promise.all([loadUsers(), loadTenants()])
@@ -228,58 +266,17 @@ onMounted(async () => {
     >
       <template #actions>
         <button type="button" class="button-secondary" @click="loadUsers">Atualizar</button>
+        <button type="button" @click="openCreate">Criar usuário</button>
       </template>
     </ViewerTopMenu>
 
     <div class="admin-layout">
-      <form class="card access-form" @submit.prevent="saveAccess">
-        <h3>Novo usuário / acesso</h3>
-        <label>Keycloak sub
-          <input v-model="form.subject" autocomplete="off" placeholder="Vazio para criar no Keycloak">
-        </label>
-        <label>Username
-          <input v-model="form.username" autocomplete="username" placeholder="Login no Keycloak">
-        </label>
-        <label>E-mail
-          <input v-model="form.email" autocomplete="email" type="email" placeholder="usuario@dominio.com">
-        </label>
-        <label>Senha inicial
-          <input v-model="form.password" autocomplete="new-password" type="password" placeholder="Obrigatória ao criar">
-        </label>
-        <label class="access-check">
-          <input v-model="form.temporary_password" type="checkbox">
-          Exigir troca de senha no primeiro login
-        </label>
-        <label>Tenant
-          <select v-model="form.tenant_id" @change="loadGroups">
-            <option value="">Selecione</option>
-            <option v-for="tenant in tenants" :key="tenant.tenant_id" :value="tenant.tenant_id">{{ tenant.name }}</option>
-          </select>
-        </label>
-        <label>Grupo
-          <select v-model="form.group_id" :disabled="!form.tenant_id">
-            <option value="">Todo o tenant</option>
-            <option v-for="group in groups" :key="group.group_id" :value="group.group_id">{{ group.name }}</option>
-          </select>
-        </label>
-        <label>Papel
-          <select v-model="form.permission">
-            <option value="reader">reader</option>
-            <option value="editor">editor</option>
-          </select>
-        </label>
-        <div class="access-actions">
-          <button type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar' }}</button>
-          <button type="button" class="button-secondary" @click="resetForm">Limpar</button>
-        </div>
-        <div class="status">{{ status }}</div>
-      </form>
-
       <div class="card access-list">
         <div class="access-toolbar">
           <h3>Usuários</h3>
           <input v-model="filter" placeholder="Filtrar" aria-label="Filtrar usuários">
         </div>
+        <div v-if="status" class="status">{{ status }}</div>
         <div v-if="loading" class="history-empty">Carregando...</div>
         <div v-else-if="!filteredUsers.length" class="history-empty">Nenhum acesso encontrado.</div>
         <div v-else class="user-access-table">
@@ -303,6 +300,54 @@ onMounted(async () => {
           </article>
         </div>
       </div>
+    </div>
+
+    <div class="modal-backdrop" :class="{ show: showForm }" :aria-hidden="!showForm" @click.self="closeForm">
+      <section v-if="showForm" class="modal access-modal" role="dialog" aria-modal="true" aria-label="Cadastro de usuário">
+        <h3>{{ editing ? 'Editar acesso' : 'Novo usuário / acesso' }}</h3>
+        <form class="access-form" @submit.prevent="saveAccess">
+          <label>Keycloak sub
+            <input ref="firstFieldRef" v-model="form.subject" autocomplete="off" placeholder="Vazio para criar no Keycloak">
+          </label>
+          <label>Username
+            <input v-model="form.username" autocomplete="username" placeholder="Login no Keycloak">
+          </label>
+          <label>E-mail
+            <input v-model="form.email" autocomplete="email" type="email" placeholder="usuario@dominio.com">
+          </label>
+          <label>Senha inicial
+            <input v-model="form.password" autocomplete="new-password" type="password" placeholder="Obrigatória ao criar">
+          </label>
+          <label class="access-check">
+            <input v-model="form.temporary_password" type="checkbox">
+            Exigir troca de senha no primeiro login
+          </label>
+          <label>Tenant
+            <select v-model="form.tenant_id" @change="loadGroups">
+              <option value="">Selecione</option>
+              <option v-for="tenant in tenants" :key="tenant.tenant_id" :value="tenant.tenant_id">{{ tenant.name }}</option>
+            </select>
+          </label>
+          <label>Grupo
+            <select v-model="form.group_id" :disabled="!form.tenant_id">
+              <option value="">Todo o tenant</option>
+              <option v-for="group in groups" :key="group.group_id" :value="group.group_id">{{ group.name }}</option>
+            </select>
+          </label>
+          <label>Papel
+            <select v-model="form.permission">
+              <option value="reader">reader</option>
+              <option value="editor">editor</option>
+            </select>
+          </label>
+          <div v-if="formStatus" class="status">{{ formStatus }}</div>
+          <div class="modal-actions">
+            <button type="button" class="button-secondary" @click="closeForm">Cancelar</button>
+            <button type="button" class="button-secondary" @click="resetForm">Limpar</button>
+            <button type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar' }}</button>
+          </div>
+        </form>
+      </section>
     </div>
   </section>
 </template>

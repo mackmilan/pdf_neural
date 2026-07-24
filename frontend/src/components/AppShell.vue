@@ -17,8 +17,6 @@ const context = useContextStore()
 const docStore = useDocumentStore()
 defineProps<{ activeView: 'documents' | 'users' | 'available' | 'filled' }>()
 
-const currentTenantName = computed(() => context.tenants.find((tenant) => tenant.tenant_id === context.tenantId)?.name || 'Sem tenant')
-const currentGroupName = computed(() => context.groupName(context.groupId))
 const currentCategoryName = computed(() => context.categoryName(docStore.currentCategoryId || context.categoryId))
 const currentVersionLabel = computed(() => docStore.currentVersion ? `v${docStore.currentVersion}` : 'Sem versão')
 const currentFieldsLabel = computed(() => `${docStore.currentFields.length} campo${docStore.currentFields.length === 1 ? '' : 's'}`)
@@ -48,16 +46,14 @@ function openDocumentRender() {
       </div>
 
       <div class="app-context-row">
-        <div class="app-breadcrumbs" aria-label="Contexto atual">
-          <span>{{ currentTenantName }}</span>
-          <span aria-hidden="true">/</span>
-          <span>{{ currentGroupName }}</span>
-          <span v-if="docStore.currentDocumentName" aria-hidden="true">/</span>
-          <strong v-if="docStore.currentDocumentName">{{ docStore.currentDocumentName }}</strong>
+        <ContextSelector />
+
+        <div v-if="docStore.currentDocumentName" class="app-breadcrumbs" aria-label="Documento atual">
+          <strong>{{ docStore.currentDocumentName }}</strong>
         </div>
 
         <div class="app-context-chips" aria-label="Resumo do documento">
-          <span>{{ currentCategoryName }}</span>
+          <span v-if="docStore.currentDocumentId">{{ currentCategoryName }}</span>
           <span v-if="docStore.currentDocumentId">{{ currentVersionLabel }}</span>
           <span v-if="docStore.currentDocumentId">{{ currentFieldsLabel }}</span>
         </div>
@@ -76,7 +72,6 @@ function openDocumentRender() {
 
     <div v-if="activeView === 'documents'" class="page-layout">
       <div class="left-column">
-        <ContextSelector />
         <UploadForm />
         <DocumentHistory />
       </div>

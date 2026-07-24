@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // A navegação e as ações de sessão vivem no AppSidebar; aqui fica só o
-// cabeçalho da página: título, contexto, chips e ações próprias da tela.
+// cabeçalho da página: seletor de contexto, título, chips e ações da tela.
+import ContextSelector from './ContextSelector.vue'
+
 const props = defineProps<{
   eyebrow?: string
   title?: string
@@ -18,8 +20,10 @@ const props = defineProps<{
       </p>
     </div>
 
-    <div v-if="props.title || props.context || props.chips?.length || $slots.actions" class="app-context-row">
-      <div class="app-breadcrumbs" aria-label="Contexto atual">
+    <div class="app-context-row">
+      <ContextSelector />
+
+      <div v-if="props.title || props.context" class="app-breadcrumbs" aria-label="Contexto atual">
         <strong v-if="props.title">{{ props.title }}</strong>
         <span v-if="props.title && props.context" aria-hidden="true">/</span>
         <span v-if="props.context">{{ props.context }}</span>

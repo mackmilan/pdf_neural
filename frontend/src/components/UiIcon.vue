@@ -11,6 +11,7 @@ export type IconName =
   | 'file-text'
   | 'inbox'
   | 'key'
+  | 'layers'
   | 'log-out'
   | 'maximize'
   | 'moon'
@@ -90,6 +91,11 @@ defineProps<{
       <path d="M21 2 11 12" />
       <path d="M15.5 7.5 19 11l-3 3-3.5-3.5" />
       <path d="M9 15a4 4 0 1 1-5.7 0A4 4 0 0 1 9 15Z" />
+    </g>
+    <g v-else-if="name === 'layers'">
+      <path d="m12 2 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 17 9 5 9-5" />
+      <path d="m3 12 9 5 9-5" />
     </g>
     <g v-else-if="name === 'log-out'">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
