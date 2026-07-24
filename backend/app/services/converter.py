@@ -7,7 +7,6 @@ import html
 import io
 import json
 import logging
-import math
 import re
 import shutil
 from dataclasses import asdict, dataclass
@@ -856,6 +855,66 @@ def invisible_text_spans(pdf_path: Path) -> dict[int, list[dict[str, Any]]]:
     return invisible
 
 
+def invisible_drawing_boxes(pdf_path: Path) -> dict[int, list[tuple[float, float, float, float]]]:
+    """Localiza, por pagina, os tracos e preenchimentos que o PDF declara mas nao pinta.
+
+    E o analogo de ``invisible_text_spans`` para vetores. Os mesmos documentos que
+    trazem uma camada de texto invisivel costumam trazer tambem uma grade de tabela
+    duplicada com opacidade zero (bordas deslocadas alguns pontos). O pdfplumber
+    ignora a opacidade e extrai esses retangulos como qualquer outra borda, entao o
+    HTML pinta linhas fantasma que espremem as linhas da tabela. O PyMuPDF expoe a
+    opacidade de cada traco/preenchimento, entao o usamos para descobrir ONDE estao
+    essas formas e descarta-las antes de desenhar e antes de ``find_tables``.
+
+    Retorna, por numero de pagina (1-based), a lista de caixas
+    ``(x0, top, x1, bottom)`` (coordenadas do topo, iguais as do pdfplumber) que sao
+    totalmente transparentes e nao coincidem com nenhuma forma pintada. Sem o
+    PyMuPDF (ou diante de qualquer falha) devolve ``{}`` e a conversao segue como
+    antes.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return {}
+
+    def rects_of(drawing: dict[str, Any]) -> list[tuple[float, float, float, float]]:
+        boxes: list[tuple[float, float, float, float]] = []
+        for item in drawing.get("items", []):
+            if item[0] == "re":
+                r = item[1]
+                boxes.append((float(r.x0), float(r.y0), float(r.x1), float(r.y1)))
+            elif item[0] == "l":
+                a, b = item[1], item[2]
+                boxes.append((min(a.x, b.x), min(a.y, b.y), max(a.x, b.x), max(a.y, b.y)))
+        return boxes
+
+    invisible: dict[int, list[tuple[float, float, float, float]]] = {}
+    try:
+        with fitz.open(str(pdf_path)) as document:
+            for page_index in range(len(document)):
+                painted: list[tuple[float, float, float, float]] = []
+                unpainted: list[tuple[float, float, float, float]] = []
+                for drawing in document[page_index].get_drawings():
+                    kind = drawing.get("type")
+                    fill_opacity = drawing.get("fill_opacity")
+                    stroke_opacity = drawing.get("stroke_opacity")
+                    fill_visible = kind in ("f", "fs") and (fill_opacity is None or fill_opacity > 0.01)
+                    stroke_visible = kind in ("s", "fs") and (stroke_opacity is None or stroke_opacity > 0.01)
+                    (painted if (fill_visible or stroke_visible) else unpainted).extend(rects_of(drawing))
+                # Uma forma transparente que coincide com outra pintada no mesmo
+                # lugar e a propria borda visivel (dupla emissao); nao a descartamos.
+                boxes = [
+                    box for box in unpainted
+                    if not any(all(abs(c - p) <= 1.0 for c, p in zip(box, other)) for other in painted)
+                ]
+                if boxes:
+                    invisible[page_index + 1] = boxes
+    except Exception:
+        LOGGER.exception("Falha ao mapear vetores invisiveis de %s", pdf_path.name)
+        return {}
+    return invisible
+
+
 def drop_invisible_chars(page: Any, spans: list[dict[str, Any]]) -> Any:
     """Devolve a pagina sem os glifos invisiveis mapeados por ``invisible_text_spans``.
 
@@ -881,6 +940,32 @@ def drop_invisible_chars(page: Any, spans: list[dict[str, Any]]) -> Any:
         return False
 
     return page.filter(lambda obj: obj.get("object_type") != "char" or not is_invisible(obj))
+
+
+def drop_invisible_drawings(page: Any, boxes: list[tuple[float, float, float, float]]) -> Any:
+    """Devolve a pagina sem os retangulos/linhas invisiveis mapeados por ``invisible_drawing_boxes``.
+
+    Casa cada ``rect``/``line`` pela caixa (as quatro bordas): pdfplumber e PyMuPDF
+    leem o mesmo desenho nas mesmas coordenadas, entao a caixa identifica a forma
+    fisica especifica. Filtrar na pagina — e nao so na lista de elementos — faz
+    ``find_tables`` tambem deixar de ver a grade duplicada, entao as linhas voltam a
+    ter a altura real do original.
+    """
+    index: dict[int, list[tuple[float, float, float, float]]] = {}
+    for x0, top, x1, bottom in boxes:
+        index.setdefault(round(top), []).append((x0, top, x1, bottom))
+
+    def is_invisible(obj: dict[str, Any]) -> bool:
+        box = (float(obj["x0"]), float(obj["top"]), float(obj["x1"]), float(obj["bottom"]))
+        for bucket in (round(box[1]) - 1, round(box[1]), round(box[1]) + 1):
+            for candidate in index.get(bucket, ()):
+                if all(abs(c - v) <= 1.2 for c, v in zip(box, candidate)):
+                    return True
+        return False
+
+    return page.filter(
+        lambda obj: obj.get("object_type") not in ("rect", "line", "curve") or not is_invisible(obj)
+    )
 
 
 def invisible_words(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -959,6 +1044,10 @@ def convert(
     # o texto visivel; quando nao ha contrapartida visivel (scan com OCR embutido)
     # voltam so como camada transparente selecionavel.
     invisible_spans = invisible_text_spans(pdf_path)
+    # Tracos/preenchimentos que o PDF declara mas nao pinta (opacidade 0): grades
+    # de tabela duplicadas com deslocamento de poucos pontos. Sao removidos junto
+    # com o texto invisivel para nao espremer as linhas nem confundir find_tables.
+    invisible_draws = invisible_drawing_boxes(pdf_path)
     all_fields: list[Field] = []
     all_tables: list[dict[str, Any]] = []
     page_sizes: list[dict[str, Any]] = []
@@ -979,6 +1068,9 @@ def convert(
             page_invisible_spans = invisible_spans.get(page_no) or []
             if page_invisible_spans:
                 page = drop_invisible_chars(page, page_invisible_spans)
+            page_invisible_draws = invisible_draws.get(page_no) or []
+            if page_invisible_draws:
+                page = drop_invisible_drawings(page, page_invisible_draws)
             page_width, page_height = float(page.width), float(page.height)
             page_info: dict[str, Any] = {
                 "page": page_no,
@@ -992,7 +1084,18 @@ def convert(
             page_sizes.append(page_info)
             # non_stroking_color permite reproduzir no HTML a cor original do
             # texto (ex.: instrucoes em vermelho em modelos de ata).
-            words = page.extract_words(extra_attrs=["fontname", "size", "non_stroking_color"], keep_blank_chars=False)
+            # x_tolerance_ratio: o limiar que separa palavras passa a ser uma fracao
+            # do corpo da fonte (0.15 * tamanho) em vez dos 3pt fixos do pdfplumber.
+            # Em texto justificado o espaco entre palavras encolhe abaixo de 3pt e,
+            # com o padrao, "visando a" virava "visandoa" (o espaco some do proprio
+            # texto). Como os vaos internos das palavras sao ~0pt, a fracao separa os
+            # espacos comprimidos sem quebrar palavras. Escala com a fonte, entao vale
+            # para titulos e notas de rodape sem um limiar por tamanho.
+            words = page.extract_words(
+                extra_attrs=["fontname", "size", "non_stroking_color"],
+                keep_blank_chars=False,
+                x_tolerance_ratio=0.15,
+            )
             words = ocr_words(ocr, pdf_path, page, page_no, page_width, page_height, words, page_info)
             fields = native.get(page_no, [])
             layouts, table_fields = table_layouts(page, page_no, words)
@@ -1286,59 +1389,12 @@ def convert(
             LOGGER.exception("Falha na detecção neural integrada")
             pass
 
-    if neural_tables:
-        pages_with_tables: dict[int, list[dict[str, Any]]] = {}
-        for table in neural_tables:
-            try:
-                p = int(table["page"])
-                if p >= 1:
-                    pages_with_tables.setdefault(p, []).append(table)
-            except (KeyError, ValueError, TypeError):
-                continue
-
-        for p, p_tables in pages_with_tables.items():
-            if p > len(pages_html):
-                continue
-            overlays = []
-            for table in p_tables:
-                confidence = float(table.get("confidence", 0))
-                rows = int(table.get("row_count", 0))
-                cols = int(table.get("column_count", 0))
-                label = f"Tabela neural {confidence:.0%}, {rows} linhas, {cols} colunas"
-                table_id = html.escape(str(table.get("id", "neural-table")), quote=True)
-                rendered_lines = []
-                for line_index, line in enumerate(table.get("lines", []), 1):
-                    try:
-                        lx, ly = float(line["x"]), float(line["y"])
-                        lw, lh = float(line.get("width", 0)), float(line.get("height", 0))
-                        line_thickness = max(.25, float(line.get("line_width", .5)))
-                    except (KeyError, TypeError, ValueError):
-                        continue
-                    color = str(line.get("color", "#000000"))
-                    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color) or not all(math.isfinite(v) for v in (lx, ly, lw, lh, line_thickness)):
-                        continue
-                    # No PDF a espessura cresce a partir do centro do traco; o div
-                    # cresce a partir do topo/esquerda, entao recua metade da espessura.
-                    css_w = lw if lw > 0 else line_thickness
-                    css_h = lh if lh > 0 else line_thickness
-                    css_x = lx if lw > 0 else lx - line_thickness / 2
-                    css_y = ly if lh > 0 else ly - line_thickness / 2
-                    rendered_lines.append(
-                        f'<div class="neural-table-line" data-neural-line="{line_index}" '
-                        f'style="left:{css_x:.2f}px;top:{css_y:.2f}px;width:{css_w:.2f}px;'
-                        f'height:{css_h:.2f}px;background:{color}"></div>'
-                    )
-                overlays.append(
-                    f'<div class="neural-table-structure" data-neural-table="{table_id}" '
-                    f'aria-label="{html.escape(label, quote=True)}" title="{html.escape(label, quote=True)}">'
-                    f'{"".join(rendered_lines)}</div>'
-                )
-            
-            marker = f' data-page="{p}"'
-            page_html = pages_html[p-1]
-            insert_at = page_html.find("</section>")
-            if insert_at > 0:
-                pages_html[p-1] = page_html[:insert_at] + "".join(overlays) + page_html[insert_at:]
+    # O resultado da deteccao neural continua disponivel em ``neural_tables`` (e no
+    # neural-tables.json) para quem consome os dados, mas nao e mais desenhado como
+    # camada sobre a pagina. As bordas ja vem fieis do proprio PDF (page.rects /
+    # page.lines -> .pdf-rect / .pdf-line); a caixa prevista pela rede diverge alguns
+    # pontos e acrescentava linhas fantasma (linhas alem da tabela real, tracos entre
+    # as linhas) que quebravam a fidelidade ao desenho original.
 
     title = html.escape(pdf_path.stem)
     document = f'''<!doctype html>
@@ -1355,7 +1411,6 @@ def convert(
 .pdf-field:hover{{border-color:#ff4444;background:rgba(255,0,0,0.1);cursor:pointer}}
 .pdf-field:target{{border-color:#ff4444;background:rgba(255,0,0,0.15);box-shadow:0 0 0 2px #ff444433}}
 .pdf-table{{position:absolute;border-collapse:collapse;z-index:20}}.pdf-table td{{border:1px solid transparent;padding:0;vertical-align:top;color:transparent;user-select:none}}
-.neural-table-structure{{display:contents}}.neural-table-line{{position:absolute;z-index:30;pointer-events:none}}
 @media print{{body{{background:#fff}}.document{{padding:0;gap:0}}.pdf-page-shell{{width:var(--page-width-px);max-width:none;height:var(--page-height-px);aspect-ratio:auto;break-after:page}}.pdf-page{{--page-scale:1;box-shadow:none}}}}
 </style></head><body><main class="document">{"".join(pages_html)}</main><script>
 const resizePages=()=>document.querySelectorAll('.pdf-page-shell').forEach(shell=>{{

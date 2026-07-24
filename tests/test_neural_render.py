@@ -21,7 +21,7 @@ class MockDetector:
         ]
 
 class NeuralRenderingTest(unittest.TestCase):
-    def test_renders_neural_tables_in_html(self):
+    def test_keeps_neural_tables_in_json_without_html_overlay(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             # Create a dummy PDF file
@@ -63,14 +63,15 @@ class NeuralRenderingTest(unittest.TestCase):
                 
                 index_html = (output_dir / "index.html").read_text()
                 neural_json = (output_dir / "neural-tables.json").read_text()
-                
-                # Check if neural table structure is in HTML
-                self.assertIn('class="neural-table-structure"', index_html)
-                self.assertIn('data-neural-table="mock-table-1"', index_html)
-                self.assertIn('background:#FF0000', index_html)
-                self.assertIn('background:#00FF00', index_html)
-                
-                # Check if neural-tables.json was created
+
+                # A deteccao neural nao e mais desenhada como camada sobre a pagina:
+                # a caixa prevista pela rede diverge alguns pontos das bordas reais e
+                # acrescentava linhas fantasma, quebrando a fidelidade ao original. As
+                # bordas verdadeiras ja vem do proprio PDF (.pdf-rect / .pdf-line).
+                self.assertNotIn('neural-table-structure', index_html)
+                self.assertNotIn('neural-table-line', index_html)
+
+                # Os dados da deteccao continuam disponiveis no neural-tables.json.
                 tables = json.loads(neural_json)
                 self.assertEqual(len(tables), 1)
                 self.assertEqual(tables[0]["id"], "mock-table-1")

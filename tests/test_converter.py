@@ -208,6 +208,56 @@ class ConverterTest(unittest.TestCase):
             self.assertIn("reconhecido", result.html_content)
             self.assertNotIn('<span class="pdf-text" ', result.html_content)
 
+    def test_drops_invisible_vector_grid_that_would_squeeze_rows(self):
+        # Os mesmos documentos que trazem texto invisivel costumam trazer uma grade
+        # de tabela duplicada com opacidade zero (bordas deslocadas alguns pontos).
+        # O leitor de origem nunca a mostra, mas sem tratamento o pdfplumber a extrai
+        # e o HTML pinta linhas fantasma que espremem as linhas da tabela.
+        import re
+
+        with tempfile.TemporaryDirectory() as temp:
+            pdf = Path(temp) / "invisible-grid.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=(400, 300))
+            c.setFillColorRGB(0, 0, 0)
+            c.rect(50, 250, 300, 2, fill=1, stroke=0)  # borda visivel -> top ~48
+            c.saveState()
+            c.setFillAlpha(0)  # borda invisivel (opacidade zero) -> top ~148
+            c.setFillColorRGB(0, 0, 0)
+            c.rect(50, 150, 300, 2, fill=1, stroke=0)
+            c.restoreState()
+            c.save()
+
+            result = convert(pdf, detect_fields=False)
+
+            rect_tops = {round(float(t)) for t in re.findall(r"pdf-rect[^>]*top:([\d.]+)px", result.html_content)}
+            # A borda visivel permanece; a fantasma invisivel nao pode ser pintada.
+            self.assertIn(48, rect_tops)
+            self.assertNotIn(148, rect_tops)
+
+    def test_keeps_word_spacing_in_justified_text_with_narrow_spaces(self):
+        # Em texto justificado o espaco entre palavras encolhe abaixo dos 3pt fixos
+        # do pdfplumber, que entao junta "visando a" em "visandoa". Como o PDF
+        # posiciona cada palavra por deslocamento (sem caractere de espaco), os
+        # glifos sao desenhados com um vao de ~2.5pt e nenhum espaco entre eles; o
+        # limiar por fracao da fonte (x_tolerance_ratio) separa esses vaos.
+        with tempfile.TemporaryDirectory() as temp:
+            pdf = Path(temp) / "narrow-spaces.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=(400, 300))
+            c.setFont("Helvetica", 11)
+            x = 30.0
+            for word in ("visando", "a", "validacao"):
+                c.drawString(x, 250, word)
+                x += c.stringWidth(word, "Helvetica", 11) + 2.5  # vao de 2.5pt (<3pt)
+            c.save()
+
+            result = convert(pdf, detect_fields=False)
+
+            # As palavras nao podem sair coladas ("visandoavalidacao").
+            self.assertIn(">visando<", result.html_content)
+            self.assertIn(">a<", result.html_content)
+            self.assertIn(">validacao<", result.html_content)
+            self.assertNotIn("visandoa", result.html_content)
+
 
 if __name__ == "__main__":
     unittest.main()
