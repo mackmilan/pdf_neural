@@ -90,15 +90,21 @@ class AsyncApiTest(unittest.TestCase):
         with self.assertRaisesRegex(AuthenticationError, "Token Bearer ausente"):
             authenticator.authenticate(None)
 
-    def test_login_page_requires_email_and_password(self):
+    def test_frontend_redirects_to_keycloak_instead_of_showing_login(self):
         page = (app.STATIC / "index.html").read_text(encoding="utf-8")
         asset_match = re.search(r'<script type="module" crossorigin src="([^"]+\.js)"', page)
         self.assertIsNotNone(asset_match)
-        javascript = (app.STATIC / asset_match.group(1).lstrip("/")).read_text(encoding="utf-8")
-        self.assertIn("login-screen", javascript)
-        self.assertIn('grant_type:`password`', javascript)
-        self.assertIn("username", javascript)
-        self.assertIn("current-password", javascript)
+        bundle = "".join(
+            path.read_text(encoding="utf-8") for path in sorted((app.STATIC / "assets").glob("*.js"))
+        )
+        entry = (app.STATIC / asset_match.group(1).lstrip("/")).read_text(encoding="utf-8")
+        self.assertIn("auth-redirect", entry)
+        self.assertIn("Redirecionando para o Keycloak", entry)
+        self.assertNotIn("Entrar com Keycloak", bundle)
+        self.assertNotIn("grant_type:`password`", bundle)
+        self.assertNotIn("current-password", bundle)
+        self.assertIn("protocol/openid-connect/auth", bundle)
+        self.assertIn("code_challenge", bundle)
         self.assertNotIn('id="access-token"', page)
 
     def test_user_access_accepts_tenant_wide_or_exact_group(self):

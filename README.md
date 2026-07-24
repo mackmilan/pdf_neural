@@ -312,10 +312,13 @@ A API valida access tokens JWT emitidos pelo Keycloak. O Keycloak mantém
 identidade, credenciais e a role administrativa `pdf-admin`; o MongoDB mantém os
 acessos de cada `sub` a tenants e grupos, com permissão `reader` ou `editor`.
 
-Ao abrir `http://localhost:8000`, a aplicação mostra somente a tela de login.
-O botão **Entrar com Keycloak** usa Authorization Code com PKCE; após o retorno,
-os tokens ficam apenas em `sessionStorage`, são renovados automaticamente e todas
-as chamadas à API recebem o header Bearer. O botão **Sair** encerra também a sessão
+Não existe tela de login própria: ao abrir `http://localhost:8000` sem sessão
+válida, a aplicação redireciona direto para o login do Keycloak (Authorization
+Code com PKCE), preservando a URL acessada como `redirect_uri`. Se o Keycloak
+devolver erro ou estiver fora do ar, a aplicação exibe a mensagem e um botão
+**Tentar novamente** em vez de repetir o redirecionamento em laço. Após o
+retorno, os tokens ficam apenas em `sessionStorage`, são renovados
+automaticamente e todas as chamadas à API recebem o header Bearer. O botão **Sair** encerra também a sessão
 no Keycloak. O conteúdo da aplicação nunca é exibido sem uma sessão válida.
 
 Com o Keycloak local em `http://localhost:8080` e o administrador `admin/admin`,

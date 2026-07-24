@@ -4,6 +4,10 @@ import type { AuthConfig, AuthTokens } from '../types'
 const STORAGE_KEY = 'pdf-neural-oidc'
 const STATE_KEY = 'pdf-neural-oidc-state'
 const VERIFIER_KEY = 'pdf-neural-pkce-verifier'
+const REDIRECT_KEY = 'pdf-neural-login-redirect'
+// Sem tela de login, um retorno do Keycloak ainda sem sessão redirecionaria de novo
+// para o Keycloak indefinidamente; nessa janela o erro é exibido em vez do redirecionamento.
+const REDIRECT_GUARD_MS = 15000
 
 function decodeToken(token: string): Record<string, any> {
   try {
@@ -43,6 +47,7 @@ export const useAuthStore = defineStore('auth', {
     tokens: null as AuthTokens | null,
     initialized: false,
     loginError: '' as string,
+    redirecting: false,
     refreshTimer: null as ReturnType<typeof setTimeout> | null,
   }),
   getters: {
@@ -66,10 +71,11 @@ export const useAuthStore = defineStore('auth', {
     storeTokens(value: Partial<AuthTokens>) {
       this.tokens = { ...(this.tokens || {}), ...value } as AuthTokens
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(this.tokens))
+      sessionStorage.removeItem(REDIRECT_KEY)
       if (this.refreshTimer) clearTimeout(this.refreshTimer)
       const expiresAt = Number(decodeToken(this.tokens.access_token).exp || 0) * 1000
       this.refreshTimer = setTimeout(
-        () => this.refreshSession().catch((error) => this.showLogin(error)),
+        () => this.refreshSession().catch((error) => this.requireLogin(error)),
         Math.max(1000, expiresAt - Date.now() - 60000),
       )
     },
@@ -113,11 +119,22 @@ export const useAuthStore = defineStore('auth', {
       })
       location.assign(`${this.config.issuer}/protocol/openid-connect/auth?${query}`)
     },
-    showLogin(error?: Error) {
+    requireLogin(error?: Error, force = false) {
       if (this.refreshTimer) clearTimeout(this.refreshTimer)
       this.tokens = null
       sessionStorage.removeItem(STORAGE_KEY)
-      this.loginError = error?.message || 'Faça login para continuar.'
+      this.loginError = error?.message || ''
+      const lastRedirect = Number(sessionStorage.getItem(REDIRECT_KEY) || 0)
+      if (!force && Date.now() - lastRedirect < REDIRECT_GUARD_MS) {
+        this.loginError = this.loginError || 'Não foi possível concluir o login no Keycloak.'
+        return
+      }
+      sessionStorage.setItem(REDIRECT_KEY, String(Date.now()))
+      this.redirecting = true
+      this.beginLogin().catch((reason: Error) => {
+        this.redirecting = false
+        this.loginError = reason.message
+      })
     },
     logout() {
       const idToken = this.tokens?.id_token
@@ -125,6 +142,7 @@ export const useAuthStore = defineStore('auth', {
       if (this.refreshTimer) clearTimeout(this.refreshTimer)
       this.tokens = null
       sessionStorage.removeItem(STORAGE_KEY)
+      sessionStorage.removeItem(REDIRECT_KEY)
       if (!this.config) return
       const query = new URLSearchParams({ client_id: clientId || '', post_logout_redirect_uri: redirectUri() })
       if (idToken) query.set('id_token_hint', idToken)
@@ -155,6 +173,10 @@ export const useAuthStore = defineStore('auth', {
       try {
         this.config = await fetch('/auth/config').then((response) => response.json())
         const query = new URLSearchParams(location.search)
+        if (query.has('error')) {
+          history.replaceState({}, document.title, location.pathname)
+          throw normalizeAuthError(Object.fromEntries(query))
+        }
         if (query.has('code')) {
           const expectedState = sessionStorage.getItem(STATE_KEY)
           const verifier = sessionStorage.getItem(VERIFIER_KEY)
@@ -179,12 +201,12 @@ export const useAuthStore = defineStore('auth', {
           if (!this.isAuthenticated && this.tokens?.refresh_token) await this.refreshSession()
         }
         if (!this.isAuthenticated) {
-          this.showLogin()
+          this.requireLogin()
           return
         }
         this.storeTokens(this.tokens!)
       } catch (error) {
-        this.showLogin(error as Error)
+        this.requireLogin(error as Error)
       } finally {
         this.initialized = true
       }

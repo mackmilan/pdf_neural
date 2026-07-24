@@ -4,7 +4,7 @@ import { useAuthStore } from './stores/auth'
 import ConfirmModal from './components/ConfirmModal.vue'
 import TextInputModal from './components/TextInputModal.vue'
 import FieldEditModal from './components/FieldEditModal.vue'
-import LoginScreen from './components/LoginScreen.vue'
+import AuthRedirect from './components/AuthRedirect.vue'
 
 const AppShell = defineAsyncComponent(() => import('./components/AppShell.vue'))
 const DocumentViewer = defineAsyncComponent(() => import('./components/DocumentViewer.vue'))
@@ -65,10 +65,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <LoginScreen
-    v-if="!auth.initialized || !auth.isAuthenticated"
-    :document-id="viewerDocumentId"
-  />
+  <AuthRedirect v-if="!auth.initialized || !auth.isAuthenticated" />
   <DocumentViewer v-else-if="viewerDocumentId" :document-id="viewerDocumentId" />
   <SubmissionViewer v-else-if="viewerSubmissionId" :submission-id="viewerSubmissionId" />
   <SubmittedDocuments v-else-if="isSubmittedDocumentsRoute" />
