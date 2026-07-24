@@ -39,3 +39,19 @@ export interface EditorFieldTreeField extends FieldTreeEntry {
 }
 
 export type EditorFieldTreeNode = EditorFieldTreeGroup | EditorFieldTreeField
+
+export interface FieldPageGroup {
+  page: number
+  nodes: FieldTreeNode[]
+  totalCount: number
+  detectedCount: number
+  createdCount: number
+}
+
+export interface EditorPageGroup {
+  page: number
+  nodes: EditorFieldTreeNode[]
+  totalCount: number
+  detectedCount: number
+  createdCount: number
+}

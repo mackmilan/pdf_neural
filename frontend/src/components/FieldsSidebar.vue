@@ -10,8 +10,8 @@ import {
 } from '../stores/document'
 import { useFieldEditorStore } from '../stores/fieldEditor'
 import { useModalsStore } from '../stores/modals'
-import { buildEditorFieldTree } from '../composables/fieldTree'
-import type { EditorFieldEntry, EditorFieldTreeGroup, EditorFieldTreeNode, Field, FieldAlign, FieldType } from '../types'
+import { buildEditorPageFieldTree, isCreatedField } from '../composables/fieldTree'
+import type { EditorFieldEntry, EditorFieldTreeGroup, EditorPageGroup, Field, FieldAlign, FieldType } from '../types'
 
 const docStore = useDocumentStore()
 const fieldEditor = useFieldEditorStore()
@@ -28,6 +28,7 @@ const selectedFieldNames = ref<string[]>([])
 const fieldsScroll = ref<HTMLElement | null>(null)
 const fieldRowElements = new Map<string, HTMLElement>()
 const collapsedGroupIds = ref<string[]>([])
+const collapsedPageNumbers = ref<number[]>([])
 const checkboxFields = computed(() => docStore.currentFields.filter((field) => field.type === 'checkbox'))
 const selectedCheckboxFields = computed(() => {
   const selected = new Set(selectedFieldNames.value)
@@ -50,7 +51,20 @@ const allCheckboxesSelected = computed(() => (
 ))
 const canGroupSelectedCheckboxes = computed(() => selectedCheckboxFields.value.length >= 2)
 const canUngroupSelectedCheckboxes = computed(() => selectedGroupedCheckboxFields.value.length > 0)
-const fieldTreeNodes = computed<EditorFieldTreeNode[]>(() => buildEditorFieldTree(docStore.currentFields))
+const pageTreeNodes = computed<EditorPageGroup[]>(() => buildEditorPageFieldTree(docStore.currentFields))
+const totalDetectedCount = computed(() => docStore.currentFields.filter((f) => !isCreatedField(f)).length)
+const totalCreatedCount = computed(() => docStore.currentFields.filter((f) => isCreatedField(f)).length)
+
+function isPageCollapsed(page: number): boolean {
+  return collapsedPageNumbers.value.includes(page)
+}
+
+function togglePage(page: number) {
+  const collapsed = new Set(collapsedPageNumbers.value)
+  if (collapsed.has(page)) collapsed.delete(page)
+  else collapsed.add(page)
+  collapsedPageNumbers.value = Array.from(collapsed)
+}
 const radioDrawingHint = computed(() => {
   if (!isRadio.value) return fieldEditor.hint
   const options = fieldEditor.form.options.split(/\r?\n/).map((option) => option.trim()).filter(Boolean)
@@ -355,6 +369,9 @@ function setFieldRowRef(fieldName: string, element: unknown) {
 async function scrollFieldRowIntoView(fieldName?: string | null) {
   if (!fieldName) return
   const field = docStore.currentFields.find((item) => item.name === fieldName)
+  if (field && isPageCollapsed(field.page)) {
+    collapsedPageNumbers.value = collapsedPageNumbers.value.filter((p) => p !== field.page)
+  }
   const groupId = field?.type === 'radio' ? `radio:${field.name}` : field?.group_id ? String(field.group_id) : ''
   if (groupId && isGroupCollapsed(groupId)) toggleGroup(groupId)
   await nextTick()
@@ -707,7 +724,11 @@ function fieldSummary(field: { type: FieldType; page: number; source?: string; a
   <aside class="fields">
     <div class="fields-header">
       <div class="fields-title-row">
-        <h3>Campos detectados</h3>
+        <h3>Campos por página</h3>
+        <div class="field-counts-summary">
+          <span v-if="totalDetectedCount > 0" class="badge-tag badge-detected">{{ totalDetectedCount }} detectado(s)</span>
+          <span v-if="totalCreatedCount > 0" class="badge-tag badge-created">{{ totalCreatedCount }} criado(s)</span>
+        </div>
         <div class="field-primary-actions" aria-label="Ações principais">
           <button type="button" @click="addField">+ Campo</button>
           <button type="button" @click="saveFields">Salvar</button>
@@ -764,121 +785,153 @@ function fieldSummary(field: { type: FieldType; page: number; source?: string; a
     <div ref="fieldsScroll" class="fields-scroll">
       <div id="fields">
       <template v-if="docStore.currentFields.length">
-        <template v-for="node in fieldTreeNodes" :key="node.kind === 'group' ? node.groupId : node.field.name">
-          <div v-if="node.kind === 'group'" class="field-group" :class="{ active: node.fields.some(({ field }) => props.activeFieldName === field.name) }">
-            <div
-              :ref="(element) => node.groupType === 'radio' && node.field ? setFieldRowRef(node.field.name, element) : undefined"
-              class="field-group-header"
-              :class="{ 'drag-over': dragOverFieldName === `group:${node.groupId}` }"
-              @dragover="dragOverGroup($event, node)"
-              @drop="dropFieldOnGroup($event, node)"
-              @dragleave="dragOverFieldName === `group:${node.groupId}` && (dragOverFieldName = null)"
-            >
-              <label class="field-select" :title="isGroupSelected(node) ? 'Limpar seleção do grupo' : 'Selecionar grupo'">
-                <input
-                  type="checkbox"
-                  :checked="isGroupSelected(node)"
-                  :aria-label="`Selecionar grupo ${node.label}`"
-                  @change="setGroupSelected(node, ($event.target as HTMLInputElement).checked)"
-                >
-              </label>
-              <button type="button" class="field-group-toggle" :aria-expanded="!isGroupCollapsed(node.groupId)" :aria-label="`${isGroupCollapsed(node.groupId) ? 'Expandir' : 'Recolher'} ${node.label}`" @click="toggleGroup(node.groupId)">
-                {{ isGroupCollapsed(node.groupId) ? '+' : '-' }}
-              </button>
-              <button type="button" class="field-group-title" @click="toggleGroup(node.groupId)">
-                <strong>{{ node.label }}</strong>
-                <small>{{ groupSummary(node) }}</small>
-              </button>
-              <button type="button" class="edit-field" :aria-label="`Adicionar item em ${node.label}`" title="Adicionar item" @click="addGroupItem(node)">Adicionar item</button>
-              <button type="button" class="edit-field" :aria-label="`Renomear ${node.label}`" title="Renomear grupo" @click="renameGroup(node)">Renomear</button>
-              <button type="button" class="delete-field" :aria-label="node.groupType === 'radio' ? `Excluir ${node.label}` : `Desagrupar ${node.label}`" :title="node.groupType === 'radio' ? 'Excluir grupo' : 'Desagrupar'" @click="deleteGroup(node)">×</button>
-            </div>
-            <div
-              v-show="!isGroupCollapsed(node.groupId)"
-              class="field-group-children"
-              :class="{ 'drag-over': dragOverFieldName === `group:${node.groupId}` }"
-              @dragover="dragOverGroup($event, node)"
-              @drop="dropFieldOnGroup($event, node)"
-              @dragleave="dragOverFieldName === `group:${node.groupId}` && (dragOverFieldName = null)"
-            >
-              <div
-                v-for="entry in node.fields"
-                :key="entry.optionValue ? `${entry.field.name}:${entry.optionValue}` : entry.field.name"
-                class="field-row field-row-child"
-                :class="{ 'drag-over': dragOverFieldName === entry.field.name, dragging: draggedFieldName === entry.field.name, active: props.activeFieldName === entry.field.name }"
-                @dragover="node.groupType === 'checkbox' && dragOverField($event, entry.field.name)"
-                @drop="node.groupType === 'checkbox' && dropField($event, entry.field.name)"
+        <div
+          v-for="pageGroup in pageTreeNodes"
+          :key="`page-${pageGroup.page}`"
+          class="page-group"
+        >
+          <div class="page-group-header" @click="togglePage(pageGroup.page)">
+            <div class="page-group-title">
+              <button
+                type="button"
+                class="field-group-toggle"
+                :aria-expanded="!isPageCollapsed(pageGroup.page)"
+                :aria-label="`${isPageCollapsed(pageGroup.page) ? 'Recolher' : 'Expandir'} Página ${pageGroup.page}`"
               >
-                <label class="field-select" title="Selecionar campo">
+                {{ isPageCollapsed(pageGroup.page) ? '+' : '-' }}
+              </button>
+              <strong>Página {{ pageGroup.page }}</strong>
+            </div>
+            <div class="page-group-badge">
+              <span>{{ pageGroup.totalCount }} campo(s)</span>
+              <span v-if="pageGroup.detectedCount > 0" class="badge-tag badge-detected">{{ pageGroup.detectedCount }} detectado(s)</span>
+              <span v-if="pageGroup.createdCount > 0" class="badge-tag badge-created">{{ pageGroup.createdCount }} criado(s)</span>
+            </div>
+          </div>
+          <div v-show="!isPageCollapsed(pageGroup.page)" class="page-group-content">
+            <template v-for="node in pageGroup.nodes" :key="node.kind === 'group' ? node.groupId : node.field.name">
+              <div v-if="node.kind === 'group'" class="field-group" :class="{ active: node.fields.some(({ field }) => props.activeFieldName === field.name) }">
+                <div
+                  :ref="(element) => node.groupType === 'radio' && node.field ? setFieldRowRef(node.field.name, element) : undefined"
+                  class="field-group-header"
+                  :class="{ 'drag-over': dragOverFieldName === `group:${node.groupId}` }"
+                  @dragover="dragOverGroup($event, node)"
+                  @drop="dropFieldOnGroup($event, node)"
+                  @dragleave="dragOverFieldName === `group:${node.groupId}` && (dragOverFieldName = null)"
+                >
+                  <label class="field-select" :title="isGroupSelected(node) ? 'Limpar seleção do grupo' : 'Selecionar grupo'">
+                    <input
+                      type="checkbox"
+                      :checked="isGroupSelected(node)"
+                      :aria-label="`Selecionar grupo ${node.label}`"
+                      @change="setGroupSelected(node, ($event.target as HTMLInputElement).checked)"
+                    >
+                  </label>
+                  <button type="button" class="field-group-toggle" :aria-expanded="!isGroupCollapsed(node.groupId)" :aria-label="`${isGroupCollapsed(node.groupId) ? 'Expandir' : 'Recolher'} ${node.label}`" @click="toggleGroup(node.groupId)">
+                    {{ isGroupCollapsed(node.groupId) ? '+' : '-' }}
+                  </button>
+                  <button type="button" class="field-group-title" @click="toggleGroup(node.groupId)">
+                    <strong>{{ node.label }}</strong>
+                    <small>{{ groupSummary(node) }}</small>
+                  </button>
+                  <button type="button" class="edit-field" :aria-label="`Adicionar item em ${node.label}`" title="Adicionar item" @click="addGroupItem(node)">Adicionar item</button>
+                  <button type="button" class="edit-field" :aria-label="`Renomear ${node.label}`" title="Renomear grupo" @click="renameGroup(node)">Renomear</button>
+                  <button type="button" class="delete-field" :aria-label="node.groupType === 'radio' ? `Excluir ${node.label}` : `Desagrupar ${node.label}`" :title="node.groupType === 'radio' ? 'Excluir grupo' : 'Desagrupar'" @click="deleteGroup(node)">×</button>
+                </div>
+                <div
+                  v-show="!isGroupCollapsed(node.groupId)"
+                  class="field-group-children"
+                  :class="{ 'drag-over': dragOverFieldName === `group:${node.groupId}` }"
+                  @dragover="dragOverGroup($event, node)"
+                  @drop="dropFieldOnGroup($event, node)"
+                  @dragleave="dragOverFieldName === `group:${node.groupId}` && (dragOverFieldName = null)"
+                >
+                  <div
+                    v-for="entry in node.fields"
+                    :key="entry.optionValue ? `${entry.field.name}:${entry.optionValue}` : entry.field.name"
+                    class="field-row field-row-child"
+                    :class="{ 'drag-over': dragOverFieldName === entry.field.name, dragging: draggedFieldName === entry.field.name, active: props.activeFieldName === entry.field.name }"
+                    @dragover="node.groupType === 'checkbox' && dragOverField($event, entry.field.name)"
+                    @drop="node.groupType === 'checkbox' && dropField($event, entry.field.name)"
+                  >
+                    <label class="field-select" title="Selecionar campo">
+                      <input
+                        type="checkbox"
+                        :checked="selectedFieldNames.includes(entry.field.name)"
+                        :aria-label="`Selecionar ${groupChildLabel(entry)}`"
+                        @change="setFieldSelected(entry.field.name, ($event.target as HTMLInputElement).checked)"
+                      >
+                    </label>
+                    <div class="field-order-controls" aria-label="Controles de ordenação">
+                      <button
+                        type="button"
+                        class="move-field drag-handle"
+                        :draggable="node.groupType === 'checkbox'"
+                        :aria-label="node.groupType === 'checkbox' ? `Arrastar ${entry.field.label} para reordenar` : `Opção ${groupChildLabel(entry)}`"
+                        :title="node.groupType === 'checkbox' ? 'Arraste para reordenar' : 'Opção radio'"
+                        @dragstart="node.groupType === 'checkbox' && startFieldDrag($event, entry.index)"
+                        @dragend="endFieldDrag"
+                      >⠿</button>
+                      <button type="button" class="move-field" :disabled="node.groupType !== 'checkbox' || entry.index === 0" :aria-label="`Mover ${groupChildLabel(entry)} para cima`" title="Mover para cima" @click="reorderFieldOrSelection(entry.index, 'up')">↑</button>
+                      <button type="button" class="move-field" :disabled="node.groupType !== 'checkbox' || entry.index === docStore.currentFields.length - 1" :aria-label="`Mover ${groupChildLabel(entry)} para baixo`" title="Mover para baixo" @click="reorderFieldOrSelection(entry.index, 'down')">↓</button>
+                    </div>
+                    <a href="#" class="field-link" @click.prevent="emit('scrollTo', entry.field.name)" @dblclick.prevent="emit('openValue', entry.index)">
+                      <strong>{{ groupChildLabel(entry) }}</strong>
+                      <span v-if="isCreatedField(entry.field)" class="badge-tag badge-created" style="margin-left: 6px">Criado</span>
+                      <span v-else class="badge-tag badge-detected" style="margin-left: 6px">Detectado</span>
+                      <br>
+                      <code>{{ entry.field.type }}</code> · {{ node.groupType === 'radio' ? groupChildSummary(entry) : fieldSummary(entry.field) }}
+                    </a>
+                    <button type="button" class="edit-field" :aria-label="`Editar ${groupChildLabel(entry)}`" title="Editar campo" @click="editField(entry.index)">Editar</button>
+                    <button v-if="node.groupType === 'checkbox'" type="button" class="ungroup-field" :aria-label="`Remover ${entry.field.label} do grupo`" title="Remover do grupo" @click="removeFieldFromGroup(entry.field)">Remover</button>
+                    <button v-else type="button" class="ungroup-field" :aria-label="`Editar opções de ${node.label}`" title="Editar opções" @click="editField(entry.index)">Opções</button>
+                    <button type="button" class="delete-field" :aria-label="`Excluir ${groupChildLabel(entry)}`" title="Excluir campo" @click="deleteGroupChild(node, entry)">×</button>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-else
+                :ref="(element) => setFieldRowRef(node.field.name, element)"
+                class="field-row"
+                :class="{ 'drag-over': dragOverFieldName === node.field.name, dragging: draggedFieldName === node.field.name, active: props.activeFieldName === node.field.name }"
+                @dragover="dragOverField($event, node.field.name)"
+                @drop="dropField($event, node.field.name)"
+              >
+                <label class="field-select" :title="node.field.type === 'checkbox' || node.field.type === 'radio' ? 'Selecionar campo' : 'Apenas campos checkbox ou radio podem ser selecionados para conversão'">
                   <input
                     type="checkbox"
-                    :checked="selectedFieldNames.includes(entry.field.name)"
-                    :aria-label="`Selecionar ${groupChildLabel(entry)}`"
-                    @change="setFieldSelected(entry.field.name, ($event.target as HTMLInputElement).checked)"
+                    :checked="selectedFieldNames.includes(node.field.name)"
+                    :disabled="node.field.type !== 'checkbox' && node.field.type !== 'radio'"
+                    :aria-label="`Selecionar ${node.field.label}`"
+                    @change="setFieldSelected(node.field.name, ($event.target as HTMLInputElement).checked)"
                   >
                 </label>
                 <div class="field-order-controls" aria-label="Controles de ordenação">
                   <button
                     type="button"
                     class="move-field drag-handle"
-                    :draggable="node.groupType === 'checkbox'"
-                    :aria-label="node.groupType === 'checkbox' ? `Arrastar ${entry.field.label} para reordenar` : `Opção ${groupChildLabel(entry)}`"
-                    :title="node.groupType === 'checkbox' ? 'Arraste para reordenar' : 'Opção radio'"
-                    @dragstart="node.groupType === 'checkbox' && startFieldDrag($event, entry.index)"
+                    draggable="true"
+                    :aria-label="`Arrastar ${node.field.label} para reordenar`"
+                    title="Arraste para reordenar"
+                    @dragstart="startFieldDrag($event, node.index)"
                     @dragend="endFieldDrag"
                   >⠿</button>
-                  <button type="button" class="move-field" :disabled="node.groupType !== 'checkbox' || entry.index === 0" :aria-label="`Mover ${groupChildLabel(entry)} para cima`" title="Mover para cima" @click="reorderFieldOrSelection(entry.index, 'up')">↑</button>
-                  <button type="button" class="move-field" :disabled="node.groupType !== 'checkbox' || entry.index === docStore.currentFields.length - 1" :aria-label="`Mover ${groupChildLabel(entry)} para baixo`" title="Mover para baixo" @click="reorderFieldOrSelection(entry.index, 'down')">↓</button>
+                  <button type="button" class="move-field" :disabled="node.index === 0" :aria-label="`Mover ${node.field.label} para cima`" title="Mover para cima" @click="reorderFieldOrSelection(node.index, 'up')">↑</button>
+                  <button type="button" class="move-field" :disabled="node.index === docStore.currentFields.length - 1" :aria-label="`Mover ${node.field.label} para baixo`" title="Mover para baixo" @click="reorderFieldOrSelection(node.index, 'down')">↓</button>
                 </div>
-                <a href="#" class="field-link" @click.prevent="emit('scrollTo', entry.field.name)" @dblclick.prevent="emit('openValue', entry.index)">
-                  <strong>{{ groupChildLabel(entry) }}</strong><br>
-                  <code>{{ entry.field.type }}</code> · {{ node.groupType === 'radio' ? groupChildSummary(entry) : fieldSummary(entry.field) }}
+                <a href="#" class="field-link" @click.prevent="emit('scrollTo', node.field.name)" @dblclick.prevent="emit('openValue', node.index)">
+                  <strong>{{ node.field.label }}</strong>
+                  <span v-if="isCreatedField(node.field)" class="badge-tag badge-created" style="margin-left: 6px">Criado</span>
+                  <span v-else class="badge-tag badge-detected" style="margin-left: 6px">Detectado</span>
+                  <br>
+                  <code>{{ node.field.type }}</code> · {{ fieldSummary(node.field) }}
                 </a>
-                <button type="button" class="edit-field" :aria-label="`Editar ${groupChildLabel(entry)}`" title="Editar campo" @click="editField(entry.index)">Editar</button>
-                <button v-if="node.groupType === 'checkbox'" type="button" class="ungroup-field" :aria-label="`Remover ${entry.field.label} do grupo`" title="Remover do grupo" @click="removeFieldFromGroup(entry.field)">Remover</button>
-                <button v-else type="button" class="ungroup-field" :aria-label="`Editar opções de ${node.label}`" title="Editar opções" @click="editField(entry.index)">Opções</button>
-                <button type="button" class="delete-field" :aria-label="`Excluir ${groupChildLabel(entry)}`" title="Excluir campo" @click="deleteGroupChild(node, entry)">×</button>
+                <button type="button" class="edit-field" :aria-label="`Editar ${node.field.label}`" title="Editar campo" @click="editField(node.index)">Editar</button>
+                <button type="button" class="delete-field" :aria-label="`Excluir ${node.field.label}`" title="Excluir campo" @click="deleteField(node.index)">×</button>
               </div>
-            </div>
+            </template>
           </div>
-          <div
-            v-else
-            :ref="(element) => setFieldRowRef(node.field.name, element)"
-            class="field-row"
-            :class="{ 'drag-over': dragOverFieldName === node.field.name, dragging: draggedFieldName === node.field.name, active: props.activeFieldName === node.field.name }"
-            @dragover="dragOverField($event, node.field.name)"
-            @drop="dropField($event, node.field.name)"
-          >
-            <label class="field-select" :title="node.field.type === 'checkbox' || node.field.type === 'radio' ? 'Selecionar campo' : 'Apenas campos checkbox ou radio podem ser selecionados para conversão'">
-              <input
-                type="checkbox"
-                :checked="selectedFieldNames.includes(node.field.name)"
-                :disabled="node.field.type !== 'checkbox' && node.field.type !== 'radio'"
-                :aria-label="`Selecionar ${node.field.label}`"
-                @change="setFieldSelected(node.field.name, ($event.target as HTMLInputElement).checked)"
-              >
-            </label>
-            <div class="field-order-controls" aria-label="Controles de ordenação">
-              <button
-                type="button"
-                class="move-field drag-handle"
-                draggable="true"
-                :aria-label="`Arrastar ${node.field.label} para reordenar`"
-                title="Arraste para reordenar"
-                @dragstart="startFieldDrag($event, node.index)"
-                @dragend="endFieldDrag"
-              >⠿</button>
-              <button type="button" class="move-field" :disabled="node.index === 0" :aria-label="`Mover ${node.field.label} para cima`" title="Mover para cima" @click="reorderFieldOrSelection(node.index, 'up')">↑</button>
-              <button type="button" class="move-field" :disabled="node.index === docStore.currentFields.length - 1" :aria-label="`Mover ${node.field.label} para baixo`" title="Mover para baixo" @click="reorderFieldOrSelection(node.index, 'down')">↓</button>
-            </div>
-            <a href="#" class="field-link" @click.prevent="emit('scrollTo', node.field.name)" @dblclick.prevent="emit('openValue', node.index)">
-              <strong>{{ node.field.label }}</strong><br>
-              <code>{{ node.field.type }}</code> · {{ fieldSummary(node.field) }}
-            </a>
-            <button type="button" class="edit-field" :aria-label="`Editar ${node.field.label}`" title="Editar campo" @click="editField(node.index)">Editar</button>
-            <button type="button" class="delete-field" :aria-label="`Excluir ${node.field.label}`" title="Excluir campo" @click="deleteField(node.index)">×</button>
-          </div>
-        </template>
+        </div>
       </template>
       <template v-else>Nenhum campo encontrado.</template>
       </div>

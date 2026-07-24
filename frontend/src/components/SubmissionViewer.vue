@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useDocumentStore } from '../stores/document'
-import { buildFieldTree } from '../composables/fieldTree'
+import { buildPageFieldTree } from '../composables/fieldTree'
 import PdfPreview from './PdfPreview.vue'
 import ViewerTopMenu from './ViewerTopMenu.vue'
 import type { FieldTreeGroup, SubmissionDetail } from '../types'
@@ -62,7 +62,7 @@ const filledFields = computed(() =>
     value: documentStore.formValues[field.name],
   })),
 )
-const fieldTreeNodes = computed(() => buildFieldTree(documentStore.currentFields))
+const pageTreeNodes = computed(() => buildPageFieldTree(documentStore.currentFields))
 
 function displayValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Sim' : 'Não'
@@ -146,30 +146,38 @@ onMounted(loadSubmission)
         <p v-if="submission?.email" class="status">Responsável: {{ submission.email }}</p>
 
         <div v-if="!filledFields.length" class="viewer-message">Esta submissão não possui campos.</div>
-        <dl v-else class="submission-values">
-          <template v-for="node in fieldTreeNodes" :key="node.kind === 'group' ? node.groupId : node.field.name">
-            <div v-if="node.kind === 'group'" class="submission-value-group">
-              <dt class="submission-value-group-title">
-                <strong>{{ node.label }}</strong>
-                <small>{{ visibleGroupFields(node).length || 0 }} selecionado(s)</small>
-              </dt>
-              <dd class="submission-value-group-children">
-                <dl v-if="visibleGroupFields(node).length">
-                  <div v-for="{ field } in visibleGroupFields(node)" :key="field.name" class="submission-value submission-value-child">
-                    <dt>{{ field.label }}</dt>
-                    <dd v-if="field.type === 'checkbox'">Selecionado</dd>
-                    <dd v-else>{{ displayValue(documentStore.formValues[field.name]) }}</dd>
-                  </div>
-                </dl>
-                <span v-else class="submission-value-empty">-</span>
-              </dd>
+        <div v-else class="submission-values">
+          <div v-for="pageGroup in pageTreeNodes" :key="`page-${pageGroup.page}`" class="viewer-page-section">
+            <div class="viewer-page-header">
+              <h3>Página {{ pageGroup.page }}</h3>
+              <span class="viewer-page-count">{{ pageGroup.totalCount }} campo(s)</span>
             </div>
-            <div v-else class="submission-value">
-              <dt>{{ node.field.label }}</dt>
-              <dd>{{ displayValue(documentStore.formValues[node.field.name]) }}</dd>
-            </div>
-          </template>
-        </dl>
+            <dl>
+              <template v-for="node in pageGroup.nodes" :key="node.kind === 'group' ? node.groupId : node.field.name">
+                <div v-if="node.kind === 'group'" class="submission-value-group">
+                  <dt class="submission-value-group-title">
+                    <strong>{{ node.label }}</strong>
+                    <small>{{ visibleGroupFields(node).length || 0 }} selecionado(s)</small>
+                  </dt>
+                  <dd class="submission-value-group-children">
+                    <dl v-if="visibleGroupFields(node).length">
+                      <div v-for="{ field } in visibleGroupFields(node)" :key="field.name" class="submission-value submission-value-child">
+                        <dt>{{ field.label }}</dt>
+                        <dd v-if="field.type === 'checkbox'">Selecionado</dd>
+                        <dd v-else>{{ displayValue(documentStore.formValues[field.name]) }}</dd>
+                      </div>
+                    </dl>
+                    <span v-else class="submission-value-empty">-</span>
+                  </dd>
+                </div>
+                <div v-else class="submission-value">
+                  <dt>{{ node.field.label }}</dt>
+                  <dd>{{ displayValue(documentStore.formValues[node.field.name]) }}</dd>
+                </div>
+              </template>
+            </dl>
+          </div>
+        </div>
       </aside>
     </div>
   </main>

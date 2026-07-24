@@ -185,6 +185,20 @@ button:disabled { opacity: .5 }
 .field code, .confidence { color: var(--accent-soft) }
 .section-title { margin-top: 26px }
 
+.page-group { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface) }
+.page-group-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--surface-raised); border-bottom: 1px solid var(--border-subtle); cursor: pointer; user-select: none }
+.page-group-header:hover { background: var(--surface-hover, var(--selected-soft)) }
+.page-group-title { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text) }
+.page-group-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--text-secondary) }
+.badge-tag { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600 }
+.badge-detected { background: rgba(59, 130, 246, 0.15); color: #3b82f6 }
+.badge-created { background: rgba(16, 185, 129, 0.15); color: #10b981 }
+.field-counts-summary { display: inline-flex; gap: 6px; align-items: center }
+.viewer-page-section { margin-bottom: 16px; padding: 16px }
+.viewer-page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle) }
+.viewer-page-header h3 { margin: 0; font-size: 16px }
+.viewer-page-count { font-size: 13px; color: var(--text-secondary) }
+
 .history-list { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px }
 .history-item { background: var(--surface-raised); border: 1px solid var(--border); border-radius: 10px; padding: 16px; cursor: pointer; transition: transform 0.2s }
 .history-item:hover { transform: translateY(-2px); border-color: var(--accent) }

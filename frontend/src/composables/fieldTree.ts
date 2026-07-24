@@ -1,4 +1,20 @@
-import type { EditorFieldTreeGroup, EditorFieldTreeNode, Field, FieldTreeGroup, FieldTreeNode } from '../types'
+import type {
+  EditorFieldTreeGroup,
+  EditorFieldTreeNode,
+  EditorPageGroup,
+  Field,
+  FieldPageGroup,
+  FieldTreeGroup,
+  FieldTreeNode,
+} from '../types'
+
+export function isCreatedField(field: Field): boolean {
+  return field.source === 'manual'
+}
+
+export function isDetectedField(field: Field): boolean {
+  return !isCreatedField(field)
+}
 
 export function buildFieldTree(fields: Field[]): FieldTreeNode[] {
   const nodes: FieldTreeNode[] = []
@@ -26,6 +42,49 @@ export function buildFieldTree(fields: Field[]): FieldTreeNode[] {
   })
 
   return nodes
+}
+
+export function buildPageFieldTree(fields: Field[]): FieldPageGroup[] {
+  const nodes = buildFieldTree(fields)
+  const pageMap = new Map<number, FieldPageGroup>()
+
+  nodes.forEach((node) => {
+    let page = 1
+    const fieldsInNode: Field[] = []
+
+    if (node.kind === 'field') {
+      page = Number(node.field.page) || 1
+      fieldsInNode.push(node.field)
+    } else {
+      page = Number(node.fields[0]?.field.page) || 1
+      node.fields.forEach((f) => fieldsInNode.push(f.field))
+    }
+
+    if (!pageMap.has(page)) {
+      pageMap.set(page, {
+        page,
+        nodes: [],
+        totalCount: 0,
+        detectedCount: 0,
+        createdCount: 0,
+      })
+    }
+
+    const pageGroup = pageMap.get(page)!
+    pageGroup.nodes.push(node)
+
+    const countedFields = new Set<string>()
+    fieldsInNode.forEach((field) => {
+      if (!countedFields.has(field.name)) {
+        countedFields.add(field.name)
+        pageGroup.totalCount += 1
+        if (isCreatedField(field)) pageGroup.createdCount += 1
+        else pageGroup.detectedCount += 1
+      }
+    })
+  })
+
+  return Array.from(pageMap.values()).sort((a, b) => a.page - b.page)
 }
 
 export function buildEditorFieldTree(fields: Field[]): EditorFieldTreeNode[] {
@@ -74,4 +133,52 @@ export function buildEditorFieldTree(fields: Field[]): EditorFieldTreeNode[] {
   })
 
   return nodes
+}
+
+export function buildEditorPageFieldTree(fields: Field[]): EditorPageGroup[] {
+  const nodes = buildEditorFieldTree(fields)
+  const pageMap = new Map<number, EditorPageGroup>()
+
+  nodes.forEach((node) => {
+    let page = 1
+    const fieldsInNode: Field[] = []
+
+    if (node.kind === 'field') {
+      page = Number(node.field.page) || 1
+      fieldsInNode.push(node.field)
+    } else {
+      if (node.groupType === 'radio' && node.field) {
+        page = Number(node.field.page) || Number(node.fields[0]?.field.page) || 1
+        fieldsInNode.push(node.field)
+      } else {
+        page = Number(node.fields[0]?.field.page) || 1
+        node.fields.forEach((f) => fieldsInNode.push(f.field))
+      }
+    }
+
+    if (!pageMap.has(page)) {
+      pageMap.set(page, {
+        page,
+        nodes: [],
+        totalCount: 0,
+        detectedCount: 0,
+        createdCount: 0,
+      })
+    }
+
+    const pageGroup = pageMap.get(page)!
+    pageGroup.nodes.push(node)
+
+    const countedFields = new Set<string>()
+    fieldsInNode.forEach((field) => {
+      if (!countedFields.has(field.name)) {
+        countedFields.add(field.name)
+        pageGroup.totalCount += 1
+        if (isCreatedField(field)) pageGroup.createdCount += 1
+        else pageGroup.detectedCount += 1
+      }
+    })
+  })
+
+  return Array.from(pageMap.values()).sort((a, b) => a.page - b.page)
 }

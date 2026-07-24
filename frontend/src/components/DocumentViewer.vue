@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useDocumentStore } from '../stores/document'
-import { buildFieldTree } from '../composables/fieldTree'
+import { buildPageFieldTree } from '../composables/fieldTree'
 import PdfPreview from './PdfPreview.vue'
 import ViewerTopMenu from './ViewerTopMenu.vue'
 import type { Field } from '../types'
@@ -17,7 +17,7 @@ const success = ref('')
 const preview = ref<{ scrollToField: (fieldName: string, optionValue?: string) => void } | null>(null)
 
 const documentName = computed(() => documentStore.currentDocumentName || 'Documento convertido')
-const fieldTreeNodes = computed(() => buildFieldTree(documentStore.currentFields))
+const pageTreeNodes = computed(() => buildPageFieldTree(documentStore.currentFields))
 const topbarChips = computed(() => [
   `${documentStore.currentFields.length} campo${documentStore.currentFields.length === 1 ? '' : 's'}`,
   documentStore.currentSingleSubmissionPerUser ? 'Preenchimento único' : 'Múltiplos envios',
@@ -105,116 +105,126 @@ onMounted(loadDocument)
           Este documento permite apenas um preenchimento por usuário.
         </p>
         <div v-if="!documentStore.currentFields.length" class="viewer-message">Este documento não possui campos.</div>
-        <template v-for="node in fieldTreeNodes" :key="node.kind === 'group' ? node.groupId : node.field.name">
-          <div v-if="node.kind === 'group'" class="viewer-field-group">
-            <div class="viewer-field-group-header">
-              <strong>{{ node.label }}</strong>
-              <small>{{ node.fields.length }} campo(s)</small>
+        <div v-for="pageGroup in pageTreeNodes" :key="`page-${pageGroup.page}`" class="viewer-page-section">
+          <div class="viewer-page-header">
+            <h3>Página {{ pageGroup.page }}</h3>
+            <div class="page-group-badge">
+              <span>{{ pageGroup.totalCount }} campo(s)</span>
+              <span v-if="pageGroup.detectedCount > 0" class="badge-tag badge-detected">{{ pageGroup.detectedCount }} detectado(s)</span>
+              <span v-if="pageGroup.createdCount > 0" class="badge-tag badge-created">{{ pageGroup.createdCount }} criado(s)</span>
             </div>
-            <div class="viewer-field-group-children">
-              <div v-for="{ field } in node.fields" :key="field.name" class="viewer-control viewer-control-child" @focusin="scrollToField(field)">
-                <label v-if="field.type === 'checkbox'" class="viewer-checkbox">
-                  <input
-                    v-model="documentStore.formValues[field.name]"
-                    type="checkbox"
-                    :required="field.required"
-                    @change="scrollToField(field)"
-                  />
-                  {{ field.label }}<span v-if="field.required"> *</span>
-                </label>
-                <div
-                  v-else-if="field.type === 'radio'"
-                  class="viewer-radio-group"
-                  role="group"
-                  :aria-label="field.label"
-                >
-                  <p class="viewer-radio-title">
-                    {{ field.label }}<span v-if="field.required" aria-hidden="true"> *</span>
-                  </p>
-                  <label v-for="option in field.options || []" :key="option" class="viewer-radio-option">
+          </div>
+          <template v-for="node in pageGroup.nodes" :key="node.kind === 'group' ? node.groupId : node.field.name">
+            <div v-if="node.kind === 'group'" class="viewer-field-group">
+              <div class="viewer-field-group-header">
+                <strong>{{ node.label }}</strong>
+                <small>{{ node.fields.length }} campo(s)</small>
+              </div>
+              <div class="viewer-field-group-children">
+                <div v-for="{ field } in node.fields" :key="field.name" class="viewer-control viewer-control-child" @focusin="scrollToField(field)">
+                  <label v-if="field.type === 'checkbox'" class="viewer-checkbox">
                     <input
                       v-model="documentStore.formValues[field.name]"
-                      type="radio"
-                      :name="field.name"
-                      :value="option"
+                      type="checkbox"
                       :required="field.required"
-                      @change="scrollToField(field, option)"
+                      @change="scrollToField(field)"
                     />
-                    <span>{{ option }}</span>
+                    {{ field.label }}<span v-if="field.required"> *</span>
+                  </label>
+                  <div
+                    v-else-if="field.type === 'radio'"
+                    class="viewer-radio-group"
+                    role="group"
+                    :aria-label="field.label"
+                  >
+                    <p class="viewer-radio-title">
+                      {{ field.label }}<span v-if="field.required" aria-hidden="true"> *</span>
+                    </p>
+                    <label v-for="option in field.options || []" :key="option" class="viewer-radio-option">
+                      <input
+                        v-model="documentStore.formValues[field.name]"
+                        type="radio"
+                        :name="field.name"
+                        :value="option"
+                        :required="field.required"
+                        @change="scrollToField(field, option)"
+                      />
+                      <span>{{ option }}</span>
+                    </label>
+                  </div>
+                  <label v-else>
+                    {{ field.label }}<span v-if="field.required"> *</span>
+                    <textarea
+                      v-if="field.type === 'textarea'"
+                      v-model="documentStore.formValues[field.name]"
+                      :required="field.required"
+                      @input="scrollToField(field)"
+                    ></textarea>
+                    <input
+                      v-else
+                      v-model="documentStore.formValues[field.name]"
+                      :type="inputType(field)"
+                      :required="field.required"
+                      :min="field.min"
+                      :max="field.max"
+                      @input="scrollToField(field)"
+                    />
                   </label>
                 </div>
-                <label v-else>
-                  {{ field.label }}<span v-if="field.required"> *</span>
-                  <textarea
-                    v-if="field.type === 'textarea'"
-                    v-model="documentStore.formValues[field.name]"
-                    :required="field.required"
-                    @input="scrollToField(field)"
-                  ></textarea>
-                  <input
-                    v-else
-                    v-model="documentStore.formValues[field.name]"
-                    :type="inputType(field)"
-                    :required="field.required"
-                    :min="field.min"
-                    :max="field.max"
-                    @input="scrollToField(field)"
-                  />
-                </label>
               </div>
             </div>
-          </div>
-          <div v-else class="viewer-control" @focusin="scrollToField(node.field)">
-            <label v-if="node.field.type === 'checkbox'" class="viewer-checkbox">
-              <input
-                v-model="documentStore.formValues[node.field.name]"
-                type="checkbox"
-                :required="node.field.required"
-                @change="scrollToField(node.field)"
-              />
-              {{ node.field.label }}<span v-if="node.field.required"> *</span>
-            </label>
-            <div
-              v-else-if="node.field.type === 'radio'"
-              class="viewer-radio-group"
-              role="group"
-              :aria-label="node.field.label"
-            >
-              <p class="viewer-radio-title">
-                {{ node.field.label }}<span v-if="node.field.required" aria-hidden="true"> *</span>
-              </p>
-              <label v-for="option in node.field.options || []" :key="option" class="viewer-radio-option">
+            <div v-else class="viewer-control" @focusin="scrollToField(node.field)">
+              <label v-if="node.field.type === 'checkbox'" class="viewer-checkbox">
                 <input
                   v-model="documentStore.formValues[node.field.name]"
-                  type="radio"
-                  :name="node.field.name"
-                  :value="option"
+                  type="checkbox"
                   :required="node.field.required"
-                  @change="scrollToField(node.field, option)"
+                  @change="scrollToField(node.field)"
                 />
-                <span>{{ option }}</span>
+                {{ node.field.label }}<span v-if="node.field.required"> *</span>
+              </label>
+              <div
+                v-else-if="node.field.type === 'radio'"
+                class="viewer-radio-group"
+                role="group"
+                :aria-label="node.field.label"
+              >
+                <p class="viewer-radio-title">
+                  {{ node.field.label }}<span v-if="node.field.required" aria-hidden="true"> *</span>
+                </p>
+                <label v-for="option in node.field.options || []" :key="option" class="viewer-radio-option">
+                  <input
+                    v-model="documentStore.formValues[node.field.name]"
+                    type="radio"
+                    :name="node.field.name"
+                    :value="option"
+                    :required="node.field.required"
+                    @change="scrollToField(node.field, option)"
+                  />
+                  <span>{{ option }}</span>
+                </label>
+              </div>
+              <label v-else>
+                {{ node.field.label }}<span v-if="node.field.required"> *</span>
+                <textarea
+                  v-if="node.field.type === 'textarea'"
+                  v-model="documentStore.formValues[node.field.name]"
+                  :required="node.field.required"
+                  @input="scrollToField(node.field)"
+                ></textarea>
+                <input
+                  v-else
+                  v-model="documentStore.formValues[node.field.name]"
+                  :type="inputType(node.field)"
+                  :required="node.field.required"
+                  :min="node.field.min"
+                  :max="node.field.max"
+                  @input="scrollToField(node.field)"
+                />
               </label>
             </div>
-            <label v-else>
-              {{ node.field.label }}<span v-if="node.field.required"> *</span>
-              <textarea
-                v-if="node.field.type === 'textarea'"
-                v-model="documentStore.formValues[node.field.name]"
-                :required="node.field.required"
-                @input="scrollToField(node.field)"
-              ></textarea>
-              <input
-                v-else
-                v-model="documentStore.formValues[node.field.name]"
-                :type="inputType(node.field)"
-                :required="node.field.required"
-                :min="node.field.min"
-                :max="node.field.max"
-                @input="scrollToField(node.field)"
-              />
-            </label>
-          </div>
-        </template>
+          </template>
+        </div>
         <button type="submit" :disabled="saving || !documentStore.currentFields.length">
           {{ saving ? 'Salvando…' : 'Salvar resultado' }}
         </button>
