@@ -189,6 +189,10 @@ function openDocumentRender() {
 <template>
   <section class="card result" :class="{ show: docStore.resultVisible }">
     <div class="result-heading">
+      <button type="button" class="result-back-button button-with-icon" @click="docStore.reset()">
+        <UiIcon name="chevron-left" />
+        Documentos
+      </button>
       <div><small>Resultado</small><h2>{{ docStore.currentDocumentName || 'Documento' }}</h2></div>
       <button type="button" class="render-page-button button-with-icon" :disabled="!documentRenderUrl" aria-label="Abrir renderização do documento em nova aba" @click="openDocumentRender">
         <UiIcon name="external-link" />

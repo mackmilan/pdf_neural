@@ -242,7 +242,13 @@ def run_neural_detection(source: Path, result: Path) -> list[dict]:
         except Exception:
             pass
     return []
-def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResult:
+def convert_pdf_bytes(
+    data: bytes,
+    filename: str,
+    job_id: str,
+    use_ocr: bool = True,
+    detect_fields: bool = True,
+) -> ConversionResult:
     """Executa ferramentas que exigem um path em area temporaria e nao gera artefatos persistentes."""
     safe_name = Path(filename).name or "documento.pdf"
     if not safe_name.lower().endswith(".pdf"):
@@ -251,12 +257,17 @@ def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResu
         source = Path(temporary) / safe_name
         source.write_bytes(data)
         table_detector, field_detector = get_detectors()
+        if not detect_fields:
+            LOGGER.info("Reconhecimento de campos editaveis desativado pela flag detect_fields (nativos e rede neural)")
+        if not use_ocr:
+            LOGGER.info("OCR desativado pela flag use_ocr; paginas sem camada de texto ficarao sem reconhecimento")
         result = convert(
             source,
             table_detector=table_detector,
             field_detector=field_detector,
             job_id=job_id,
-            ocr=get_ocr_extractor(),
+            ocr=get_ocr_extractor() if use_ocr else None,
+            detect_fields=detect_fields,
         )
         if not isinstance(result, ConversionResult):
             raise RuntimeError("A conversao nao retornou os artefatos em memoria")

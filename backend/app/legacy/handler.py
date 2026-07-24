@@ -1293,11 +1293,14 @@ class Handler(BaseHTTPRequestHandler):
             (
                 name, data, url, tenant_id, group_id, category_id,
                 raw_single_submission, raw_page_submission,
+                raw_use_ocr, raw_detect_fields,
             ) = multipart_data(self.headers.get("Content-Type", ""), body)
             tenant_id = validate_context_id(tenant_id, "tenant_id") if tenant_id else None
             group_id = validate_context_id(group_id, "group_id") if group_id else None
             single_submission_per_user = validate_boolean(raw_single_submission, "single_submission_per_user")
             allow_document_page_submission = validate_boolean(raw_page_submission, "allow_document_page_submission")
+            use_ocr = validate_boolean(raw_use_ocr, "use_ocr") if raw_use_ocr else True
+            detect_fields = validate_boolean(raw_detect_fields, "detect_fields") if raw_detect_fields else True
 
             # Se não foi passado no form-data, tenta obter da identidade (API Key)
             if not tenant_id and identity:
@@ -1322,7 +1325,7 @@ class Handler(BaseHTTPRequestHandler):
             
             job = uuid.uuid4().hex
             LOGGER.info("Iniciando job síncrono: %s", job)
-            result = convert_pdf_bytes(data, name, job)
+            result = convert_pdf_bytes(data, name, job, use_ocr=use_ocr, detect_fields=detect_fields)
             content_hash = hashlib.sha256(data).hexdigest()
             identity = db.save_document(
                 job_id=job,

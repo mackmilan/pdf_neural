@@ -769,11 +769,15 @@ def register_routes(api: FastAPI) -> None:
                 category_id,
                 raw_single_submission,
                 raw_page_submission,
+                raw_use_ocr,
+                raw_detect_fields,
             ) = multipart_data(request.headers.get("content-type", ""), body)
             tenant_id = validate_context_id(tenant_id, "tenant_id") if tenant_id else None
             group_id = validate_context_id(group_id, "group_id") if group_id else None
             single_submission_per_user = validate_boolean(raw_single_submission, "single_submission_per_user")
             allow_document_page_submission = validate_boolean(raw_page_submission, "allow_document_page_submission")
+            use_ocr = validate_boolean(raw_use_ocr, "use_ocr") if raw_use_ocr else True
+            detect_fields = validate_boolean(raw_detect_fields, "detect_fields") if raw_detect_fields else True
             if not tenant_id:
                 tenant_id = identity.claims.get("tenant_id")
                 if not group_id:
@@ -797,7 +801,7 @@ def register_routes(api: FastAPI) -> None:
         try:
             job = uuid.uuid4().hex
             LOGGER.info("Iniciando job sincrono: %s", job)
-            result = convert_pdf_bytes(data, name, job)
+            result = convert_pdf_bytes(data, name, job, use_ocr=use_ocr, detect_fields=detect_fields)
             content_hash = hashlib.sha256(data).hexdigest()
             document_identity = db.save_document(
                 job_id=job,

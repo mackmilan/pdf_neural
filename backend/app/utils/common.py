@@ -38,7 +38,7 @@ def job_urls(job: str, base_url: str) -> dict[str, str]:
     }
 
 
-def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str, str, str]:
+def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str, str, str, str, str]:
     marker = "boundary="
     if marker not in content_type:
         raise ValueError("Requisicao multipart invalida")
@@ -46,6 +46,7 @@ def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str
     pdf_name, pdf_data, url = "", b"", ""
     tenant_id, group_id, category_id = "", "", ""
     single_submission_per_user, allow_document_page_submission = "", ""
+    use_ocr, detect_fields = "", ""
     for part in body.split(b"--" + boundary):
         head, sep, data = part.partition(b"\r\n\r\n")
         if not sep:
@@ -67,9 +68,14 @@ def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str
             single_submission_per_user = data.decode("utf-8", "replace").strip()
         elif b'name="allow_document_page_submission"' in head:
             allow_document_page_submission = data.decode("utf-8", "replace").strip()
+        elif b'name="use_ocr"' in head:
+            use_ocr = data.decode("utf-8", "replace").strip()
+        elif b'name="detect_fields"' in head:
+            detect_fields = data.decode("utf-8", "replace").strip()
     return (
         pdf_name, pdf_data, url, tenant_id, group_id, category_id,
         single_submission_per_user, allow_document_page_submission,
+        use_ocr, detect_fields,
     )
 def _resolve_public_url(raw_url: str) -> tuple[str, str, int]:
     """Valida a URL, resolve o DNS uma unica vez e retorna (url, ip_seguro, porta).

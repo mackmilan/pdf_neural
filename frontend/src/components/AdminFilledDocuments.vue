@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import ViewerTopMenu from './ViewerTopMenu.vue'
+import UiIcon from './UiIcon.vue'
 import type { AdminSubmission, Category, Group, Tenant } from '../types'
 
 const auth = useAuthStore()
@@ -25,6 +26,17 @@ const topbarChips = computed(() => [
 const hasFilters = computed(() => Boolean(
   tenantId.value || groupId.value || categoryId.value || dateFrom.value || dateTo.value || user.value.trim(),
 ))
+
+const activeFilterCount = computed(() => [
+  tenantId.value,
+  groupId.value,
+  categoryId.value,
+  dateFrom.value,
+  dateTo.value,
+  user.value.trim(),
+].filter(Boolean).length)
+
+const filtersOpen = ref(false)
 
 function formatDate(value?: string): string {
   if (!value) return ''
@@ -130,7 +142,6 @@ onMounted(async () => {
   <section class="admin-filled-page">
     <ViewerTopMenu
       eyebrow="Documentos preenchidos"
-      context="Acesso restrito: pdf-admin"
       :chips="topbarChips"
     >
       <template #actions>
@@ -138,39 +149,49 @@ onMounted(async () => {
       </template>
     </ViewerTopMenu>
 
-    <form class="filled-filters card" @submit.prevent="loadSubmissions">
-      <label>Tenant
-        <select v-model="tenantId" @change="onTenantChange">
-          <option value="">Todos os tenants</option>
-          <option v-for="tenant in tenants" :key="tenant.tenant_id" :value="tenant.tenant_id">{{ tenant.name }}</option>
-        </select>
-      </label>
-      <label>Grupo
-        <select v-model="groupId" :disabled="!tenantId" @change="onGroupChange">
-          <option value="">Todos os grupos</option>
-          <option v-for="group in groups" :key="group.group_id" :value="group.group_id">{{ group.name }}</option>
-        </select>
-      </label>
-      <label>Categoria
-        <select v-model="categoryId" :disabled="!tenantId || !groupId" @change="loadSubmissions">
-          <option value="">Todas as categorias</option>
-          <option v-for="category in categories" :key="category.category_id" :value="category.category_id">{{ category.name }}</option>
-        </select>
-      </label>
-      <label>De
-        <input v-model="dateFrom" type="date" @change="loadSubmissions">
-      </label>
-      <label>Até
-        <input v-model="dateTo" type="date" @change="loadSubmissions">
-      </label>
-      <label>Usuário
-        <input v-model="user" maxlength="255" placeholder="Nome, e-mail ou subject">
-      </label>
-      <div class="filled-filter-actions">
-        <button type="submit">Filtrar</button>
-        <button type="button" class="button-secondary" :disabled="!hasFilters" @click="clearFilters">Limpar</button>
-      </div>
-    </form>
+    <details
+      class="card collapsible-card filled-filters-card"
+      :open="filtersOpen"
+      @toggle="filtersOpen = ($event.target as HTMLDetailsElement).open"
+    >
+      <summary>
+        <h3>Filtros</h3>
+        <span class="documents-count">{{ activeFilterCount ? `${activeFilterCount} ativo(s)` : 'Nenhum filtro' }}</span>
+      </summary>
+      <form class="filled-filters" @submit.prevent="loadSubmissions">
+        <label>Tenant
+          <select v-model="tenantId" @change="onTenantChange">
+            <option value="">Todos os tenants</option>
+            <option v-for="tenant in tenants" :key="tenant.tenant_id" :value="tenant.tenant_id">{{ tenant.name }}</option>
+          </select>
+        </label>
+        <label>Grupo
+          <select v-model="groupId" :disabled="!tenantId" @change="onGroupChange">
+            <option value="">Todos os grupos</option>
+            <option v-for="group in groups" :key="group.group_id" :value="group.group_id">{{ group.name }}</option>
+          </select>
+        </label>
+        <label>Categoria
+          <select v-model="categoryId" :disabled="!tenantId || !groupId" @change="loadSubmissions">
+            <option value="">Todas as categorias</option>
+            <option v-for="category in categories" :key="category.category_id" :value="category.category_id">{{ category.name }}</option>
+          </select>
+        </label>
+        <label>De
+          <input v-model="dateFrom" type="date" @change="loadSubmissions">
+        </label>
+        <label>Até
+          <input v-model="dateTo" type="date" @change="loadSubmissions">
+        </label>
+        <label>Usuário
+          <input v-model="user" maxlength="255" placeholder="Nome, e-mail ou subject">
+        </label>
+        <div class="filled-filter-actions">
+          <button type="submit">Filtrar</button>
+          <button type="button" class="button-secondary" :disabled="!hasFilters" @click="clearFilters">Limpar</button>
+        </div>
+      </form>
+    </details>
 
     <section class="card filled-results">
       <p v-if="loading" class="viewer-message">Carregando documentos preenchidos...</p>
@@ -184,6 +205,7 @@ onMounted(async () => {
           class="filled-row"
           @click="openSubmission(submission.submission_id)"
         >
+          <UiIcon name="file-text" class="filled-row-icon" />
           <span>
             <strong>{{ submission.document_name }}</strong>
             <small>{{ submission.tenant_name || 'Sem tenant' }} / {{ submission.group_name || 'Sem grupo' }}</small>
@@ -192,11 +214,12 @@ onMounted(async () => {
             <strong>{{ submission.username || submission.email || submission.subject || 'Usuário' }}</strong>
             <small>{{ submission.email || submission.subject }}</small>
           </span>
-          <span>
-            <strong>{{ submission.category_name || 'Sem categoria' }}</strong>
+          <span class="filled-row-meta">
+            <span class="filled-badge">{{ submission.category_name || 'Sem categoria' }}</span>
             <small>Protocolo: {{ submission.submission_id }}</small>
           </span>
-          <small>{{ formatDate(submission.created_at) }}</small>
+          <small class="filled-row-date">{{ formatDate(submission.created_at) }}</small>
+          <UiIcon name="chevron-right" class="filled-row-chevron" />
         </button>
       </div>
     </section>

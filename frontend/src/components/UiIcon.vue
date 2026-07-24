@@ -16,6 +16,7 @@ export type IconName =
   | 'maximize'
   | 'moon'
   | 'more-horizontal'
+  | 'plus'
   | 'refresh'
   | 'save'
   | 'send'
@@ -126,6 +127,10 @@ defineProps<{
       <path d="M12 12h.01" />
       <path d="M19 12h.01" />
       <path d="M5 12h.01" />
+    </g>
+    <g v-else-if="name === 'plus'">
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
     </g>
     <g v-else-if="name === 'refresh'">
       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, nextTick, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { useContextStore } from '../stores/context'
 import { useModalsStore } from '../stores/modals'
 import ViewerTopMenu from './ViewerTopMenu.vue'
 import type { Group, Tenant, UserAccessEntry, UserAccessSummary, UserPermission } from '../types'
 
 const auth = useAuthStore()
+const context = useContextStore()
 const modals = useModalsStore()
 const users = ref<UserAccessSummary[]>([])
 const tenants = ref<Tenant[]>([])
@@ -100,7 +102,7 @@ async function loadGroups() {
 }
 
 function openCreate() {
-  resetForm()
+  void resetForm()
   editing.value = false
   formStatus.value = ''
   showForm.value = true
@@ -129,18 +131,22 @@ function editAccess(user: UserAccessSummary, access: UserAccessEntry) {
   })
 }
 
-function resetForm() {
+async function resetForm() {
   form.value = {
     subject: '',
     username: '',
     email: '',
     password: '',
     temporary_password: true,
-    tenant_id: '',
+    tenant_id: context.tenantId,
     group_id: '',
     permission: 'reader',
   }
   groups.value = []
+  await loadGroups()
+  if (context.groupId && groups.value.some((group) => group.group_id === context.groupId)) {
+    form.value.group_id = context.groupId
+  }
 }
 
 async function saveAccess() {
@@ -228,7 +234,7 @@ async function deleteUser(user: UserAccessSummary) {
       ? 'Usuário excluído do Keycloak e da aplicação.'
       : 'Usuário removido da aplicação. Ele não foi encontrado no Keycloak.'
     if (form.value.subject === user.subject) {
-      resetForm()
+      await resetForm()
       closeForm()
     }
     await loadUsers()
@@ -261,7 +267,6 @@ onMounted(async () => {
   <section class="admin-page">
     <ViewerTopMenu
       eyebrow="Usuários"
-      context="Role global: pdf-admin"
       :chips="topbarChips"
     >
       <template #actions>
@@ -306,40 +311,42 @@ onMounted(async () => {
       <section v-if="showForm" class="modal access-modal" role="dialog" aria-modal="true" aria-label="Cadastro de usuário">
         <h3>{{ editing ? 'Editar acesso' : 'Novo usuário / acesso' }}</h3>
         <form class="access-form" @submit.prevent="saveAccess">
-          <label>Keycloak sub
-            <input ref="firstFieldRef" v-model="form.subject" autocomplete="off" placeholder="Vazio para criar no Keycloak">
-          </label>
-          <label>Username
-            <input v-model="form.username" autocomplete="username" placeholder="Login no Keycloak">
-          </label>
-          <label>E-mail
-            <input v-model="form.email" autocomplete="email" type="email" placeholder="usuario@dominio.com">
-          </label>
-          <label>Senha inicial
-            <input v-model="form.password" autocomplete="new-password" type="password" placeholder="Obrigatória ao criar">
-          </label>
-          <label class="access-check">
-            <input v-model="form.temporary_password" type="checkbox">
-            Exigir troca de senha no primeiro login
-          </label>
-          <label>Tenant
-            <select v-model="form.tenant_id" @change="loadGroups">
-              <option value="">Selecione</option>
-              <option v-for="tenant in tenants" :key="tenant.tenant_id" :value="tenant.tenant_id">{{ tenant.name }}</option>
-            </select>
-          </label>
-          <label>Grupo
-            <select v-model="form.group_id" :disabled="!form.tenant_id">
-              <option value="">Todo o tenant</option>
-              <option v-for="group in groups" :key="group.group_id" :value="group.group_id">{{ group.name }}</option>
-            </select>
-          </label>
-          <label>Papel
-            <select v-model="form.permission">
-              <option value="reader">reader</option>
-              <option value="editor">editor</option>
-            </select>
-          </label>
+          <div class="access-form-fields">
+            <label v-if="editing">Keycloak sub
+              <input v-model="form.subject" autocomplete="off" readonly>
+            </label>
+            <label>Username
+              <input ref="firstFieldRef" v-model="form.username" autocomplete="username" placeholder="Login no Keycloak">
+            </label>
+            <label>E-mail
+              <input v-model="form.email" autocomplete="email" type="email" placeholder="usuario@dominio.com">
+            </label>
+            <label>Senha inicial
+              <input v-model="form.password" autocomplete="new-password" type="password" placeholder="Obrigatória ao criar">
+            </label>
+            <label class="access-check">
+              <input v-model="form.temporary_password" type="checkbox">
+              Exigir troca de senha no primeiro login
+            </label>
+            <label>Tenant
+              <select v-model="form.tenant_id" @change="loadGroups">
+                <option value="">Selecione</option>
+                <option v-for="tenant in tenants" :key="tenant.tenant_id" :value="tenant.tenant_id">{{ tenant.name }}</option>
+              </select>
+            </label>
+            <label>Grupo
+              <select v-model="form.group_id" :disabled="!form.tenant_id">
+                <option value="">Todo o tenant</option>
+                <option v-for="group in groups" :key="group.group_id" :value="group.group_id">{{ group.name }}</option>
+              </select>
+            </label>
+            <label>Papel
+              <select v-model="form.permission">
+                <option value="reader">reader</option>
+                <option value="editor">editor</option>
+              </select>
+            </label>
+          </div>
           <div v-if="formStatus" class="status">{{ formStatus }}</div>
           <div class="modal-actions">
             <button type="button" class="button-secondary" @click="closeForm">Cancelar</button>

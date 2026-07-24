@@ -159,6 +159,55 @@ class ConverterTest(unittest.TestCase):
             checkbox = next(field for field in converted if field["type"] == "checkbox")
             self.assertEqual((checkbox["width"], checkbox["height"]), (14.0, 18.0))
 
+    def test_drops_invisible_text_layer_that_would_overlap_visible_text(self):
+        # Alguns PDFs trazem uma segunda copia do texto marcada como invisivel
+        # (render mode 3). O leitor de origem nunca a mostra, mas sem tratamento o
+        # pdfplumber a extrai e o HTML pinta as duas camadas sobrepostas.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); pdf = root / "invisible-layer.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=(400, 300))
+            c.drawString(30, 250, "Rotulo Visivel")
+            ghost = c.beginText(30, 200)
+            ghost.setTextRenderMode(3)  # texto invisivel
+            ghost.textLine("FantasmaInvisivel")
+            c.drawText(ghost)
+            c.save()
+
+            result = convert(pdf)
+
+            # A camada visivel permanece (o pdfplumber a divide em palavras).
+            self.assertIn("Rotulo", result.html_content)
+            self.assertIn("Visivel", result.html_content)
+            # A camada invisivel duplicada nao pode ser pintada nem reexibida.
+            self.assertNotIn("Fantasma", result.html_content)
+
+    def test_keeps_invisible_only_text_as_transparent_selectable_layer(self):
+        # Scan com reconhecimento embutido (render mode 3) e sem texto visivel: a
+        # camada invisivel e o proprio texto do documento e deve voltar como
+        # camada transparente selecionavel, e nao simplesmente sumir.
+        from PIL import Image
+        from reportlab.lib.utils import ImageReader
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            background = root / "scan.png"
+            Image.new("RGB", (400, 120), "white").save(background)
+            pdf = root / "scanned.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=(400, 300))
+            c.drawImage(ImageReader(str(background)), 0, 150, width=400, height=120)
+            recognized = c.beginText(20, 200)
+            recognized.setTextRenderMode(3)  # camada de OCR invisivel
+            recognized.textLine("Texto reconhecido do scan")
+            c.drawText(recognized)
+            c.save()
+
+            result = convert(pdf)
+
+            # Volta como texto transparente selecionavel, nunca pintado.
+            self.assertIn('<span class="pdf-text pdf-text-hidden"', result.html_content)
+            self.assertIn("reconhecido", result.html_content)
+            self.assertNotIn('<span class="pdf-text" ', result.html_content)
+
 
 if __name__ == "__main__":
     unittest.main()

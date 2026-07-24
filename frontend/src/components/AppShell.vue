@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useContextStore } from '../stores/context'
 import { useDocumentStore } from '../stores/document'
@@ -16,6 +16,8 @@ const auth = useAuthStore()
 const context = useContextStore()
 const docStore = useDocumentStore()
 defineProps<{ activeView: 'documents' | 'users' | 'available' | 'filled' }>()
+
+const showUpload = ref(false)
 
 const currentCategoryName = computed(() => context.categoryName(docStore.currentCategoryId || context.categoryId))
 const currentVersionLabel = computed(() => docStore.currentVersion ? `v${docStore.currentVersion}` : 'Sem versão')
@@ -60,6 +62,15 @@ function openDocumentRender() {
 
         <button
           type="button"
+          class="app-new-document-button button-with-icon"
+          @click="showUpload = true"
+        >
+          <UiIcon name="plus" />
+          Novo documento
+        </button>
+
+        <button
+          type="button"
           class="app-render-button button-with-icon"
           :disabled="!documentRenderUrl"
           @click="openDocumentRender"
@@ -71,11 +82,12 @@ function openDocumentRender() {
     </header>
 
     <div v-if="activeView === 'documents'" class="page-layout">
-      <div class="left-column">
-        <UploadForm />
+      <p v-if="docStore.status" class="status page-layout-status">{{ docStore.status }}</p>
+      <div class="left-column" v-show="!docStore.resultVisible">
         <DocumentHistory />
       </div>
       <ResultPanel />
+      <UploadForm :open="showUpload" @close="showUpload = false" />
     </div>
     <AdminFilledDocuments v-else-if="activeView === 'filled' && auth.isAdmin" />
     <UserAccessManager v-else-if="auth.isAdmin" />

@@ -808,6 +808,119 @@ def extract_images(pdf_path: Path, output: Path = None, job_id: str = None) -> d
     return extracted
 
 
+def invisible_text_spans(pdf_path: Path) -> dict[int, list[dict[str, Any]]]:
+    """Localiza, por pagina, os trechos de texto que o PDF declara mas nao pinta.
+
+    Alguns documentos (por exemplo exportados com uma camada extra de texto ou
+    com glifos marcados como invisiveis) trazem uma copia do conteudo com
+    opacidade zero ou render mode 3/7. O leitor de origem nunca a mostra, mas o
+    pdfplumber a extrai como qualquer outro caractere: quando ela duplica o texto
+    visivel, as palavras saem sobrepostas no HTML e o texto das celulas fica
+    embaralhado, mesmo sem OCR; quando e a UNICA camada de texto (um scan com
+    reconhecimento embutido), ela e justamente o texto selecionavel do documento.
+    O PyMuPDF expoe a opacidade e o render mode de cada trecho, entao o usamos
+    para descobrir ONDE esta esse texto e decidir depois o que fazer com ele.
+
+    Retorna, por numero de pagina (1-based), a lista de trechos
+    ``{"size", "chars": [(x0, top, x1, bottom, texto)]}`` em coordenadas
+    compativeis com as do pdfplumber. Sem o PyMuPDF (ou diante de qualquer falha)
+    devolve ``{}`` e a conversao segue como antes.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return {}
+    invisible: dict[int, list[dict[str, Any]]] = {}
+    try:
+        with fitz.open(str(pdf_path)) as document:
+            for page_index in range(len(document)):
+                page_spans: list[dict[str, Any]] = []
+                for span in document[page_index].get_texttrace():
+                    opacity = float(span.get("opacity", 1.0) or 0.0)
+                    render_mode = int(span.get("type", 0) or 0)
+                    # Texto pintado normalmente fica; so mapeamos o transparente
+                    # (opacidade nula) ou marcado como invisivel/clip (Tr 3 e 7).
+                    if opacity > 0.01 and render_mode not in (3, 7):
+                        continue
+                    chars = [
+                        (float(g[3][0]), float(g[3][1]), float(g[3][2]), float(g[3][3]), chr(g[0]))
+                        for g in span.get("chars", [])
+                    ]
+                    if chars:
+                        page_spans.append({"size": float(span.get("size", 0.0) or 0.0), "chars": chars})
+                if page_spans:
+                    invisible[page_index + 1] = page_spans
+    except Exception:
+        LOGGER.exception("Falha ao mapear texto invisivel de %s", pdf_path.name)
+        return {}
+    return invisible
+
+
+def drop_invisible_chars(page: Any, spans: list[dict[str, Any]]) -> Any:
+    """Devolve a pagina sem os glifos invisiveis mapeados por ``invisible_text_spans``.
+
+    Casa cada glifo pela caixa (borda esquerda, topo e borda direita) e pelo
+    proprio caractere: pdfplumber e PyMuPDF leem o mesmo desenho nas mesmas
+    coordenadas, entao o par identifica um glifo fisico especifico e nao atinge a
+    camada visivel, que esta em outra fonte e posicao. Filtrar aqui, e nao so a
+    lista de palavras, garante que ``find_tables`` e ``extract_text`` (que leem os
+    chars da pagina direto) tambem deixem de ver a camada invisivel.
+    """
+    index: dict[int, list[tuple[float, float, float, str]]] = {}
+    for span in spans:
+        for gx0, gtop, gx1, _gbottom, text in span["chars"]:
+            index.setdefault(round(gtop), []).append((gx0, gtop, gx1, text))
+
+    def is_invisible(obj: dict[str, Any]) -> bool:
+        x0, top, x1 = float(obj["x0"]), float(obj["top"]), float(obj["x1"])
+        text = str(obj.get("text", ""))
+        for bucket in (round(top) - 1, round(top), round(top) + 1):
+            for ix0, itop, ix1, itext in index.get(bucket, ()):
+                if itext == text and abs(x0 - ix0) <= 1.0 and abs(top - itop) <= 1.0 and abs(x1 - ix1) <= 1.5:
+                    return True
+        return False
+
+    return page.filter(lambda obj: obj.get("object_type") != "char" or not is_invisible(obj))
+
+
+def invisible_words(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reagrupa os glifos invisiveis em palavras ``{x0, top, x1, bottom, size, text}``.
+
+    Serve para reexibir a camada como texto transparente selecionavel. As
+    palavras saem de cada trecho quebrando em espacos ou num vao horizontal maior
+    que uma fracao do corpo da fonte.
+    """
+    words: list[dict[str, Any]] = []
+
+    def flush(group: list[tuple[float, float, float, float, str]], size: float) -> None:
+        if not group:
+            return
+        words.append({
+            "x0": min(c[0] for c in group),
+            "top": min(c[1] for c in group),
+            "x1": max(c[2] for c in group),
+            "bottom": max(c[3] for c in group),
+            "size": size,
+            "text": "".join(c[4] for c in group),
+        })
+
+    for span in spans:
+        size = span["size"] or 10.0
+        gap_limit = max(1.0, size * 0.3)
+        group: list[tuple[float, float, float, float, str]] = []
+        for glyph in span["chars"]:
+            if not glyph[4].strip():
+                flush(group, size)
+                group = []
+                continue
+            if group and glyph[0] - group[-1][2] > gap_limit:
+                flush(group, size)
+                group = []
+            group.append(glyph)
+        flush(group, size)
+    return words
+
+
 def convert(
     pdf_path: str | Path,
     output_dir: str | Path | None = None,
@@ -815,6 +928,7 @@ def convert(
     field_detector: Any | None = None,
     job_id: str | None = None,
     ocr: Any | None = None,
+    detect_fields: bool = True,
 ) -> Path | ConversionResult:
     """Converte um PDF.
 
@@ -825,6 +939,10 @@ def convert(
     ``ocr`` recebe um ``backend.app.ml.ocr.OcrExtractor``: paginas digitalizadas,
     que nao trazem camada de texto, tem o texto reconhecido e usado como se fosse
     do proprio PDF (rotulos, tabelas, campos e HTML).
+
+    ``detect_fields=False`` desliga o reconhecimento de campos editaveis por
+    completo: nem os campos nativos do AcroForm nem o detector neural sao
+    aplicados, e o documento e tratado como somente leitura.
     """
     pdf_path = Path(pdf_path)
     output = Path(output_dir) if output_dir is not None else None
@@ -834,8 +952,13 @@ def convert(
             shutil.rmtree(output)
         output.mkdir(parents=True)
     reader = PdfReader(str(pdf_path))
-    native = acro_fields(reader)
+    native = acro_fields(reader) if detect_fields else {}
     images = extract_images(pdf_path, output, job_id=job_id)
+    # Trechos que o PDF declara mas nao pinta (opacidade 0 / render mode 3): sao
+    # removidos da pagina antes de qualquer extracao para nao duplicar e sobrepor
+    # o texto visivel; quando nao ha contrapartida visivel (scan com OCR embutido)
+    # voltam so como camada transparente selecionavel.
+    invisible_spans = invisible_text_spans(pdf_path)
     all_fields: list[Field] = []
     all_tables: list[dict[str, Any]] = []
     page_sizes: list[dict[str, Any]] = []
@@ -843,7 +966,7 @@ def convert(
 
     # Inferência neural de campos (se disponível) para o documento todo de uma vez
     neural_fields_by_page: dict[int, list[dict[str, Any]]] = {}
-    if field_detector:
+    if detect_fields and field_detector:
         try:
             neural_fields_data = field_detector.detect(pdf_path)
             for nf in neural_fields_data:
@@ -853,6 +976,9 @@ def convert(
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page_no, page in enumerate(pdf.pages, 1):
+            page_invisible_spans = invisible_spans.get(page_no) or []
+            if page_invisible_spans:
+                page = drop_invisible_chars(page, page_invisible_spans)
             page_width, page_height = float(page.width), float(page.height)
             page_info: dict[str, Any] = {
                 "page": page_no,
@@ -871,13 +997,15 @@ def convert(
             fields = native.get(page_no, [])
             layouts, table_fields = table_layouts(page, page_no, words)
             all_tables.extend(layouts)
-            fields += table_fields
+            if detect_fields:
+                fields += table_fields
 
             table_bboxes = [
                 (table["x"], table["y"], table["x"] + table["width"], table["y"] + table["height"])
                 for table in layouts
             ]
-            fields += inferred_fields(page, page_no, words, fields, table_bboxes)
+            if detect_fields:
+                fields += inferred_fields(page, page_no, words, fields, table_bboxes)
 
             if page_no in neural_fields_by_page:
                 # Obter bboxes de imagens para filtragem
@@ -1090,20 +1218,55 @@ def convert(
                 # aplica scaleX para a fonte substituta ocupar exatamente esse
                 # espaco, evitando que palavras vizinhas se sobreponham.
                 word_width = max(0.0, float(word.get("x1", 0)) - float(word.get("x0", 0)))
-                color = css_color(word.get("non_stroking_color"), "#111")
-                style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif;color:{color}"
+                base_style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif"
                 # O texto reconhecido fica como camada transparente sobre a
                 # imagem da pagina digitalizada, que ja mostra os glifos: assim
                 # ele pode ser selecionado e buscado sem duplicar o desenho.
+                # Nao emitimos color inline aqui para que a classe
+                # .pdf-text-ocr (color:transparent) valha; uma cor inline
+                # venceria a classe e deixaria o texto do OCR visivel,
+                # duplicando os glifos da imagem.
                 if str(word.get("source", "")) == "ocr":
                     confidence = n(float(word.get("confidence", 0)))
                     elements.append(
                         f'<span class="pdf-text pdf-text-ocr" data-w="{n(word_width)}" '
                         f'data-source="ocr" data-confidence="{confidence}" '
-                        f'style="{style}">{html.escape(word["text"])}</span>'
+                        f'style="{base_style}">{html.escape(word["text"])}</span>'
                     )
                     continue
+                color = css_color(word.get("non_stroking_color"), "#111")
+                style = f"{base_style};color:{color}"
                 elements.append(f'<span class="pdf-text" data-w="{n(word_width)}" style="{style}">{html.escape(word["text"])}</span>')
+
+            # Camada invisivel do proprio PDF (opacidade 0 / render mode 3). Numa
+            # pagina com texto visivel ela apenas o duplica e ja foi descartada da
+            # pagina; numa pagina sem texto visivel (scan com reconhecimento
+            # embutido) ela e o proprio texto do documento e volta como camada
+            # transparente selecionavel, igual ao OCR do app — que, se rodou, ja a
+            # cobre. So reexibimos quando o texto visivel e escasso perto do
+            # invisivel; caso contrario a camada e copia do que ja aparece.
+            hidden_words = invisible_words(page_invisible_spans) if page_invisible_spans else []
+            if hidden_words and not page_info.get("ocr_words") and len(words) * 2 < len(hidden_words):
+                visible_boxes = [
+                    (float(w["x0"]), float(w["top"]), float(w["x1"]), float(w["bottom"]))
+                    for w in words
+                ]
+                for hidden in hidden_words:
+                    hx0, htop, hx1, hbottom = hidden["x0"], hidden["top"], hidden["x1"], hidden["bottom"]
+                    # Palavra sobre texto visivel remanescente so o duplicaria.
+                    if any(
+                        not (hx1 <= vx0 or vx1 <= hx0 or hbottom <= vy0 or vy1 <= htop)
+                        for vx0, vy0, vx1, vy1 in visible_boxes
+                    ):
+                        continue
+                    hidden_style = (
+                        f"left:{n(hx0)}px;top:{n(htop)}px;"
+                        f"font-size:{n(hidden['size'] or (hbottom - htop))}px;font-family:Arial,sans-serif"
+                    )
+                    elements.append(
+                        f'<span class="pdf-text pdf-text-hidden" data-w="{n(max(0.0, hx1 - hx0))}" '
+                        f'data-source="pdf-invisible" style="{hidden_style}">{html.escape(hidden["text"])}</span>'
+                    )
             pages_html.append(
                 f'<div class="pdf-page-shell" id="page-{page_no}" data-page="{page_no}" '
                 f'data-page-width="{n(page_width)}" data-page-height="{n(page_height)}" '
@@ -1187,7 +1350,7 @@ def convert(
 .pdf-page{{position:absolute;inset:0;overflow:hidden;background:white;box-shadow:var(--page-shadow);transform:scale(var(--page-scale,1));transform-origin:top left}}
 .pdf-text,.pdf-image,.pdf-line,.pdf-rect,.pdf-vector{{position:absolute}}.pdf-text{{white-space:pre;line-height:1;transform-origin:top left;color:#111}}.pdf-vector{{inset:0;width:100%;height:100%;pointer-events:none}}
 .pdf-line{{border-top:1px solid #111;pointer-events:none}}.pdf-rect{{border:1px solid #111;pointer-events:none}}.pdf-image{{object-fit:fill}}
-.pdf-text-ocr{{color:transparent}}
+.pdf-text-ocr,.pdf-text-hidden{{color:transparent}}
 .pdf-field{{position:absolute;z-index:25;border:1px solid rgba(255,0,0,0.2);background:rgba(255,0,0,0.05);scroll-margin-top:24px}}
 .pdf-field:hover{{border-color:#ff4444;background:rgba(255,0,0,0.1);cursor:pointer}}
 .pdf-field:target{{border-color:#ff4444;background:rgba(255,0,0,0.15);box-shadow:0 0 0 2px #ff444433}}
