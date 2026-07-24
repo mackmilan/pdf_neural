@@ -23,12 +23,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     libgl1 \
     libglib2.0-0 \
+    tesseract-ocr \
+    tesseract-ocr-por \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-ml.txt ./
+COPY requirements.txt requirements-ml.txt requirements-ocr.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt "numpy>=1.26,<3" \
-    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<3"
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<3" \
+    && pip install --no-cache-dir "pytesseract>=0.3.10,<0.4"
 
 COPY --chown=app:app . .
 COPY --from=frontend-builder --chown=app:app /app/static /app/static

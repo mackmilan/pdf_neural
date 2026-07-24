@@ -13,15 +13,20 @@ import pdfplumber
 
 from backend.app.services.converter import ConversionResult, convert
 from backend.app.ml.fields import FieldDetector, render_pdf
+from backend.app.ml.ocr import OcrExtractor, OcrUnavailable, create_extractor
 from backend.app.ml.tables import TableDetector
 from backend.app.core.config import (
     FIELD_MODELS, LOGGER, NEURAL_ENABLED, NEURAL_MIN_CONFIDENCE,
-    NEURAL_THRESHOLD, TABLE_MODEL,
+    NEURAL_THRESHOLD, OCR_DPI, OCR_ENABLED, OCR_ENGINE, OCR_LANG,
+    OCR_MIN_CONFIDENCE, OCR_MIN_WORDS, OCR_MODE, TABLE_MODEL,
 )
 
 _TABLE_DETECTOR: TableDetector | None = None
 _FIELD_DETECTOR: Any | None = None
 _DETECTOR_LOCK = threading.Lock()
+_OCR_EXTRACTOR: OcrExtractor | None = None
+_OCR_LOADED = False
+_OCR_LOCK = threading.Lock()
 
 def field_iou(left: dict[str, Any], right: dict[str, Any]) -> float:
     left_x1 = float(left["x"]) + float(left["width"])
@@ -117,6 +122,35 @@ def get_detectors() -> tuple[TableDetector | None, Any | None]:
                     _FIELD_DETECTOR = MultiFieldDetector(field_detectors)
                     LOGGER.info("Detector composto de campos carregado com %d modelos", len(field_detectors))
     return _TABLE_DETECTOR, _FIELD_DETECTOR
+
+
+def get_ocr_extractor() -> OcrExtractor | None:
+    """Carrega o motor de OCR uma unica vez; ausente, a conversao segue sem ele."""
+    global _OCR_EXTRACTOR, _OCR_LOADED
+    if not OCR_ENABLED:
+        return None
+    if not _OCR_LOADED:
+        with _OCR_LOCK:
+            if not _OCR_LOADED:
+                try:
+                    _OCR_EXTRACTOR = create_extractor(
+                        engine=OCR_ENGINE,
+                        lang=OCR_LANG,
+                        mode=OCR_MODE,
+                        dpi=OCR_DPI,
+                        min_confidence=OCR_MIN_CONFIDENCE,
+                        min_words=OCR_MIN_WORDS,
+                    )
+                    LOGGER.info(
+                        "Motor de OCR carregado: %s (modo %s, %d dpi, idioma %s)",
+                        _OCR_EXTRACTOR.engine_name, _OCR_EXTRACTOR.mode, _OCR_EXTRACTOR.dpi, OCR_LANG,
+                    )
+                except OcrUnavailable as exc:
+                    LOGGER.warning("OCR indisponivel, seguindo sem reconhecimento de texto: %s", exc)
+                except Exception:
+                    LOGGER.exception("Erro ao carregar o motor de OCR")
+                _OCR_LOADED = True
+    return _OCR_EXTRACTOR
 
 
 def render_neural_tables(result: Path, tables: list[dict]) -> None:
@@ -217,7 +251,13 @@ def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResu
         source = Path(temporary) / safe_name
         source.write_bytes(data)
         table_detector, field_detector = get_detectors()
-        result = convert(source, table_detector=table_detector, field_detector=field_detector, job_id=job_id)
+        result = convert(
+            source,
+            table_detector=table_detector,
+            field_detector=field_detector,
+            job_id=job_id,
+            ocr=get_ocr_extractor(),
+        )
         if not isinstance(result, ConversionResult):
             raise RuntimeError("A conversao nao retornou os artefatos em memoria")
         return result

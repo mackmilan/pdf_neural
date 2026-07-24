@@ -6,13 +6,17 @@ from pathlib import Path
 from reportlab.pdfgen import canvas
 
 from backend.app.services.converter import ConversionResult, convert, image_key, textual_empty_parentheses_fields
-from app import validate_public_url
+from backend.app.utils.common import validate_public_url
 
 
 class ConverterTest(unittest.TestCase):
     def test_matches_pdf_images_by_xobject_name_not_list_order(self):
         self.assertEqual(image_key("IM59.jpg"), "IM59")
         self.assertEqual(image_key("IM8"), "IM8")
+        # Scans nomeiam o XObject com ponto: o pdfplumber devolve o nome cru e o
+        # pypdf acrescenta ".png". Cortar so a extensao mantem os dois iguais.
+        self.assertEqual(image_key("FormXob.536ae2cc"), "FormXob.536ae2cc")
+        self.assertEqual(image_key("FormXob.536ae2cc.png"), "FormXob.536ae2cc")
 
     def test_rejects_private_pdf_url(self):
         with self.assertRaisesRegex(ValueError, "locais|privada"):

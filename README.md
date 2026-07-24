@@ -16,6 +16,9 @@ Markdown.
 ## O que ele faz
 
 - le campos AcroForm nativos;
+- reconhece por OCR o texto de paginas digitalizadas, que nao tem camada de
+  texto, e o usa como se fosse do proprio PDF (veja
+  [OCR de PDFs digitalizados](#ocr-de-pdfs-digitalizados));
 - infere campos visuais a partir de linhas, caixas e rotulos;
 - infere e permite editar tipos (`text`, `date`, `email`, `tel`, `number`, `checkbox`, `radio` e `textarea`);
 - extrai imagens e logotipos para a pasta `assets/`;
@@ -235,6 +238,73 @@ possa ser executado.
 A documentacao interativa Swagger e a especificacao OpenAPI 3.1 sao geradas
 pelo FastAPI em `http://127.0.0.1:8000/docs` e
 `http://127.0.0.1:8000/openapi.json`.
+
+## OCR de PDFs digitalizados
+
+Em um PDF digitalizado a pagina inteira e uma imagem: `extract_words()` devolve
+nada, nenhum rotulo e encontrado e o HTML sai apenas com o scan. Com o OCR ligado
+o texto dessas paginas e reconhecido e entra no pipeline como se viesse do proprio
+PDF — rotulos, tipos inferidos, tabelas textuais e a camada de texto do HTML.
+
+A instalacao e opcional. Sem um motor disponivel a conversao continua igual, com
+um aviso no log:
+
+```bash
+pip install -r requirements-ocr.txt
+# Debian/Ubuntu: apt-get install tesseract-ocr tesseract-ocr-por
+# macOS:         brew install tesseract tesseract-lang
+```
+
+Dois motores sao aceitos e escolhidos nesta ordem quando `OCR_ENGINE=auto`:
+
+| Motor | Instalacao | Saida |
+| --- | --- | --- |
+| `tesseract` | `pytesseract` + binario do sistema | caixa e confianca por palavra |
+| `rapidocr` | `rapidocr-onnxruntime` (so pip) | linha inteira, dividida em palavras por proporcao |
+
+Configuracao por ambiente:
+
+```bash
+OCR_ENABLED=true \
+OCR_ENGINE=auto \
+OCR_MODE=auto \
+OCR_LANG=por \
+OCR_DPI=300 \
+OCR_MIN_CONFIDENCE=0.45 \
+python -m backend.app.main
+```
+
+`OCR_MODE=auto` (padrao) so aciona o motor em paginas que tem imagem e menos de
+`OCR_MIN_WORDS` palavras proprias — ou seja, nada muda em PDFs nativos e nao ha
+custo de rasterizacao neles. `OCR_MODE=always` reconhece todas as paginas; nesse
+caso, palavras que caem sobre o texto ja declarado pelo PDF sao descartadas para
+nao duplicar conteudo.
+
+Pela linha de comando:
+
+```bash
+python -m backend.app.services.converter documento.pdf -o output/pdf-html --ocr
+```
+
+No resultado, cada pagina de `pages.json` ganha a origem do seu texto:
+
+```json
+{
+  "page": 1,
+  "text_source": "ocr",
+  "ocr_engine": "tesseract",
+  "ocr_words": 184,
+  "ocr_text": "REQUERIMENTO DE MATRICULA ..."
+}
+```
+
+`text_source` vale `pdf` (nada reconhecido), `ocr` (a pagina nao tinha texto
+proprio) ou `mixed` (o OCR completou o que ja existia). No HTML as palavras
+reconhecidas ficam em `span.pdf-text.pdf-text-ocr`, transparentes sobre a imagem
+do scan — que ja mostra os glifos — com `data-confidence` por palavra. O texto
+continua selecionavel e pesquisavel, como na camada de texto de um PDF OCRizado.
+Uma falha do motor e registrada no log e a pagina segue com o texto que o PDF
+declarou.
 
 ## Autenticação e autorização
 
@@ -552,5 +622,8 @@ docker compose up --build
 PDF e uma linguagem de desenho, nao de layout. Textos e formas sao reconstruidos por
 coordenadas absolutas. Fontes nao instaladas no navegador recebem uma alternativa
 compativel. Curvas complexas sao preservadas como SVG; isso continua sendo HTML vetorial,
-nao uma captura da pagina. PDFs digitalizados precisam de OCR, que nao faz parte desta
-primeira versao.
+nao uma captura da pagina. PDFs digitalizados dependem do
+[OCR](#ocr-de-pdfs-digitalizados): sem um motor instalado, essas paginas saem
+apenas com a imagem do scan. Mesmo com OCR, linhas e retangulos dessas paginas
+continuam sendo pixels, entao as heuristicas geometricas de campo (underscores,
+caixas e grades de tabela) nao se aplicam a elas.

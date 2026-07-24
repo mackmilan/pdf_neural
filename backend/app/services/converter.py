@@ -706,9 +706,62 @@ def table_layouts(
     return layouts, fields
 
 
+def ocr_words(
+    ocr: Any | None,
+    pdf_path: Path,
+    page: Any,
+    page_no: int,
+    page_width: float,
+    page_height: float,
+    words: list[dict[str, Any]],
+    page_info: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Completa as palavras da pagina com o texto reconhecido por OCR.
+
+    Registra em ``page_info`` a origem do texto para que o consumidor saiba que
+    aquela pagina depende do reconhecimento. Falhas do motor nunca interrompem a
+    conversao: a pagina continua com o texto que o PDF declarou.
+    """
+    if ocr is None:
+        return words
+    try:
+        if not ocr.should_run(words, page):
+            return words
+        recognized = ocr.page_words(pdf_path, page_no, page_width, page_height)
+    except Exception:
+        LOGGER.exception("Falha no OCR da pagina %d de %s", page_no, pdf_path.name)
+        return words
+    if not recognized:
+        return words
+
+    from backend.app.ml.ocr import merge_ocr_words
+
+    merged = merge_ocr_words(words, recognized)
+    added = len(merged) - len(words)
+    if added <= 0:  # tudo o que o OCR viu ja estava na camada de texto
+        return words
+    page_info["text_source"] = "ocr" if not words else "mixed"
+    page_info["ocr_engine"] = ocr.engine_name
+    page_info["ocr_words"] = added
+    page_info["ocr_text"] = " ".join(str(word["text"]) for word in recognized)
+    LOGGER.info("Pagina %d: %d palavras vindas do OCR", page_no, added)
+    return merged
+
+
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".jp2", ".tif", ".tiff", ".bmp", ".gif", ".jbig2", ".ccitt"}
+
+
 def image_key(name: str) -> str:
-    """Return the PDF XObject name shared by pypdf and pdfplumber."""
-    return Path(str(name)).stem
+    """Return the PDF XObject name shared by pypdf and pdfplumber.
+
+    pypdf acrescenta a extensao do formato ("IM59.jpg"); o pdfplumber devolve o
+    nome cru. Remover o sufixo so quando ele e mesmo uma extensao de imagem
+    preserva nomes que ja contem ponto (ex.: "FormXob.536ae2..." em scans), que
+    de outro modo ficariam diferentes nos dois lados e deixariam a pagina sem
+    imagem no HTML.
+    """
+    path = Path(str(name))
+    return path.stem if path.suffix.lower() in IMAGE_SUFFIXES else path.name
 
 
 def extract_images(pdf_path: Path, output: Path = None, job_id: str = None) -> dict[int, dict[str, dict[str, Any]]]:
@@ -761,12 +814,17 @@ def convert(
     table_detector: Any | None = None,
     field_detector: Any | None = None,
     job_id: str | None = None,
+    ocr: Any | None = None,
 ) -> Path | ConversionResult:
     """Converte um PDF.
 
     Sem ``output_dir``, devolve todos os artefatos em memoria. O modo com
     diretorio continua disponivel apenas para a CLI e compatibilidade da API
     publica desta funcao.
+
+    ``ocr`` recebe um ``backend.app.ml.ocr.OcrExtractor``: paginas digitalizadas,
+    que nao trazem camada de texto, tem o texto reconhecido e usado como se fosse
+    do proprio PDF (rotulos, tabelas, campos e HTML).
     """
     pdf_path = Path(pdf_path)
     output = Path(output_dir) if output_dir is not None else None
@@ -796,17 +854,20 @@ def convert(
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page_no, page in enumerate(pdf.pages, 1):
             page_width, page_height = float(page.width), float(page.height)
-            page_sizes.append({
+            page_info: dict[str, Any] = {
                 "page": page_no,
                 "width": page_width,
                 "height": page_height,
                 "unit": "pt",
                 "aspect_ratio": page_width / page_height,
                 "orientation": "landscape" if page_width > page_height else "portrait",
-            })
+                "text_source": "pdf",
+            }
+            page_sizes.append(page_info)
             # non_stroking_color permite reproduzir no HTML a cor original do
             # texto (ex.: instrucoes em vermelho em modelos de ata).
             words = page.extract_words(extra_attrs=["fontname", "size", "non_stroking_color"], keep_blank_chars=False)
+            words = ocr_words(ocr, pdf_path, page, page_no, page_width, page_height, words, page_info)
             fields = native.get(page_no, [])
             layouts, table_fields = table_layouts(page, page_no, words)
             all_tables.extend(layouts)
@@ -1031,6 +1092,17 @@ def convert(
                 word_width = max(0.0, float(word.get("x1", 0)) - float(word.get("x0", 0)))
                 color = css_color(word.get("non_stroking_color"), "#111")
                 style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif;color:{color}"
+                # O texto reconhecido fica como camada transparente sobre a
+                # imagem da pagina digitalizada, que ja mostra os glifos: assim
+                # ele pode ser selecionado e buscado sem duplicar o desenho.
+                if str(word.get("source", "")) == "ocr":
+                    confidence = n(float(word.get("confidence", 0)))
+                    elements.append(
+                        f'<span class="pdf-text pdf-text-ocr" data-w="{n(word_width)}" '
+                        f'data-source="ocr" data-confidence="{confidence}" '
+                        f'style="{style}">{html.escape(word["text"])}</span>'
+                    )
+                    continue
                 elements.append(f'<span class="pdf-text" data-w="{n(word_width)}" style="{style}">{html.escape(word["text"])}</span>')
             pages_html.append(
                 f'<div class="pdf-page-shell" id="page-{page_no}" data-page="{page_no}" '
@@ -1115,6 +1187,7 @@ def convert(
 .pdf-page{{position:absolute;inset:0;overflow:hidden;background:white;box-shadow:var(--page-shadow);transform:scale(var(--page-scale,1));transform-origin:top left}}
 .pdf-text,.pdf-image,.pdf-line,.pdf-rect,.pdf-vector{{position:absolute}}.pdf-text{{white-space:pre;line-height:1;transform-origin:top left;color:#111}}.pdf-vector{{inset:0;width:100%;height:100%;pointer-events:none}}
 .pdf-line{{border-top:1px solid #111;pointer-events:none}}.pdf-rect{{border:1px solid #111;pointer-events:none}}.pdf-image{{object-fit:fill}}
+.pdf-text-ocr{{color:transparent}}
 .pdf-field{{position:absolute;z-index:25;border:1px solid rgba(255,0,0,0.2);background:rgba(255,0,0,0.05);scroll-margin-top:24px}}
 .pdf-field:hover{{border-color:#ff4444;background:rgba(255,0,0,0.1);cursor:pointer}}
 .pdf-field:target{{border-color:#ff4444;background:rgba(255,0,0,0.15);box-shadow:0 0 0 2px #ff444433}}
@@ -1172,6 +1245,21 @@ if __name__ == "__main__":
     parser.add_argument("pdf")
     parser.add_argument("-o", "--output", default="output/pdf-html")
     parser.add_argument("-m", "--model", help="Caminho para o modelo de deteccao de tabelas neurais")
+    parser.add_argument(
+        "--ocr",
+        nargs="?",
+        const="auto",
+        choices=["auto", "tesseract", "rapidocr"],
+        help="Reconhece o texto de paginas digitalizadas com o motor indicado",
+    )
+    parser.add_argument("--ocr-lang", default="por", help="Idioma do OCR (padrao: por)")
+    parser.add_argument("--ocr-dpi", type=int, default=300, help="Resolucao usada no OCR (padrao: 300)")
+    parser.add_argument(
+        "--ocr-mode",
+        default="auto",
+        choices=["auto", "always"],
+        help="auto: apenas paginas sem camada de texto; always: todas as paginas",
+    )
     args = parser.parse_args()
 
     table_detector = None
@@ -1179,5 +1267,10 @@ if __name__ == "__main__":
         from backend.app.ml.tables import TableDetector
         table_detector = TableDetector(Path(args.model))
 
-    result = convert(args.pdf, args.output, table_detector=table_detector)
+    ocr = None
+    if args.ocr:
+        from backend.app.ml.ocr import create_extractor
+        ocr = create_extractor(engine=args.ocr, lang=args.ocr_lang, mode=args.ocr_mode, dpi=args.ocr_dpi)
+
+    result = convert(args.pdf, args.output, table_detector=table_detector, ocr=ocr)
     print(result / "index.html")

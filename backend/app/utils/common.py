@@ -3,7 +3,6 @@ from __future__ import annotations
 import http.client
 import json
 import ipaddress
-import shutil
 import socket
 import time
 import urllib.error
@@ -37,21 +36,6 @@ def job_urls(job: str, base_url: str) -> dict[str, str]:
     return {
         "preview_url": f"{base}/jobs/{job}/html/index.html",
     }
-
-
-def convert_pdf_bytes(data: bytes, filename: str, job_id: str) -> ConversionResult:
-    """Executa ferramentas que exigem um path em area temporaria e nao gera artefatos persistentes."""
-    safe_name = Path(filename).name or "documento.pdf"
-    if not safe_name.lower().endswith(".pdf"):
-        safe_name += ".pdf"
-    with tempfile.TemporaryDirectory(prefix="pdf-neural-") as temporary:
-        source = Path(temporary) / safe_name
-        source.write_bytes(data)
-        table_detector, field_detector = get_detectors()
-        result = convert(source, table_detector=table_detector, field_detector=field_detector, job_id=job_id)
-        if not isinstance(result, ConversionResult):
-            raise RuntimeError("A conversao nao retornou os artefatos em memoria")
-        return result
 
 
 def multipart_data(content_type: str, body: bytes) -> tuple[str, bytes, str, str, str, str, str, str]:
