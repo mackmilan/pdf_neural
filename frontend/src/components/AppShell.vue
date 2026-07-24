@@ -9,6 +9,7 @@ import DocumentHistory from './DocumentHistory.vue'
 import ResultPanel from './ResultPanel.vue'
 import ApiKeyManager from './ApiKeyManager.vue'
 import UiIcon from './UiIcon.vue'
+import ThemeToggle from './ThemeToggle.vue'
 
 const UserAccessManager = defineAsyncComponent(() => import('./UserAccessManager.vue'))
 const AdminFilledDocuments = defineAsyncComponent(() => import('./AdminFilledDocuments.vue'))
@@ -76,6 +77,7 @@ function openDocumentRender() {
         </nav>
 
         <div class="app-session-actions">
+          <ThemeToggle />
           <button v-if="auth.isAdmin" type="button" class="app-icon-button" title="API Key" aria-label="API Key" @click="apiKeyManager?.open()">
             <UiIcon name="key" />
           </button>

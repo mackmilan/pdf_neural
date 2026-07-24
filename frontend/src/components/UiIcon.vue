@@ -8,9 +8,11 @@ type IconName =
   | 'key'
   | 'log-out'
   | 'maximize'
+  | 'moon'
   | 'more-horizontal'
   | 'refresh'
   | 'save'
+  | 'sun'
   | 'trash'
   | 'search'
   | 'upload'
@@ -63,6 +65,20 @@ defineProps<{
       <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
       <path d="M3 16v3a2 2 0 0 0 2 2h3" />
       <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </g>
+    <g v-else-if="name === 'moon'">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+    </g>
+    <g v-else-if="name === 'sun'">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+      <path d="m4.9 4.9 1.4 1.4" />
+      <path d="m17.7 17.7 1.4 1.4" />
+      <path d="m19.1 4.9-1.4 1.4" />
+      <path d="m6.3 17.7-1.4 1.4" />
     </g>
     <g v-else-if="name === 'more-horizontal'">
       <path d="M12 12h.01" />
