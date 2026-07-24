@@ -27,8 +27,8 @@ const dragOverFieldName = ref<string | null>(null)
 const selectedFieldNames = ref<string[]>([])
 const fieldsScroll = ref<HTMLElement | null>(null)
 const fieldRowElements = new Map<string, HTMLElement>()
-const collapsedGroupIds = ref<string[]>([])
-const collapsedPageNumbers = ref<number[]>([])
+const expandedGroupIds = ref<string[]>([])
+const expandedPageNumbers = ref<number[]>([])
 const checkboxFields = computed(() => docStore.currentFields.filter((field) => field.type === 'checkbox'))
 const selectedCheckboxFields = computed(() => {
   const selected = new Set(selectedFieldNames.value)
@@ -56,14 +56,14 @@ const totalDetectedCount = computed(() => docStore.currentFields.filter((f) => !
 const totalCreatedCount = computed(() => docStore.currentFields.filter((f) => isCreatedField(f)).length)
 
 function isPageCollapsed(page: number): boolean {
-  return collapsedPageNumbers.value.includes(page)
+  return !expandedPageNumbers.value.includes(page)
 }
 
 function togglePage(page: number) {
-  const collapsed = new Set(collapsedPageNumbers.value)
-  if (collapsed.has(page)) collapsed.delete(page)
-  else collapsed.add(page)
-  collapsedPageNumbers.value = Array.from(collapsed)
+  const expanded = new Set(expandedPageNumbers.value)
+  if (expanded.has(page)) expanded.delete(page)
+  else expanded.add(page)
+  expandedPageNumbers.value = Array.from(expanded)
 }
 const radioDrawingHint = computed(() => {
   if (!isRadio.value) return fieldEditor.hint
@@ -97,14 +97,14 @@ function groupChildSummary(entry: EditorFieldEntry): string {
 }
 
 function isGroupCollapsed(groupId: string): boolean {
-  return collapsedGroupIds.value.includes(groupId)
+  return !expandedGroupIds.value.includes(groupId)
 }
 
 function toggleGroup(groupId: string) {
-  const collapsed = new Set(collapsedGroupIds.value)
-  if (collapsed.has(groupId)) collapsed.delete(groupId)
-  else collapsed.add(groupId)
-  collapsedGroupIds.value = Array.from(collapsed)
+  const expanded = new Set(expandedGroupIds.value)
+  if (expanded.has(groupId)) expanded.delete(groupId)
+  else expanded.add(groupId)
+  expandedGroupIds.value = Array.from(expanded)
 }
 
 function isGroupSelected(group: EditorFieldTreeGroup): boolean {
@@ -159,7 +159,7 @@ async function groupSelectedCheckboxes() {
       field.group_label = label
     }
   })
-  collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== groupId)
+  if (!expandedGroupIds.value.includes(groupId)) expandedGroupIds.value = [...expandedGroupIds.value, groupId]
   docStore.status = `${selected.size} checkbox(es) agrupado(s). Clique em Salvar alterações.`
 }
 
@@ -213,14 +213,14 @@ function ungroupSelectedCheckboxes() {
 function ungroupTreeGroup(group: EditorFieldTreeGroup) {
   if (group.groupType === 'radio') return
   ungroupFieldNames(groupFieldNames(group))
-  collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
+  expandedGroupIds.value = expandedGroupIds.value.filter((id) => id !== group.groupId)
   docStore.status = `Grupo "${group.label}" desfeito. Clique em Salvar alterações.`
 }
 
 function addRadioOptionToGroup(group: EditorFieldTreeGroup) {
   if (group.index === undefined) return
   editField(group.index)
-  collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
+  if (!expandedGroupIds.value.includes(group.groupId)) expandedGroupIds.value = [...expandedGroupIds.value, group.groupId]
   docStore.status = `Edite as opções do grupo radio "${group.label}".`
 }
 
@@ -232,7 +232,7 @@ function addGroupItem(group: EditorFieldTreeGroup) {
 function deleteGroup(group: EditorFieldTreeGroup) {
   if (group.groupType === 'radio' && group.index !== undefined) {
     deleteField(group.index)
-    collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
+    expandedGroupIds.value = expandedGroupIds.value.filter((id) => id !== group.groupId)
     return
   }
   ungroupTreeGroup(group)
@@ -241,7 +241,7 @@ function deleteGroup(group: EditorFieldTreeGroup) {
 function addCheckboxToGroup(group: EditorFieldTreeGroup) {
   if (!docStore.currentJobId) return
   fieldEditor.startAddCheckboxInGroup(group.groupId, group.label)
-  collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
+  if (!expandedGroupIds.value.includes(group.groupId)) expandedGroupIds.value = [...expandedGroupIds.value, group.groupId]
   docStore.status = `Informe o nome e desenhe o novo checkbox do grupo "${group.label}".`
 }
 
@@ -327,7 +327,7 @@ function addCheckboxesToRadioGroup(group: EditorFieldTreeGroup, checkboxes: Fiel
   group.field.option_boxes = nextBoxes
   docStore.currentFields = docStore.currentFields.filter((field) => !removed.has(field.name))
   selectedFieldNames.value = selectedFieldNames.value.filter((name) => !removed.has(name))
-  collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
+  if (!expandedGroupIds.value.includes(group.groupId)) expandedGroupIds.value = [...expandedGroupIds.value, group.groupId]
   docStore.status = `${checkboxes.length} checkbox(es) convertido(s) em opção(ões) do grupo radio "${group.label}". Clique em Salvar alterações.`
 }
 
@@ -356,7 +356,7 @@ function dropFieldOnGroup(event: DragEvent, group: EditorFieldTreeGroup) {
     field.group_id = group.groupId
     field.group_label = group.label
   })
-  collapsedGroupIds.value = collapsedGroupIds.value.filter((id) => id !== group.groupId)
+  if (!expandedGroupIds.value.includes(group.groupId)) expandedGroupIds.value = [...expandedGroupIds.value, group.groupId]
   docStore.status = `${candidates.length} checkbox(es) adicionado(s) ao grupo "${group.label}". Clique em Salvar alterações.`
   endFieldDrag()
 }
@@ -370,7 +370,7 @@ async function scrollFieldRowIntoView(fieldName?: string | null) {
   if (!fieldName) return
   const field = docStore.currentFields.find((item) => item.name === fieldName)
   if (field && isPageCollapsed(field.page)) {
-    collapsedPageNumbers.value = collapsedPageNumbers.value.filter((p) => p !== field.page)
+    if (!expandedPageNumbers.value.includes(field.page)) expandedPageNumbers.value = [...expandedPageNumbers.value, field.page]
   }
   const groupId = field?.type === 'radio' ? `radio:${field.name}` : field?.group_id ? String(field.group_id) : ''
   if (groupId && isGroupCollapsed(groupId)) toggleGroup(groupId)

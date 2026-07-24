@@ -17,9 +17,7 @@ const fullscreenLabel = ref('Tela cheia')
 const documentName = ref('')
 const categoryValue = ref('')
 const formatNormValue = ref<FormatNorm | ''>('')
-const documentRenderUrl = computed(() =>
-  docStore.currentDocumentId ? `/documento/${encodeURIComponent(docStore.currentDocumentId)}` : '',
-)
+
 
 watch(
   () => docStore.currentDocumentName,
@@ -175,15 +173,7 @@ function onPreviewFieldSelected(detail: { fieldName: string }) {
   activePreviewFieldName.value = detail.fieldName
 }
 
-function openDocumentRender() {
-  if (!documentRenderUrl.value) return
-  const renderWindow = window.open(documentRenderUrl.value, '_blank')
-  if (!renderWindow) {
-    docStore.status = 'O navegador bloqueou a nova aba. Permita pop-ups para abrir a renderização.'
-    return
-  }
-  renderWindow.opener = null
-}
+
 </script>
 
 <template>
@@ -194,10 +184,7 @@ function openDocumentRender() {
         Documentos
       </button>
       <div><small>Resultado</small><h2>{{ docStore.currentDocumentName || 'Documento' }}</h2></div>
-      <button type="button" class="render-page-button button-with-icon" :disabled="!documentRenderUrl" aria-label="Abrir renderização do documento em nova aba" @click="openDocumentRender">
-        <UiIcon name="external-link" />
-        Abrir renderização
-      </button>
+
       <details class="result-actions-menu">
         <summary aria-label="Mais ações"><UiIcon name="more-horizontal" /></summary>
         <div class="result-actions-popover">
