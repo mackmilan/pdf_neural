@@ -8,7 +8,6 @@ import UploadForm from './UploadForm.vue'
 import DocumentHistory from './DocumentHistory.vue'
 import ResultPanel from './ResultPanel.vue'
 import UiIcon from './UiIcon.vue'
-import UserMenu from './UserMenu.vue'
 
 const UserAccessManager = defineAsyncComponent(() => import('./UserAccessManager.vue'))
 const AdminFilledDocuments = defineAsyncComponent(() => import('./AdminFilledDocuments.vue'))
@@ -17,22 +16,9 @@ const auth = useAuthStore()
 const context = useContextStore()
 const docStore = useDocumentStore()
 defineProps<{ activeView: 'documents' | 'users' | 'available' | 'filled' }>()
-const emit = defineEmits<{ navigate: ['documents' | 'users' | 'available' | 'filled'] }>()
 
 const currentTenantName = computed(() => context.tenants.find((tenant) => tenant.tenant_id === context.tenantId)?.name || 'Sem tenant')
 const currentGroupName = computed(() => context.groupName(context.groupId))
-const brandTitle = computed(() => {
-  if (auth.isAdmin) return 'Neural PDF'
-  return context.tenants.find((tenant) => tenant.tenant_id === context.tenantId)?.name
-    || context.tenants[0]?.name
-    || 'Sem tenant'
-})
-const brandSubtitle = computed(() => {
-  if (auth.isAdmin) return 'PDF Admin'
-  return context.groups.find((group) => group.group_id === context.groupId)?.name
-    || context.groups[0]?.name
-    || 'Sem grupo'
-})
 const currentCategoryName = computed(() => context.categoryName(docStore.currentCategoryId || context.categoryId))
 const currentVersionLabel = computed(() => docStore.currentVersion ? `v${docStore.currentVersion}` : 'Sem versão')
 const currentFieldsLabel = computed(() => `${docStore.currentFields.length} campo${docStore.currentFields.length === 1 ? '' : 's'}`)
@@ -53,33 +39,15 @@ function openDocumentRender() {
 
 <template>
   <main id="app-shell">
-    <header class="app-topbar">
+    <header v-if="activeView === 'documents'" class="app-topbar">
       <div class="app-topbar-main">
-        <div class="app-brand">
-          <span class="app-brand-mark" aria-hidden="true"><UiIcon name="file-text" /></span>
-          <span class="app-brand-copy">
-            <h1 class="app-brand-title">{{ brandTitle }}</h1>
-            <span class="app-brand-subtitle">{{ brandSubtitle }}</span>
-          </span>
-        </div>
-
+        <h2 class="app-page-title">Documentos</h2>
         <p class="app-topbar-description">
           Extraia campos, tipos, imagens e logotipos em documentos.
         </p>
-
-        <nav class="app-nav" aria-label="Navegação principal">
-          <button type="button" :class="{ active: activeView === 'documents' }" @click="emit('navigate', 'documents')">Documentos</button>
-          <button type="button" :class="{ active: activeView === 'available' }" @click="emit('navigate', 'available')">Disponíveis</button>
-          <button v-if="auth.isAdmin" type="button" :class="{ active: activeView === 'filled' }" @click="emit('navigate', 'filled')">Preenchidos</button>
-          <button v-if="auth.isAdmin" type="button" :class="{ active: activeView === 'users' }" @click="emit('navigate', 'users')">Usuários</button>
-        </nav>
-
-        <div class="app-session-actions">
-          <UserMenu />
-        </div>
       </div>
 
-      <div v-if="activeView === 'documents'" class="app-context-row">
+      <div class="app-context-row">
         <div class="app-breadcrumbs" aria-label="Contexto atual">
           <span>{{ currentTenantName }}</span>
           <span aria-hidden="true">/</span>

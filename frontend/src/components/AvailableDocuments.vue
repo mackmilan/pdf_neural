@@ -70,7 +70,6 @@ onMounted(loadDocuments)
 <template>
   <main class="submitted-page">
     <ViewerTopMenu
-      active-route="available"
       eyebrow="Documentos disponíveis"
       :title="title"
       context="Para preenchimento"

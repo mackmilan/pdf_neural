@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import ViewerTopMenu from './ViewerTopMenu.vue'
 import type { AdminSubmission, Category, Group, Tenant } from '../types'
 
 const auth = useAuthStore()
@@ -16,6 +17,10 @@ const user = ref('')
 const loading = ref(false)
 const error = ref('')
 const submissions = ref<AdminSubmission[]>([])
+
+const topbarChips = computed(() => [
+  `${submissions.value.length} documento${submissions.value.length === 1 ? '' : 's'}`,
+])
 
 const hasFilters = computed(() => Boolean(
   tenantId.value || groupId.value || categoryId.value || dateFrom.value || dateTo.value || user.value.trim(),
@@ -123,13 +128,15 @@ onMounted(async () => {
 
 <template>
   <section class="admin-filled-page">
-    <header class="admin-header">
-      <div>
-        <h2>Documentos preenchidos</h2>
-        <span class="admin-role">Acesso restrito: pdf-admin</span>
-      </div>
-      <button type="button" class="button-secondary" @click="loadSubmissions">Atualizar</button>
-    </header>
+    <ViewerTopMenu
+      eyebrow="Documentos preenchidos"
+      context="Acesso restrito: pdf-admin"
+      :chips="topbarChips"
+    >
+      <template #actions>
+        <button type="button" class="button-secondary" @click="loadSubmissions">Atualizar</button>
+      </template>
+    </ViewerTopMenu>
 
     <form class="filled-filters card" @submit.prevent="loadSubmissions">
       <label>Tenant

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useModalsStore } from '../stores/modals'
+import ViewerTopMenu from './ViewerTopMenu.vue'
 import type { Group, Tenant, UserAccessEntry, UserAccessSummary, UserPermission } from '../types'
 
 const auth = useAuthStore()
@@ -23,6 +24,10 @@ const form = ref({
   group_id: '',
   permission: 'reader' as UserPermission,
 })
+
+const topbarChips = computed(() => [
+  `${users.value.length} usuário${users.value.length === 1 ? '' : 's'}`,
+])
 
 const filteredUsers = computed(() => {
   const term = filter.value.trim().toLowerCase()
@@ -216,13 +221,15 @@ onMounted(async () => {
 
 <template>
   <section class="admin-page">
-    <div class="admin-header">
-      <div>
-        <h2>Usuários</h2>
-        <span class="admin-role">Role global: pdf-admin</span>
-      </div>
-      <button type="button" class="button-secondary" @click="loadUsers">Atualizar</button>
-    </div>
+    <ViewerTopMenu
+      eyebrow="Usuários"
+      context="Role global: pdf-admin"
+      :chips="topbarChips"
+    >
+      <template #actions>
+        <button type="button" class="button-secondary" @click="loadUsers">Atualizar</button>
+      </template>
+    </ViewerTopMenu>
 
     <div class="admin-layout">
       <form class="card access-form" @submit.prevent="saveAccess">

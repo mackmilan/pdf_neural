@@ -60,7 +60,6 @@ onMounted(loadSubmissions)
 <template>
   <main class="submitted-page">
     <ViewerTopMenu
-      :active-route="auth.isAdmin ? 'filled' : 'submissions'"
       eyebrow="Documentos submetidos"
       :title="title"
       context="Histórico"

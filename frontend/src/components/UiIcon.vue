@@ -1,11 +1,15 @@
-<script setup lang="ts">
-type IconName =
+<script lang="ts">
+export type IconName =
   | 'archive'
   | 'check'
+  | 'check-square'
   | 'chevron-down'
+  | 'chevron-left'
+  | 'chevron-right'
   | 'edit'
   | 'external-link'
   | 'file-text'
+  | 'inbox'
   | 'key'
   | 'log-out'
   | 'maximize'
@@ -13,13 +17,17 @@ type IconName =
   | 'more-horizontal'
   | 'refresh'
   | 'save'
+  | 'send'
   | 'sun'
   | 'trash'
   | 'search'
   | 'upload'
   | 'user'
+  | 'users'
   | 'wand'
+</script>
 
+<script setup lang="ts">
 defineProps<{
   name: IconName
 }>()
@@ -35,8 +43,32 @@ defineProps<{
     <g v-else-if="name === 'check'">
       <path d="m20 6-11 11-5-5" />
     </g>
+    <g v-else-if="name === 'check-square'">
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </g>
     <g v-else-if="name === 'chevron-down'">
       <path d="m6 9 6 6 6-6" />
+    </g>
+    <g v-else-if="name === 'chevron-left'">
+      <path d="m15 18-6-6 6-6" />
+    </g>
+    <g v-else-if="name === 'chevron-right'">
+      <path d="m9 18 6-6-6-6" />
+    </g>
+    <g v-else-if="name === 'inbox'">
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.1Z" />
+    </g>
+    <g v-else-if="name === 'send'">
+      <path d="M22 2 11 13" />
+      <path d="M22 2 15 22l-4-9-9-4Z" />
+    </g>
+    <g v-else-if="name === 'users'">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.9" />
+      <path d="M16 3.1a4 4 0 0 1 0 7.8" />
     </g>
     <g v-else-if="name === 'edit'">
       <path d="M12 20h9" />

@@ -119,7 +119,6 @@ onMounted(loadSubmission)
 <template>
   <main class="viewer-page">
     <ViewerTopMenu
-      :active-route="auth.isAdmin ? 'filled' : 'submissions'"
       eyebrow="Submissão"
       :title="documentName"
       context="Dados salvos"

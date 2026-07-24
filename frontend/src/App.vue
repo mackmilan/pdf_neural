@@ -5,6 +5,7 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import TextInputModal from './components/TextInputModal.vue'
 import FieldEditModal from './components/FieldEditModal.vue'
 import AuthRedirect from './components/AuthRedirect.vue'
+import AppSidebar from './components/AppSidebar.vue'
 
 const AppShell = defineAsyncComponent(() => import('./components/AppShell.vue'))
 const DocumentViewer = defineAsyncComponent(() => import('./components/DocumentViewer.vue'))
@@ -42,18 +43,6 @@ function redirectNonAdminHome() {
   }
 }
 
-function navigate(view: 'documents' | 'users' | 'available' | 'filled') {
-  const path = view === 'users'
-    ? '/usuarios'
-    : view === 'available'
-      ? '/documentos-disponiveis'
-      : view === 'filled'
-        ? '/preenchidos'
-        : '/documentos'
-  if (location.pathname !== path) history.pushState({}, '', path)
-  syncRoute()
-}
-
 onMounted(() => {
   auth.initialize().then(redirectNonAdminHome)
   window.addEventListener('popstate', syncRoute)
@@ -66,11 +55,14 @@ onUnmounted(() => {
 
 <template>
   <AuthRedirect v-if="!auth.initialized || !auth.isAuthenticated" />
-  <DocumentViewer v-else-if="viewerDocumentId" :document-id="viewerDocumentId" />
-  <SubmissionViewer v-else-if="viewerSubmissionId" :submission-id="viewerSubmissionId" />
-  <SubmittedDocuments v-else-if="isSubmittedDocumentsRoute" />
-  <AvailableDocuments v-else-if="isAvailableDocumentsRoute || !auth.isAdmin" />
-  <AppShell v-else :active-view="activeView" @navigate="navigate" />
+  <div v-else class="app-frame">
+    <AppSidebar />
+    <DocumentViewer v-if="viewerDocumentId" :document-id="viewerDocumentId" />
+    <SubmissionViewer v-else-if="viewerSubmissionId" :submission-id="viewerSubmissionId" />
+    <SubmittedDocuments v-else-if="isSubmittedDocumentsRoute" />
+    <AvailableDocuments v-else-if="isAvailableDocumentsRoute || !auth.isAdmin" />
+    <AppShell v-else :active-view="activeView" />
+  </div>
   <ConfirmModal />
   <TextInputModal />
   <FieldEditModal />

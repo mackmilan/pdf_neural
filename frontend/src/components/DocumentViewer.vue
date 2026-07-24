@@ -85,7 +85,6 @@ onMounted(loadDocument)
 <template>
   <main class="viewer-page">
     <ViewerTopMenu
-      :active-route="auth.isAdmin ? 'documents' : 'available'"
       eyebrow="Documento"
       :title="documentName"
       context="Preenchimento"
