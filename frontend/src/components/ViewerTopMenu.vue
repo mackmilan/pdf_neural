@@ -3,7 +3,7 @@ import { computed, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useContextStore } from '../stores/context'
 import UiIcon from './UiIcon.vue'
-import ThemeToggle from './ThemeToggle.vue'
+import UserMenu from './UserMenu.vue'
 
 const props = defineProps<{
   activeRoute?: 'documents' | 'available' | 'filled' | 'users' | 'submissions'
@@ -122,14 +122,7 @@ function goToUsers() {
       </nav>
 
       <div class="app-session-actions">
-        <ThemeToggle />
-        <span class="app-session-user" :title="auth.displayName">
-          <UiIcon name="user" />
-          <span>{{ auth.displayName }}</span>
-        </span>
-        <button type="button" class="app-icon-button" title="Sair" aria-label="Sair" @click="auth.logout()">
-          <UiIcon name="log-out" />
-        </button>
+        <UserMenu />
       </div>
     </div>
 

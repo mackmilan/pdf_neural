@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useContextStore } from '../stores/context'
 import { useDocumentStore } from '../stores/document'
@@ -7,9 +7,8 @@ import ContextSelector from './ContextSelector.vue'
 import UploadForm from './UploadForm.vue'
 import DocumentHistory from './DocumentHistory.vue'
 import ResultPanel from './ResultPanel.vue'
-import ApiKeyManager from './ApiKeyManager.vue'
 import UiIcon from './UiIcon.vue'
-import ThemeToggle from './ThemeToggle.vue'
+import UserMenu from './UserMenu.vue'
 
 const UserAccessManager = defineAsyncComponent(() => import('./UserAccessManager.vue'))
 const AdminFilledDocuments = defineAsyncComponent(() => import('./AdminFilledDocuments.vue'))
@@ -17,7 +16,6 @@ const AdminFilledDocuments = defineAsyncComponent(() => import('./AdminFilledDoc
 const auth = useAuthStore()
 const context = useContextStore()
 const docStore = useDocumentStore()
-const apiKeyManager = ref<InstanceType<typeof ApiKeyManager> | null>(null)
 defineProps<{ activeView: 'documents' | 'users' | 'available' | 'filled' }>()
 const emit = defineEmits<{ navigate: ['documents' | 'users' | 'available' | 'filled'] }>()
 
@@ -77,17 +75,7 @@ function openDocumentRender() {
         </nav>
 
         <div class="app-session-actions">
-          <ThemeToggle />
-          <button v-if="auth.isAdmin" type="button" class="app-icon-button" title="API Key" aria-label="API Key" @click="apiKeyManager?.open()">
-            <UiIcon name="key" />
-          </button>
-          <span class="app-session-user" :title="auth.displayName">
-            <UiIcon name="user" />
-            <span>{{ auth.displayName }}</span>
-          </span>
-          <button type="button" class="app-icon-button" title="Sair" aria-label="Sair" @click="auth.logout()">
-            <UiIcon name="log-out" />
-          </button>
+          <UserMenu />
         </div>
       </div>
 
@@ -129,5 +117,4 @@ function openDocumentRender() {
     <AdminFilledDocuments v-else-if="activeView === 'filled' && auth.isAdmin" />
     <UserAccessManager v-else-if="auth.isAdmin" />
   </main>
-  <ApiKeyManager ref="apiKeyManager" />
 </template>

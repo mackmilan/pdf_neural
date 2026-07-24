@@ -2,6 +2,7 @@
 type IconName =
   | 'archive'
   | 'check'
+  | 'chevron-down'
   | 'edit'
   | 'external-link'
   | 'file-text'
@@ -33,6 +34,9 @@ defineProps<{
     </g>
     <g v-else-if="name === 'check'">
       <path d="m20 6-11 11-5-5" />
+    </g>
+    <g v-else-if="name === 'chevron-down'">
+      <path d="m6 9 6 6 6-6" />
     </g>
     <g v-else-if="name === 'edit'">
       <path d="M12 20h9" />

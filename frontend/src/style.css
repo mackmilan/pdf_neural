@@ -359,7 +359,9 @@ button:disabled { opacity: .5 }
 .submitted-item span { min-width: 0; display: grid; gap: 4px }
 .submitted-item strong { overflow-wrap: anywhere }
 .submitted-item small { color: var(--text-secondary); overflow-wrap: anywhere }
-.app-topbar { flex: 0 0 auto; display: grid; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 16px; background: var(--surface-topbar); box-shadow: 0 14px 34px var(--shadow-topbar-color) }
+/* Sem overflow: hidden — o popup do menu de usuário precisa sair da topbar; o
+   arredondamento inferior fica a cargo do .app-context-row (último filho). */
+.app-topbar { flex: 0 0 auto; display: grid; border: 1px solid var(--border-subtle); border-radius: 16px; background: var(--surface-topbar); box-shadow: 0 14px 34px var(--shadow-topbar-color) }
 .app-topbar-main { display: grid; grid-template-columns: minmax(210px, auto) minmax(240px, 1fr) auto auto; align-items: center; gap: 14px; padding: 12px 14px }
 .app-brand { display: flex; align-items: center; gap: 10px; min-width: 0 }
 .app-brand-mark { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 40px; border-radius: 10px; background: var(--accent); color: var(--on-accent) }
@@ -373,9 +375,17 @@ button:disabled { opacity: .5 }
 .app-nav button.active { background: var(--accent); color: var(--on-accent) }
 .app-session-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0 }
 .app-icon-button { display: inline-grid; place-items: center; width: 38px; height: 38px; padding: 0 !important; flex: 0 0 38px }
-.app-session-user { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 190px; height: 38px; padding: 0 11px; border-radius: 10px; background: var(--input-bg); color: var(--text-soft); border: 1px solid var(--border); font-size: 14px; font-weight: 700 }
+.app-session-actions .app-session-user { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 190px; height: 38px; padding: 0 11px; border-radius: 10px; background: var(--input-bg); color: var(--text-soft); border: 1px solid var(--border); font-size: 14px; font-weight: 700 }
 .app-session-user span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.app-context-row { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 9px 14px; border-top: 1px solid var(--border-subtle); background: var(--surface-topbar-row) }
+.app-session-user:hover { border-color: var(--accent) }
+.app-user-menu { position: relative; min-width: 0 }
+.app-user-menu-caret { flex: 0 0 16px; width: 16px; height: 16px; color: var(--text-secondary) }
+/* Acima de qualquer outra camada da interface (popovers = 20, modais = 1000). */
+.app-user-menu-popup { position: absolute; z-index: 1100; top: calc(100% + 6px); right: 0; min-width: 190px; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 14px 34px var(--shadow-topbar-color) }
+.app-user-menu-popup button { display: flex; align-items: center; gap: 9px; width: 100%; justify-content: flex-start; padding: 9px 10px; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; font-weight: 700; white-space: nowrap }
+.app-user-menu-popup button:hover { background: var(--surface-hover) }
+.app-user-menu-popup .app-user-menu-danger { color: var(--danger-text) }
+.app-context-row { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 9px 14px; border-top: 1px solid var(--border-subtle); border-radius: 0 0 15px 15px; background: var(--surface-topbar-row) }
 .app-breadcrumbs { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; color: var(--text-secondary); overflow: hidden }
 .app-breadcrumbs span, .app-breadcrumbs strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .app-breadcrumbs strong { color: var(--text); font-weight: 700 }
@@ -476,7 +486,8 @@ button:disabled { opacity: .5 }
     main { padding: 16px }
     .app-brand-title { font-size: 21px }
     .app-nav button { flex: 1 1 120px }
-    .app-session-user { flex: 1 1 160px; max-width: none }
+    .app-user-menu { flex: 1 1 160px }
+    .app-session-actions .app-session-user { width: 100%; max-width: none }
     .layout { grid-template-columns: 1fr }
     .fields { height: auto; max-height: none; overflow: visible }
     .fields-scroll { overflow: visible }
