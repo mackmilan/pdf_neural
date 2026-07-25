@@ -4,6 +4,7 @@ export type IconName =
   | 'check'
   | 'check-square'
   | 'chevron-down'
+  | 'chevron-up'
   | 'chevron-left'
   | 'chevron-right'
   | 'edit'
@@ -51,6 +52,9 @@ defineProps<{
     </g>
     <g v-else-if="name === 'chevron-down'">
       <path d="m6 9 6 6 6-6" />
+    </g>
+    <g v-else-if="name === 'chevron-up'">
+      <path d="m18 15-6-6-6 6" />
     </g>
     <g v-else-if="name === 'chevron-left'">
       <path d="m15 18-6-6 6-6" />
