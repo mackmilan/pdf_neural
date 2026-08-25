@@ -13,6 +13,9 @@ de classes e diagrama de banco de dados esta em
 foram escritos em Mermaid para renderizacao visual em ferramentas compativeis com
 Markdown.
 
+As instrucoes e a memoria tecnica versionada para agentes OpenAI Codex, Claude
+Code e outras ferramentas estao em [`docs/ai/README.md`](docs/ai/README.md).
+
 ## O que ele faz
 
 - le campos AcroForm nativos;
