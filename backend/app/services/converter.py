@@ -84,6 +84,32 @@ def css_color(value: Any, default: str = "#111") -> str:
     return default
 
 
+def pdf_font_style(value: Any) -> tuple[str, str, str]:
+    """Converte o nome da fonte PDF em família, peso e inclinação CSS.
+
+    Exportações do Word costumam escrever estilos como ``Times New Roman,Bold``
+    no próprio nome da fonte. Colocar esse valor inteiro em ``font-family`` faz
+    o navegador procurar uma família inexistente e perder a formatação original.
+    """
+    name = str(value or "Arial").split("+")[-1].strip()
+    lowered = name.lower()
+    if "timesnewroman" in lowered or lowered.startswith("times new roman"):
+        family = "Times New Roman"
+        fallback = "'Liberation Serif',serif"
+    elif lowered.startswith(("arial", "helvetica")):
+        family = "Arial"
+        fallback = "Helvetica,sans-serif"
+    elif lowered.startswith("calibri"):
+        family = "Calibri"
+        fallback = "Arial,sans-serif"
+    else:
+        family = name.split(",", 1)[0].strip() or "Arial"
+        fallback = "Arial,sans-serif"
+    weight = "700" if re.search(r"bold|black|heavy|semibold", lowered) else "400"
+    style = "italic" if re.search(r"italic|oblique", lowered) else "normal"
+    return html.escape(f"'{family}',{fallback}", quote=True), weight, style
+
+
 def slug(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
     return value[:64] or "campo"
@@ -154,6 +180,8 @@ def underlined_email_bboxes(
 def nearby_label(words: list[dict[str, Any]], x: float, top: float, max_dist: float = 110, allow_right: bool = False) -> str:
     candidates = []
     for word in words:
+        if "_" in str(word.get("text", "")):
+            continue
         gap = x - float(word["x1"])
         same_line = abs(float(word["bottom"]) - top) < 12 and -5 <= gap <= max_dist
         right = allow_right and abs(float(word["bottom"]) - top) < 12 and 0 <= float(word["x0"]) - x <= max_dist
@@ -222,7 +250,23 @@ def textual_segmented_fields(
 
         labels = ("hora", "minuto") if is_time and not is_date else ("dia", "mes", "ano")
         kind = "time" if is_time and not is_date else "date"
-        for index, group in enumerate(groups):
+        expected_groups = len(labels)
+        separator = "/" if is_date and slash_count >= 2 else ":"
+        date_groups = groups[-expected_groups:]
+        if len(groups) >= expected_groups:
+            for start in range(len(groups) - expected_groups + 1):
+                candidate = groups[start:start + expected_groups]
+                left = float(candidate[0][0]["x1"])
+                right = float(candidate[-1][-1]["x0"])
+                separators = [
+                    char for char in row_chars
+                    if left <= float(char["x0"]) and float(char["x1"]) <= right
+                    and str(char.get("text", "")) == separator
+                ]
+                if len(separators) >= expected_groups - 1:
+                    date_groups = candidate
+                    break
+        for index, group in enumerate(date_groups):
             if len(group) < 2:
                 continue
             x0 = min(float(char["x0"]) for char in group)
@@ -235,6 +279,75 @@ def textual_segmented_fields(
                     "label": f"{'Horário' if kind == 'time' else 'Data'} - {part}",
                     "type": kind,
                 })
+    return fields
+
+
+def textual_underscore_fields(
+    page: pdfplumber.page.Page,
+    words: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Detecta campos de escrita representados por sequencias de underscores.
+
+    Muitos formularios exportados pelo Word nao possuem AcroForm nem linhas
+    vetoriais: a area de preenchimento e apenas texto ``_____``. Esse padrao
+    precisa ser rotulado separadamente de datas, que continuam segmentadas por
+    ``textual_segmented_fields``.
+    """
+    fields: list[dict[str, Any]] = []
+    chars = getattr(page, "chars", []) or []
+    rows: dict[float, list[dict[str, Any]]] = {}
+    for char in chars:
+        if str(char.get("text", "")) != "_":
+            continue
+        row_key = round(float(char["bottom"]), 1)
+        matched = next((key for key in rows if abs(key - row_key) <= 2), None)
+        rows.setdefault(matched if matched is not None else row_key, []).append(char)
+
+    segmented = [field["bbox"] for field in textual_segmented_fields(page, words)]
+
+    def overlaps(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> bool:
+        x0, top, x1, bottom = first
+        sx0, stop, sx1, sbottom = second
+        return not (x1 <= sx0 or sx1 <= x0 or bottom <= stop or sbottom <= top)
+
+    def label_for(group: list[dict[str, Any]], x0: float, bottom: float) -> str:
+        x1 = max(float(char["x1"]) for char in group)
+        for word in words:
+            text = str(word.get("text", ""))
+            if "_" not in text:
+                continue
+            if abs(float(word["bottom"]) - bottom) > 2 or not (
+                float(word["x0"]) <= x1 and float(word["x1"]) >= x0
+            ):
+                continue
+            prefix = text.split("_", 1)[0].strip(" ,:.-")
+            if prefix:
+                return prefix
+        return nearby_label(words, x0, bottom) or f"Campo {len(fields) + 1}"
+
+    for row_chars in rows.values():
+        row_chars.sort(key=lambda char: float(char["x0"]))
+        groups: list[list[dict[str, Any]]] = []
+        for char in row_chars:
+            if groups and float(char["x0"]) - float(groups[-1][-1]["x1"]) <= 3:
+                groups[-1].append(char)
+            else:
+                groups.append([char])
+        for group in groups:
+            if len(group) < 2:
+                continue
+            x0 = min(float(char["x0"]) for char in group)
+            x1 = max(float(char["x1"]) for char in group)
+            bottom = max(float(char["bottom"]) for char in group)
+            bbox = (x0, max(0.0, bottom - 20.0), x1, bottom)
+            if x1 - x0 < 10 or any(overlaps(bbox, existing) for existing in segmented):
+                continue
+            label = label_for(group, x0, bottom)
+            fields.append({
+                "bbox": bbox,
+                "label": label,
+                "type": infer_type(label, x1 - x0, 20),
+            })
     return fields
 
 
@@ -322,6 +435,10 @@ def textual_label_colon_fields(
             label_start = index + 1
             if is_email_text(label) or is_url_text(label):
                 continue
+            if len(label.split()) > 6 or len(label) > 60:
+                # A colon at the end of a prose line (for example a legal
+                # citation) is not a blank input label.
+                continue
             field_x = float(word["x1"]) + 6
             next_x = (
                 float(line_words[index + 1]["x0"]) - 6
@@ -398,7 +515,16 @@ def inferred_fields(
 ) -> list[Field]:
     fields: list[Field] = []
     seen: set[tuple[int, int]] = set()
-    table_bboxes = table_bboxes or []
+    table_bboxes = [
+        bbox for bbox in (table_bboxes or [])
+        if not (
+            bbox[0] <= page.width * .08
+            and bbox[1] <= page.height * .08
+            and bbox[2] >= page.width * .92
+            and bbox[3] >= page.height * .88
+            and (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) >= page.width * page.height * .6
+        )
+    ]
     email_underline_bboxes = underlined_email_bboxes(words, page.lines) + hyperlink_text_bboxes(words)
 
     def overlaps(x: float, y: float, w: float, h: float) -> bool:
@@ -469,6 +595,22 @@ def inferred_fields(
         label = segmented["label"]
         fields.append(Field(slug(label), label, segmented["type"], page_no, x0, top, width, 20))
 
+    for textual in textual_underscore_fields(page, words):
+        x0, top, x1, bottom = textual["bbox"]
+        width, height = x1 - x0, bottom - top
+        key = (round(x0), round(bottom))
+        if (
+            width < 10
+            or key in seen
+            or inside_table(x0, top, width, height)
+            or overlaps(x0, top, width, height)
+            or overlaps_underlined_email(x0, top, width, height)
+        ):
+            continue
+        seen.add(key)
+        label = textual["label"]
+        fields.append(Field(slug(label), label, textual["type"], page_no, x0, top, width, height))
+
     # Rotulos "Titulo:" / "Mestrando:" com espaco em branco a direita e linhas
     # pontilhadas "......." tambem representam areas de escrita sem borda.
     for textual in textual_label_colon_fields(page, words) + textual_dotted_fields(page, words):
@@ -527,6 +669,16 @@ def table_layouts(
         # We need to manually check for rects that should be part of the table grid
         # but aren't because they lack explicit lines.
         x0, top, x1, bottom = (float(value) for value in table.bbox)
+        if (
+            x0 <= page.width * .08
+            and top <= page.height * .08
+            and x1 >= page.width * .92
+            and bottom >= page.height * .88
+            and (x1 - x0) * (bottom - top) >= page.width * page.height * .6
+        ):
+            # A form page can have a decorative outer frame and a header grid.
+            # It is layout chrome, not a data table or a blank input cell.
+            continue
         explicit_v = sorted({round(float(x), 3) for row in table.rows for cell in row.cells if cell is not None for x in (cell[0], cell[2])})
         explicit_h = sorted({round(float(y), 3) for row in table.rows for cell in row.cells if cell is not None for y in (cell[1], cell[3])})
 
@@ -1268,9 +1420,15 @@ def convert(
             elements: list[str] = []
 
             for rect in page.rects:
-                stroke = css_color(rect.get("stroking_color"), "transparent")
+                has_stroke = bool(rect.get("stroke"))
+                stroke = css_color(rect.get("stroking_color"), "transparent") if has_stroke else "transparent"
                 fill = css_color(rect.get("non_stroking_color"), "transparent") if rect.get("fill") else "transparent"
-                elements.append(f'<div class="pdf-rect" style="left:{n(rect["x0"])}px;top:{n(rect["top"])}px;width:{n(rect["width"])}px;height:{n(rect["height"])}px;border-color:{stroke};background:{fill}"></div>')
+                if has_stroke:
+                    stroke_width = max(.25, float(rect.get("linewidth") or 1))
+                    border = f"border:{n(stroke_width)}px solid {stroke}"
+                else:
+                    border = "border:0"
+                elements.append(f'<div class="pdf-rect" style="left:{n(rect["x0"])}px;top:{n(rect["top"])}px;width:{n(rect["width"])}px;height:{n(rect["height"])}px;{border};background:{fill}"></div>')
             for line in page.lines:
                 x, top = float(line["x0"]), float(line["top"])
                 w = max(1, float(line["x1"])-x)
@@ -1316,12 +1474,12 @@ def convert(
                 elements.append(f'<a href="#{html.escape(field.name)}" class="pdf-field" id="{html.escape(field.name)}" data-name="{html.escape(field.name)}" data-type="{field.type}" style="{style}" title="{html.escape(field.label)}"></a>')
 
             for word in words:
-                font = html.escape(str(word.get("fontname", "Arial")).split("+")[-1])
+                font, font_weight, font_style = pdf_font_style(word.get("fontname", "Arial"))
                 # data-w guarda a largura original da palavra no PDF; o script
                 # aplica scaleX para a fonte substituta ocupar exatamente esse
                 # espaco, evitando que palavras vizinhas se sobreponham.
                 word_width = max(0.0, float(word.get("x1", 0)) - float(word.get("x0", 0)))
-                base_style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:'{font}',Arial,sans-serif"
+                base_style = f"left:{n(word['x0'])}px;top:{n(word['top'])}px;font-size:{n(word.get('size', 10))}px;font-family:{font};font-weight:{font_weight};font-style:{font_style}"
                 # O texto reconhecido fica como camada transparente sobre a
                 # imagem da pagina digitalizada, que ja mostra os glifos: assim
                 # ele pode ser selecionado e buscado sem duplicar o desenho.
@@ -1411,7 +1569,7 @@ def convert(
 .pdf-field:hover{{border-color:#ff4444;background:rgba(255,0,0,0.1);cursor:pointer}}
 .pdf-field:target{{border-color:#ff4444;background:rgba(255,0,0,0.15);box-shadow:0 0 0 2px #ff444433}}
 .pdf-table{{position:absolute;border-collapse:collapse;z-index:20}}.pdf-table td{{border:1px solid transparent;padding:0;vertical-align:top;color:transparent;user-select:none}}
-@media print{{body{{background:#fff}}.document{{padding:0;gap:0}}.pdf-page-shell{{width:var(--page-width-px);max-width:none;height:var(--page-height-px);aspect-ratio:auto;break-after:page}}.pdf-page{{--page-scale:1;box-shadow:none}}}}
+@media print{{body{{background:#fff}}.document{{padding:0;gap:0}}.pdf-page-shell{{width:var(--page-width-px);max-width:none;height:var(--page-height-px);aspect-ratio:auto;break-after:page}}.pdf-page{{--page-scale:1;box-shadow:none}}.pdf-field{{display:none!important}}}}
 </style></head><body><main class="document">{"".join(pages_html)}</main><script>
 const resizePages=()=>document.querySelectorAll('.pdf-page-shell').forEach(shell=>{{
   const width=Number(shell.dataset.pageWidth);

@@ -4,7 +4,7 @@ import unittest
 from PIL import Image
 from unittest.mock import MagicMock
 
-from backend.app.services.converter import inferred_fields, textual_segmented_fields
+from backend.app.services.converter import inferred_fields, textual_segmented_fields, textual_underscore_fields
 from backend.app.ml.fields import IMAGE_SIZE, augment_date_field, mask_components
 
 
@@ -112,6 +112,39 @@ class TestDateFieldTraining(unittest.TestCase):
             [field["label"] for field in fields],
             ["Data - dia", "Data - mes", "Data - ano", "Horário - hora", "Horário - minuto"],
         )
+
+    def test_detects_generic_underscore_fields_and_embedded_labels(self):
+        page = MagicMock()
+        page.width, page.height = 595.3, 841.9
+        page.chars = []
+        page.lines, page.rects = [], []
+        words = []
+        x = 80.0
+        for text in "Nome________________":
+            width = 5.0
+            page.chars.append({"text": text, "x0": x, "x1": x + width, "top": 100.0, "bottom": 111.0})
+            x += width
+        words.append({"text": "Nome________________", "x0": 80.0, "x1": x, "top": 100.0, "bottom": 111.0})
+
+        fields = textual_underscore_fields(page, words)
+
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0]["label"], "Nome")
+        self.assertEqual(fields[0]["type"], "text")
+
+    def test_does_not_label_prefix_before_a_date_as_date_component(self):
+        page = MagicMock()
+        page.chars = []
+        x = 40.0
+        for text in "Local___________________, ___/___/____":
+            page.chars.append({"text": text, "x0": x, "x1": x + 5.0, "top": 100.0, "bottom": 111.0})
+            x += 5.0
+        words = [{"text": "Local___________________,", "x0": 40.0, "x1": 150.0, "top": 100.0, "bottom": 111.0}]
+
+        fields = textual_segmented_fields(page, words)
+
+        self.assertEqual(len(fields), 3)
+        self.assertEqual([field["label"] for field in fields], ["Data - dia", "Data - mes", "Data - ano"])
 
 
 if __name__ == "__main__":

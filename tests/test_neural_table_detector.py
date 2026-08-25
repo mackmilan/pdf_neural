@@ -4,12 +4,16 @@ from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
-from backend.app.ml.tables import DEFAULT_THRESHOLD, consolidate_detections, mask_components, pdf_color, table_structures
+from backend.app.ml.tables import DEFAULT_THRESHOLD, consolidate_detections, is_page_frame_bbox, mask_components, pdf_color, table_structures
 
 
 class NeuralTableDetectorTest(unittest.TestCase):
     def test_default_threshold_excludes_low_probability_boundary_bleed(self):
         self.assertEqual(DEFAULT_THRESHOLD, 0.7)
+
+    def test_identifies_full_page_activation_as_frame(self):
+        self.assertTrue(is_page_frame_bbox({"x": 10, "y": 10, "width": 580, "height": 760}, 600, 800))
+        self.assertFalse(is_page_frame_bbox({"x": 40, "y": 80, "width": 500, "height": 300}, 600, 800))
 
     def test_mask_components_removes_noise_and_returns_confidence(self):
         mask = [[0.0] * 8 for _ in range(8)]

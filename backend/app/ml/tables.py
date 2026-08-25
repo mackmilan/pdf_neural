@@ -166,6 +166,16 @@ def table_structures(pdf_path: Path) -> list[tuple[float, float, list[dict[str, 
             structures = []
             for table in page.find_tables(table_settings={"intersection_tolerance": 15}):
                 x0, top, x1, bottom = (float(value) for value in table.bbox)
+                if (
+                    x0 <= page.width * .08
+                    and top <= page.height * .08
+                    and x1 >= page.width * .92
+                    and bottom >= page.height * .88
+                    and (x1 - x0) * (bottom - top) >= page.width * page.height * .6
+                ):
+                    # Ignore decorative page frames: they are hard negatives for
+                    # table detection, not actual tabular data.
+                    continue
                 lines = []
                 seen = set()
                 # Consider edges from lines
@@ -237,6 +247,23 @@ def table_structures(pdf_path: Path) -> list[tuple[float, float, list[dict[str, 
                 })
             pages.append((float(page.width), float(page.height), structures))
     return pages
+
+
+def is_page_frame_bbox(
+    box: dict[str, float],
+    page_width: float,
+    page_height: float,
+) -> bool:
+    """Identifica uma ativacao que cobre apenas a moldura da pagina."""
+    x, y = float(box["x"]), float(box["y"])
+    right = x + float(box["width"])
+    bottom = y + float(box["height"])
+    return (
+        x <= page_width * .08
+        and y <= page_height * .08
+        and right >= page_width * .92
+        and bottom >= page_height * .88
+    )
 
 
 def page_word_boxes(pdf_path: Path) -> list[list[tuple[float, float, float, float]]]:
@@ -607,6 +634,11 @@ class TableDetector:
                         "height": box["height"] * page_h / IMAGE_SIZE,
                         "confidence": round(box["confidence"], 4), "source": "neural",
                     }
+                    if not structures and is_page_frame_bbox(detected, page_w, page_h):
+                        # The neural mask may learn a document border as a
+                        # table. Without a structural table to support it, it
+                        # is a hard-negative form frame and must be discarded.
+                        continue
                     add_grid_structure(detected, structures, Image.open(path), page_w, page_h)
                     result.append(detected)
         result = consolidate_detections(result)

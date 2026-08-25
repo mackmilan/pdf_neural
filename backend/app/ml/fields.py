@@ -124,7 +124,16 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
             # Campos inferidos (heuristica atual)
             words = page.extract_words()
             # Precisamos de table_bboxes para inferred_fields
-            tables = page.find_tables()
+            tables = [
+                table for table in page.find_tables()
+                if not (
+                    table.bbox[0] <= page.width * .08
+                    and table.bbox[1] <= page.height * .08
+                    and table.bbox[2] >= page.width * .92
+                    and table.bbox[3] >= page.height * .88
+                    and (table.bbox[2] - table.bbox[0]) * (table.bbox[3] - table.bbox[1]) >= page.width * page.height * .6
+                )
+            ]
             table_bboxes = [table.bbox for table in tables]
 
             inferred = inferred_fields(page, pno, words, current_acros, table_bboxes)
@@ -142,7 +151,8 @@ def field_boxes(pdf_path: Path) -> list[tuple[float, float, list[tuple[float, fl
             for word in words:
                 # Tracos/underscores sao a aparencia do campo, nao conteudo que
                 # invalida o rotulo.
-                if any(char.isalnum() for char in str(word.get("text", ""))):
+                word_text = str(word.get("text", ""))
+                if "_" not in word_text and any(char.isalnum() for char in word_text):
                     text_bboxes.append((float(word["x0"]), float(word["top"]), float(word["x1"]), float(word["bottom"])))
 
             # Emails e URLs impressos nunca sao campos, mesmo para tipos que

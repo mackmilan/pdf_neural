@@ -194,6 +194,7 @@ function pageSizeCss(doc: Document): string {
   .document { margin: 0 !important; padding: 0 !important; gap: 0 !important; width: ${width}pt !important; align-items: flex-start !important; }
   .pdf-page-shell { width: ${width}pt !important; height: ${height}pt !important; max-width: none !important; aspect-ratio: auto !important; break-after: page !important; page-break-after: always !important; overflow: hidden !important; }
   .pdf-page { --page-scale: 1 !important; box-shadow: none !important; transform: scale(1.3333333333) !important; transform-origin: top left !important; }
+  .pdf-field { display: none !important; }
 }`
 }
 

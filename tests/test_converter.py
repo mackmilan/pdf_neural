@@ -5,7 +5,7 @@ from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
-from backend.app.services.converter import ConversionResult, convert, image_key, textual_empty_parentheses_fields
+from backend.app.services.converter import ConversionResult, convert, image_key, pdf_font_style, textual_empty_parentheses_fields
 from backend.app.utils.common import validate_public_url
 
 
@@ -233,6 +233,32 @@ class ConverterTest(unittest.TestCase):
             # A borda visivel permanece; a fantasma invisivel nao pode ser pintada.
             self.assertIn(48, rect_tops)
             self.assertNotIn(148, rect_tops)
+
+    def test_does_not_turn_fill_only_rectangles_into_borders(self):
+        with tempfile.TemporaryDirectory() as temp:
+            pdf = Path(temp) / "fill-only.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=(400, 300))
+            c.setFillColorRGB(0, 0, 0)
+            c.rect(50, 220, 300, 2, fill=1, stroke=0)
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(50, 120, 300, 30, fill=1, stroke=0)
+            c.save()
+
+            result = convert(pdf, detect_fields=False)
+
+            self.assertIn("border:0;background:rgb(0,0,0)", result.html_content)
+            self.assertIn("border:0;background:rgb(255,255,255)", result.html_content)
+
+    def test_preserves_pdf_font_weight_and_style(self):
+        family, weight, style = pdf_font_style("ABCDE+Times New Roman,BoldItalic")
+        self.assertIn("Times New Roman", family)
+        self.assertEqual("700", weight)
+        self.assertEqual("italic", style)
+
+        family, weight, style = pdf_font_style("Times New Roman")
+        self.assertIn("Times New Roman", family)
+        self.assertEqual("400", weight)
+        self.assertEqual("normal", style)
 
     def test_keeps_word_spacing_in_justified_text_with_narrow_spaces(self):
         # Em texto justificado o espaco entre palavras encolhe abaixo dos 3pt fixos

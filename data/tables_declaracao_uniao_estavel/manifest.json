@@ -1,0 +1,17 @@
+{
+  "image_size": 256,
+  "samples": [
+    {
+      "image": "images/pdf-001-page-0001.png",
+      "mask": "masks/pdf-001-page-0001.png",
+      "grid_mask": "grid-masks/pdf-001-page-0001.png",
+      "tables": 0
+    },
+    {
+      "image": "images/pdf-001-page-0001-notext.png",
+      "mask": "masks/pdf-001-page-0001.png",
+      "grid_mask": "grid-masks/pdf-001-page-0001.png",
+      "tables": 0
+    }
+  ]
+}
