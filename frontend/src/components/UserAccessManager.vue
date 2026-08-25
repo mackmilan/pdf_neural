@@ -20,6 +20,7 @@ const filter = ref('')
 const showForm = ref(false)
 const editing = ref(false)
 const firstFieldRef = ref<HTMLInputElement | null>(null)
+let usersRequestId = 0
 const form = ref({
   subject: '',
   username: '',
@@ -69,14 +70,28 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function loadUsers() {
+  const requestId = ++usersRequestId
+  const tenantId = context.tenantId
+  users.value = []
+  if (!tenantId) {
+    loading.value = false
+    status.value = 'Selecione um tenant para visualizar os usuários.'
+    return
+  }
   loading.value = true
   try {
-    users.value = await parseResponse<UserAccessSummary[]>(await auth.apiFetch('/api/users/access'))
+    const params = new URLSearchParams({ tenant_id: tenantId })
+    const nextUsers = await parseResponse<UserAccessSummary[]>(
+      await auth.apiFetch(`/api/users/access?${params}`),
+    )
+    if (requestId !== usersRequestId || context.tenantId !== tenantId) return
+    users.value = nextUsers
     status.value = ''
   } catch (error) {
+    if (requestId !== usersRequestId) return
     status.value = 'Erro ao carregar usuários: ' + (error as Error).message
   } finally {
-    loading.value = false
+    if (requestId === usersRequestId) loading.value = false
   }
 }
 
@@ -254,6 +269,10 @@ watch(showForm, (visible) => {
   } else {
     document.removeEventListener('keydown', onKeydown)
   }
+})
+
+watch(() => context.tenantId, () => {
+  void loadUsers()
 })
 
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))

@@ -322,10 +322,18 @@ def register_routes(api: FastAPI) -> None:
         })
 
     @api.get("/api/users/access")
-    def users_access(identity: Annotated[Identity, Depends(current_identity)]) -> object:
+    def users_access(
+        identity: Annotated[Identity, Depends(current_identity)],
+        tenant_id: str | None = None,
+    ) -> object:
         require_admin(identity)
         require_database()
-        return json_safe(db.list_all_user_access())
+        if tenant_id:
+            try:
+                tenant_id = validate_context_id(tenant_id, "tenant_id")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        return json_safe(db.list_all_user_access(tenant_id))
 
     @api.get("/api/users/{subject}/access")
     def user_access(subject: str, identity: Annotated[Identity, Depends(current_identity)]) -> object:

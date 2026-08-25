@@ -323,7 +323,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if not db or not db.is_available():
                 return self.send_json(503, {"error": "Servico de banco de dados indisponivel"})
-            return self.send_json(200, json_safe(db.list_all_user_access()))
+            tenant_id = query.get("tenant_id", [""])[0]
+            try:
+                tenant_id = validate_context_id(tenant_id, "tenant_id") if tenant_id else None
+            except ValueError as exc:
+                return self.send_json(400, {"error": str(exc)})
+            return self.send_json(200, json_safe(db.list_all_user_access(tenant_id)))
         if path == "/api/admin/submissions":
             if not self.require_admin(identity):
                 return

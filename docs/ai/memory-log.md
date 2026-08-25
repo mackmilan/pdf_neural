@@ -51,3 +51,18 @@ Segredos devem ser omitidos ou representados por
 - **review_when:** mudar autenticação, configuração ou política de privacidade
 - **summary:** credenciais, tokens, sessões, valores reais de `.env` e dados
   pessoais não entram em arquivos versionados de memória.
+
+## 2026-08-25 — MEM-005: listagem administrativa de usuários por tenant
+
+- **type:** contract
+- **status:** active
+- **evidence:** `backend/app/main.py`, `backend/app/db/mongo.py`,
+  `frontend/src/components/UserAccessManager.vue`,
+  `tests/test_fastapi_migration.py`, `tests/test_api.py`
+- **confidence:** high
+- **review_when:** alterar a tela `/usuarios`, o escopo de `user_access` ou a
+  rota `/api/users/access`
+- **summary:** a tela administrativa envia o `tenant_id` selecionado para
+  `/api/users/access`; o backend filtra os vínculos no MongoDB e recarrega a
+  lista quando o tenant do contexto muda. Sem filtro, a rota mantém o
+  comportamento compatível de listar todos os vínculos para administradores.

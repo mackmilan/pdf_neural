@@ -334,7 +334,7 @@ class Database:
             return False
         return self.user_access.find_one({"subject": subject, "tenant_id": tenant_id}) is not None
 
-    def list_all_user_access(self) -> list[dict]:
+    def list_all_user_access(self, tenant_id: str | None = None) -> list[dict]:
         if not self.is_available():
             return []
         tenants = {
@@ -346,7 +346,8 @@ class Database:
             for group in self.groups.find({}, {"_id": 0, "tenant_id": 1, "group_id": 1, "name": 1})
         }
         users: dict[str, dict] = {}
-        cursor = self.user_access.find().sort([("username", 1), ("subject", 1), ("tenant_id", 1), ("group_id", 1)])
+        query = {"tenant_id": tenant_id} if tenant_id else {}
+        cursor = self.user_access.find(query).sort([("username", 1), ("subject", 1), ("tenant_id", 1), ("group_id", 1)])
         for access in cursor:
             subject = access["subject"]
             user = users.setdefault(subject, {

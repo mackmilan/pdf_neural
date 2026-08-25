@@ -634,7 +634,7 @@ O documento canônico em `documents` contém o estado atual para listagem e aber
 - `POST /api/tenants/{tenant_id}/groups`
 - `GET /api/tenants/{tenant_id}/groups/{group_id}/categories`
 - `POST /api/tenants/{tenant_id}/groups/{group_id}/categories`
-- `GET /api/users/access`
+- `GET /api/users/access?tenant_id={tenant_id}` (filtro opcional por tenant)
 - `GET /api/users/{subject}/access`
 - `POST /api/users`
 - `PUT /api/users/{subject}/access`

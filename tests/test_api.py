@@ -127,9 +127,15 @@ class AsyncApiTest(unittest.TestCase):
         class FakeCollection:
             def __init__(self, rows):
                 self.rows = rows
+                self.queries = []
 
-            def find(self, *_args, **_kwargs):
-                return FakeCursor(self.rows)
+            def find(self, query=None, *_args, **_kwargs):
+                self.queries.append(query or {})
+                rows = [
+                    row for row in self.rows
+                    if all(row.get(key) == value for key, value in (query or {}).items())
+                ]
+                return FakeCursor(rows)
 
         database = Database.__new__(Database)
         database.jobs = MagicMock()
@@ -146,13 +152,14 @@ class AsyncApiTest(unittest.TestCase):
             },
         ])
 
-        users = database.list_all_user_access()
+        users = database.list_all_user_access("a" * 32)
 
         self.assertEqual(len(users), 1)
         self.assertEqual(users[0]["subject"], "sub-1")
         self.assertEqual(users[0]["access"][0]["tenant_name"], "Tenant A")
         self.assertEqual(users[0]["access"][0]["group_name"], "Grupo B")
         self.assertEqual(users[0]["access"][1]["group_id"], None)
+        self.assertEqual(database.user_access.queries[-1], {"tenant_id": "a" * 32})
 
     def test_delete_user_access_removes_all_subject_entries(self):
         database = Database.__new__(Database)

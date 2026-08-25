@@ -79,7 +79,7 @@ Rotas ja presentes na camada FastAPI:
 - `POST /api/pdf/html`
 - `GET /api/me`
 - `POST /api/users`
-- `GET /api/users/access`
+- `GET /api/users/access?tenant_id={tenant_id}` (filtro opcional por tenant)
 - `GET /api/users/{subject}/access`
 - `PUT /api/users/{subject}/access`
 - `DELETE /api/users/{subject}/access`

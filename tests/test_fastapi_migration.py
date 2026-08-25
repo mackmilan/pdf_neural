@@ -88,6 +88,45 @@ class FastApiMigrationTest(unittest.TestCase):
 
     @patch("backend.app.main.authenticator.authenticate")
     @patch("backend.app.main.db")
+    def test_admin_lists_users_for_selected_tenant(self, fake_db, authenticate):
+        authenticate.return_value = ADMIN
+        fake_db.is_available.return_value = True
+        fake_db.list_all_user_access.return_value = [{
+            "subject": "sub-1",
+            "username": "Maria",
+            "access": [{"tenant_id": "a" * 32}],
+        }]
+
+        response = self.client.get(
+            f"/api/users/access?tenant_id={'a' * 32}",
+            headers={"Authorization": "Bearer token"},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual([{
+            "subject": "sub-1",
+            "username": "Maria",
+            "access": [{"tenant_id": "a" * 32}],
+        }], response.json())
+        fake_db.list_all_user_access.assert_called_once_with("a" * 32)
+
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
+    def test_admin_user_list_rejects_invalid_tenant_filter(self, fake_db, authenticate):
+        authenticate.return_value = ADMIN
+        fake_db.is_available.return_value = True
+
+        response = self.client.get(
+            "/api/users/access?tenant_id=invalid",
+            headers={"Authorization": "Bearer token"},
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual({"error": "tenant_id invalido"}, response.json())
+        fake_db.list_all_user_access.assert_not_called()
+
+    @patch("backend.app.main.authenticator.authenticate")
+    @patch("backend.app.main.db")
     def test_reader_must_have_tenant_access_for_groups(self, fake_db, authenticate):
         authenticate.return_value = READER
         fake_db.is_available.return_value = True
