@@ -181,11 +181,14 @@ function pdfFilename(filename?: string): string {
   return name.toLowerCase().endsWith('.pdf') ? name : `${name}.pdf`
 }
 
-function pageSizeCss(doc: Document): string {
+function pageSizeCss(doc: Document, includeRenderedFieldValues = false): string {
   const firstPage = doc.querySelector<HTMLElement>('.pdf-page-shell')
   const width = Number(firstPage?.dataset.pageWidth)
   const height = Number(firstPage?.dataset.pageHeight)
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return ''
+  const fieldPrintRule = includeRenderedFieldValues
+    ? '  .pdf-field { display: block !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }'
+    : '  .pdf-field { display: none !important; }'
   return `
 @page { size: ${width}pt ${height}pt; margin: 0; }
 @media print {
@@ -194,7 +197,7 @@ function pageSizeCss(doc: Document): string {
   .document { margin: 0 !important; padding: 0 !important; gap: 0 !important; width: ${width}pt !important; align-items: flex-start !important; }
   .pdf-page-shell { width: ${width}pt !important; height: ${height}pt !important; max-width: none !important; aspect-ratio: auto !important; break-after: page !important; page-break-after: always !important; overflow: hidden !important; }
   .pdf-page { --page-scale: 1 !important; box-shadow: none !important; transform: scale(1.3333333333) !important; transform-origin: top left !important; }
-  .pdf-field { display: none !important; }
+${fieldPrintRule}
 }`
 }
 
@@ -216,7 +219,7 @@ function serializedHtmlForPdf(doc: Document, filename?: string): string {
   normalizePdfTextFonts(root)
   const style = doc.createElement('style')
   style.id = 'pdf-neural-gotenberg-page-style'
-  style.textContent = pageSizeCss(doc)
+  style.textContent = pageSizeCss(doc, props.readonlyValues)
   root.querySelector(`#${style.id}`)?.remove()
   root.querySelector('head')?.appendChild(style)
   return `<!doctype html>\n${root.outerHTML}`
